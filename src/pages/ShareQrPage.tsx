@@ -1,0 +1,202 @@
+import React, { useState } from 'react';
+import { ArrowRight, Check, Copy, Plus, Trash2 } from 'lucide-react';
+import {
+  QrCodeImage,
+  downloadQrPdf,
+  downloadQrPng,
+  downloadQrSvg,
+} from '../components/QrToolkit';
+import { addShopTable, deleteShopTable } from '../services/firestoreService';
+import type { Shop, ShopTable } from '../types';
+
+interface ShareQrPageProps {
+  shop: Shop;
+  tables: ShopTable[];
+  onBackDashboard: () => void;
+  onOpenStorefront: (tableLabel?: string) => void;
+}
+
+export const ShareQrPage: React.FC<ShareQrPageProps> = ({
+  shop,
+  tables,
+  onBackDashboard,
+  onOpenStorefront,
+}) => {
+  const [newTableName, setNewTableName] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const baseMenuUrl = `${window.location.origin}/?shop=${shop.id}`;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(baseMenuUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleAddTable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTableName.trim()) return;
+    setAdding(true);
+    try {
+      await addShopTable(shop.id, shop.ownerId, newTableName.trim());
+      setNewTableName('');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <div dir="rtl" className="min-h-screen bg-emerald-50/30 dark:bg-slate-950 p-4 sm:p-6">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center justify-between bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={onBackDashboard}
+            className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-700 dark:text-emerald-400"
+          >
+            <ArrowRight className="w-4 h-4" />
+            لوحة التحكم
+          </button>
+          <h1 className="text-lg sm:text-xl font-extrabold">مشاركة المنيو</h1>
+          <div className="w-20" />
+        </div>
+
+        <p className="text-center text-sm sm:text-base font-bold text-slate-600 dark:text-slate-300">
+          رمز QR للمنيو لكل طاولة، رمز طاولة، ربط الطلب بالطاولة
+        </p>
+
+        {/* Main Menu QR Card */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-emerald-100 dark:border-slate-800 shadow-xs text-center space-y-4">
+          <div className="flex justify-center">
+            <QrCodeImage value={baseMenuUrl} size={200} />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-xl font-extrabold">المنيو</h2>
+            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+              امسح لفتح المنيو
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-2 max-w-md mx-auto">
+            <input
+              type="text"
+              readOnly
+              dir="ltr"
+              value={baseMenuUrl}
+              className="flex-1 px-3 py-2 rounded-xl bg-emerald-50/50 dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 text-xs font-mono-num"
+            />
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold inline-flex items-center gap-1"
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? 'تم النسخ' : 'نسخ'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto pt-2">
+            <button
+              type="button"
+              onClick={() => void downloadQrPng(baseMenuUrl, `${shop.nameAr}-qr.png`)}
+              className="py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm"
+            >
+              PNG
+            </button>
+            <button
+              type="button"
+              onClick={() => void downloadQrSvg(baseMenuUrl, `${shop.nameAr}-qr.svg`)}
+              className="py-3 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-extrabold text-sm"
+            >
+              SVG
+            </button>
+            <button
+              type="button"
+              onClick={() => void downloadQrPdf(baseMenuUrl, shop.nameEn || shop.nameAr)}
+              className="py-3 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-extrabold text-sm"
+            >
+              PDF
+            </button>
+          </div>
+        </div>
+
+        {/* Tables Card */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-emerald-100 dark:border-slate-800 shadow-xs space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-extrabold">رموز الطاولات</h2>
+            <form onSubmit={handleAddTable} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newTableName}
+                onChange={(e) => setNewTableName(e.target.value)}
+                placeholder="مثال: طاولة 1"
+                className="px-3.5 py-2 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+              />
+              <button
+                type="submit"
+                disabled={adding}
+                className="px-4 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm inline-flex items-center gap-1"
+              >
+                <Plus className="w-4 h-4" />
+                إضافة طاولة
+              </button>
+            </form>
+          </div>
+
+          {tables.length === 0 ? (
+            <div className="text-center py-8 text-sm font-bold text-slate-500 dark:text-slate-400">
+              لا توجد طاولات بعد
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {tables.map((tbl) => {
+                const tableUrl = `${baseMenuUrl}&table=${encodeURIComponent(tbl.label)}`;
+                return (
+                  <div
+                    key={tbl.id}
+                    className="rounded-2xl p-4 border border-emerald-100 dark:border-slate-800 bg-emerald-50/30 dark:bg-slate-800/50 text-center space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-sm">{tbl.label}</span>
+                      <button
+                        type="button"
+                        onClick={() => void deleteShopTable(shop.id, tbl.id)}
+                        className="text-slate-400 hover:text-amber-600"
+                        aria-label="حذف الطاولة"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="flex justify-center">
+                      <QrCodeImage value={tableUrl} size={130} />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void downloadQrPng(tableUrl, `${tbl.label}-qr.png`)}
+                        className="flex-1 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs"
+                      >
+                        PNG
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenStorefront(tbl.label)}
+                        className="flex-1 py-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 font-bold text-xs"
+                      >
+                        فتح
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

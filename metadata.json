@@ -1,0 +1,6 @@
+{
+  "name": "Ghazalo",
+  "description": "منصة Ghazalo المتكاملة للمطاعم والمتاجر لإنشاء منيو إلكتروني وكاشير ونظام طلبات بدون عمولة مع استخراج المنيو بالذكاء الاصطناعي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,493 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private merchant user profile linked to Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "country": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "defaultShopId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "fullName", "createdAt", "updatedAt"]
+    },
+    "Shop": {
+      "title": "Shop",
+      "description": "Public restaurant or store configuration, branding, hours, and subscription state.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "nameAr": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "nameEn": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "country": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "menuLanguage": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "branchCount": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "city": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "workFrom": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "workTo": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "workDays": {
+          "type": "array",
+          "description": "Selected work days (max 7)."
+        },
+        "themeColor": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "themeMode": {
+          "type": "string",
+          "enum": ["light", "dark"]
+        },
+        "acceptOrders": {
+          "type": "boolean"
+        },
+        "paymentMethods": {
+          "type": "array",
+          "description": "Accepted payment method IDs (max 10)."
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "whatsapp": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "coverImage": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "logoUrl": {
+          "type": "string",
+          "maxLength": 24000
+        },
+        "showLogoOnItems": {
+          "type": "boolean"
+        },
+        "menuTemplate": {
+          "type": "string",
+          "enum": ["classic", "luxury", "magazine", "compact"]
+        },
+        "requestedPlan": {
+          "type": "string",
+          "enum": ["", "monthly_600", "yearly_6000"]
+        },
+        "paymentNote": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "isOpen": {
+          "type": "boolean"
+        },
+        "subscriptionStatus": {
+          "type": "string",
+          "enum": ["trial", "active", "expired", "suspended"]
+        },
+        "approvedByAdmin": {
+          "type": "boolean"
+        },
+        "approvedAt": {
+          "type": "number"
+        },
+        "plan": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "trialEndsAt": {
+          "type": "number"
+        },
+        "subscriptionExpiresAt": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "nameAr",
+        "country",
+        "acceptOrders",
+        "isOpen",
+        "subscriptionStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Menu item belonging to a shop.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "shopId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "shopOwnerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "price": {
+          "type": "number"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "imageUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "barcode": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "variants": {
+          "type": "array",
+          "description": "Optional size or addon names (max 20)."
+        },
+        "sortOrder": {
+          "type": "number"
+        },
+        "isOffer": {
+          "type": "boolean"
+        },
+        "originalPrice": {
+          "type": "number"
+        },
+        "offerLabel": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "shopId",
+        "shopOwnerId",
+        "name",
+        "category",
+        "price",
+        "available",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ShopTable": {
+      "title": "ShopTable",
+      "description": "Dining table linked to a shop for table QR ordering.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "shopId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "shopOwnerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "shopId", "shopOwnerId", "label", "createdAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer storefront or merchant POS cashier order.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "orderNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "shopId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "shopOwnerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["menu", "cashier"]
+        },
+        "orderType": {
+          "type": "string",
+          "enum": ["delivery", "pickup", "dine_in", "table"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["new", "preparing", "ready", "held", "completed"]
+        },
+        "paymentMethod": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "customerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "customerPhone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "floor": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "apartment": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "driverName": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "tableLabel": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "itemsCount": {
+          "type": "number"
+        },
+        "itemSummary": {
+          "type": "array",
+          "description": "Bounded summary strings of ordered line items (max 50)."
+        },
+        "subtotal": {
+          "type": "number"
+        },
+        "discount": {
+          "type": "number"
+        },
+        "serviceFee": {
+          "type": "number"
+        },
+        "vat": {
+          "type": "number"
+        },
+        "roundingDiff": {
+          "type": "number"
+        },
+        "total": {
+          "type": "number"
+        },
+        "paidAmount": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "orderNumber",
+        "shopId",
+        "shopOwnerId",
+        "source",
+        "orderType",
+        "status",
+        "paymentMethod",
+        "itemsCount",
+        "subtotal",
+        "serviceFee",
+        "vat",
+        "total",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminSettings": {
+      "title": "AdminSettings",
+      "description": "Restricted admin security configuration (PIN lock).",
+      "type": "object",
+      "properties": {
+        "adminPin": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["adminPin", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private merchant user profiles isolated by UID."
+    },
+    "/shops/{shopId}": {
+      "schema": { "$ref": "#/entities/Shop" },
+      "description": "Storefront and merchant configuration documents."
+    },
+    "/shops/{shopId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Menu products inside a shop."
+    },
+    "/shops/{shopId}/tables/{tableId}": {
+      "schema": { "$ref": "#/entities/ShopTable" },
+      "description": "Tables inside a shop for QR table ordering."
+    },
+    "/shops/{shopId}/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Orders placed via storefront or POS cashier."
+    },
+    "/app_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/AdminSettings" },
+      "description": "Admin security configuration document."
+    }
+  }
+}

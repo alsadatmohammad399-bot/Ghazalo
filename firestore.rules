@@ -1,0 +1,361 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Startup connectivity check document
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Reusable Hardened Helpers
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'alsadatmohammad399@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'fullName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'fullName', 'email', 'phone', 'country', 'defaultShopId', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
+        && (!('email' in data) || (data.email is string && data.email.size() <= 200))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 40))
+        && (!('country' in data) || (data.country is string && data.country.size() <= 60))
+        && (!('defaultShopId' in data) || (data.defaultShopId is string && data.defaultShopId.size() <= 128))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidShop(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'nameAr', 'country', 'acceptOrders',
+          'isOpen', 'subscriptionStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'nameAr', 'nameEn', 'country', 'menuLanguage',
+          'branchCount', 'city', 'address', 'workFrom', 'workTo', 'workDays',
+          'themeColor', 'themeMode', 'acceptOrders', 'paymentMethods', 'bio',
+          'whatsapp', 'coverImage', 'logoUrl', 'showLogoOnItems', 'menuTemplate',
+          'requestedPlan', 'paymentNote', 'isOpen', 'subscriptionStatus',
+          'approvedByAdmin', 'approvedAt', 'plan',
+          'trialEndsAt', 'subscriptionExpiresAt', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.ownerId)
+        && data.nameAr is string && data.nameAr.size() >= 1 && data.nameAr.size() <= 120
+        && (!('nameEn' in data) || (data.nameEn is string && data.nameEn.size() <= 120))
+        && data.country is string && data.country.size() >= 1 && data.country.size() <= 60
+        && (!('menuLanguage' in data) || (data.menuLanguage is string && data.menuLanguage.size() <= 30))
+        && (!('branchCount' in data) || (data.branchCount is string && data.branchCount.size() <= 40))
+        && (!('city' in data) || (data.city is string && data.city.size() <= 80))
+        && (!('address' in data) || (data.address is string && data.address.size() <= 240))
+        && (!('workFrom' in data) || (data.workFrom is string && data.workFrom.size() <= 30))
+        && (!('workTo' in data) || (data.workTo is string && data.workTo.size() <= 30))
+        && (!('workDays' in data) || (data.workDays is list && data.workDays.size() <= 7 && (data.workDays.size() == 0 || data.workDays[0] is string)))
+        && (!('themeColor' in data) || (data.themeColor is string && data.themeColor.size() <= 30))
+        && (!('themeMode' in data) || (data.themeMode in ['light', 'dark']))
+        && data.acceptOrders is bool
+        && (!('paymentMethods' in data) || (data.paymentMethods is list && data.paymentMethods.size() <= 10 && (data.paymentMethods.size() == 0 || data.paymentMethods[0] is string)))
+        && (!('bio' in data) || (data.bio is string && data.bio.size() <= 500))
+        && (!('whatsapp' in data) || (data.whatsapp is string && data.whatsapp.size() <= 40))
+        && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 500))
+        && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 24000))
+        && (!('showLogoOnItems' in data) || data.showLogoOnItems is bool)
+        && (!('menuTemplate' in data) || (data.menuTemplate in ['classic', 'luxury', 'magazine', 'compact']))
+        && (!('requestedPlan' in data) || (data.requestedPlan in ['', 'monthly_600', 'yearly_6000']))
+        && (!('paymentNote' in data) || (data.paymentNote is string && data.paymentNote.size() <= 200))
+        && data.isOpen is bool
+        && data.subscriptionStatus in ['trial', 'active', 'expired', 'suspended']
+        && (!('approvedByAdmin' in data) || data.approvedByAdmin is bool)
+        && (!('approvedAt' in data) || data.approvedAt is number)
+        && (!('plan' in data) || (data.plan is string && data.plan.size() <= 40))
+        && (!('trialEndsAt' in data) || data.trialEndsAt is number)
+        && (!('subscriptionExpiresAt' in data) || data.subscriptionExpiresAt is number)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll([
+          'id', 'shopId', 'shopOwnerId', 'name', 'category',
+          'price', 'available', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'shopId', 'shopOwnerId', 'name', 'category', 'price',
+          'description', 'imageUrl', 'barcode', 'available', 'variants',
+          'sortOrder', 'isOffer', 'originalPrice', 'offerLabel', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.shopId)
+        && isValidId(data.shopOwnerId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+        && data.price is number && data.price >= 0 && data.price <= 1000000
+        && (!('description' in data) || (data.description is string && data.description.size() <= 400))
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500))
+        && (!('barcode' in data) || (data.barcode is string && data.barcode.size() <= 64))
+        && data.available is bool
+        && (!('variants' in data) || (data.variants is list && data.variants.size() <= 20 && (data.variants.size() == 0 || data.variants[0] is string)))
+        && (!('sortOrder' in data) || (data.sortOrder is number && data.sortOrder >= 0 && data.sortOrder <= 100000))
+        && (!('isOffer' in data) || data.isOffer is bool)
+        && (!('originalPrice' in data) || (data.originalPrice is number && data.originalPrice >= 0 && data.originalPrice <= 1000000))
+        && (!('offerLabel' in data) || (data.offerLabel is string && data.offerLabel.size() <= 60))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminSettings(data) {
+      return data.keys().hasAll(['adminPin', 'updatedAt'])
+        && data.keys().hasOnly(['adminPin', 'updatedAt'])
+        && data.adminPin is string && data.adminPin.size() >= 4 && data.adminPin.size() <= 32
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidShopTable(data) {
+      return data.keys().hasAll(['id', 'shopId', 'shopOwnerId', 'label', 'createdAt'])
+        && data.keys().hasOnly(['id', 'shopId', 'shopOwnerId', 'label', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.shopId)
+        && isValidId(data.shopOwnerId)
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 60
+        && data.createdAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+          'id', 'orderNumber', 'shopId', 'shopOwnerId', 'source', 'orderType',
+          'status', 'paymentMethod', 'itemsCount', 'subtotal', 'serviceFee',
+          'vat', 'total', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'orderNumber', 'shopId', 'shopOwnerId', 'source', 'orderType',
+          'status', 'paymentMethod', 'customerName', 'customerPhone', 'address',
+          'floor', 'apartment', 'driverName', 'tableLabel', 'notes',
+          'itemsCount', 'itemSummary', 'subtotal', 'discount', 'serviceFee',
+          'vat', 'roundingDiff', 'total', 'paidAmount', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.orderNumber is string && data.orderNumber.size() >= 1 && data.orderNumber.size() <= 40
+        && isValidId(data.shopId)
+        && isValidId(data.shopOwnerId)
+        && data.source in ['menu', 'cashier']
+        && data.orderType in ['delivery', 'pickup', 'dine_in', 'table']
+        && data.status in ['new', 'preparing', 'ready', 'held', 'completed']
+        && data.paymentMethod is string && data.paymentMethod.size() >= 1 && data.paymentMethod.size() <= 40
+        && (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 120))
+        && (!('customerPhone' in data) || (data.customerPhone is string && data.customerPhone.size() <= 40))
+        && (!('address' in data) || (data.address is string && data.address.size() <= 240))
+        && (!('floor' in data) || (data.floor is string && data.floor.size() <= 30))
+        && (!('apartment' in data) || (data.apartment is string && data.apartment.size() <= 30))
+        && (!('driverName' in data) || (data.driverName is string && data.driverName.size() <= 80))
+        && (!('tableLabel' in data) || (data.tableLabel is string && data.tableLabel.size() <= 60))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 300))
+        && data.itemsCount is number && data.itemsCount >= 1 && data.itemsCount <= 500
+        && (!('itemSummary' in data) || (data.itemSummary is list && data.itemSummary.size() <= 50 && (data.itemSummary.size() == 0 || data.itemSummary[0] is string)))
+        && data.subtotal is number && data.subtotal >= 0 && data.subtotal <= 10000000
+        && (!('discount' in data) || (data.discount is number && data.discount >= 0 && data.discount <= 10000000))
+        && data.serviceFee is number && data.serviceFee >= 0
+        && data.vat is number && data.vat >= 0
+        && (!('roundingDiff' in data) || (data.roundingDiff is number && data.roundingDiff >= -5 && data.roundingDiff <= 5))
+        && data.total is number && data.total >= 0 && data.total <= 10000000
+        && (!('paidAmount' in data) || (data.paidAmount is number && data.paidAmount >= 0))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Users Collection (PII isolated per owner or admin)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isValidId(userId)
+        && isVerifiedUser()
+        && isValidUserProfile(incoming())
+        && request.auth.uid == userId
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isVerifiedUser()
+        && isValidUserProfile(incoming())
+        && request.auth.uid == userId
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'email', 'phone', 'country', 'defaultShopId', 'updatedAt']);
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // Shops Collection (Public menu storefront metadata; owner/admin writes)
+    match /shops/{shopId} {
+      allow get: if isValidId(shopId);
+      allow list: if true;
+      allow create: if isValidId(shopId)
+        && isVerifiedUser()
+        && isValidShop(incoming())
+        && incoming().id == shopId
+        && incoming().ownerId == request.auth.uid
+        && incoming().subscriptionStatus == 'trial'
+        && (!('approvedByAdmin' in incoming()) || incoming().approvedByAdmin == false)
+        && !('approvedAt' in incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(shopId)
+        && isVerifiedUser()
+        && isValidShop(incoming())
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().ownerId == request.auth.uid
+            && incoming().subscriptionStatus == existing().subscriptionStatus
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'nameAr', 'nameEn', 'country', 'menuLanguage', 'branchCount',
+              'city', 'address', 'workFrom', 'workTo', 'workDays',
+              'themeColor', 'themeMode', 'acceptOrders', 'paymentMethods',
+              'bio', 'whatsapp', 'coverImage', 'logoUrl', 'showLogoOnItems',
+              'menuTemplate', 'requestedPlan', 'paymentNote', 'isOpen', 'plan', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isValidId(shopId) && (isAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid));
+
+      // Products Subcollection (Master Gate checks parent shop ownership)
+      match /products/{productId} {
+        allow get: if isValidId(shopId) && isValidId(productId);
+        allow list: if isValidId(shopId);
+        allow create: if isValidId(shopId) && isValidId(productId)
+          && isVerifiedUser()
+          && isValidProduct(incoming())
+          && incoming().id == productId
+          && incoming().shopId == shopId
+          && incoming().shopOwnerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/shops/$(shopId))
+          && get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
+        allow update: if isValidId(shopId) && isValidId(productId)
+          && isVerifiedUser()
+          && isValidProduct(incoming())
+          && incoming().id == existing().id
+          && incoming().shopId == existing().shopId
+          && incoming().shopOwnerId == existing().shopOwnerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            isAdmin() ||
+            get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid
+          )
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'category', 'price', 'description', 'imageUrl',
+            'barcode', 'available', 'variants', 'sortOrder',
+            'isOffer', 'originalPrice', 'offerLabel', 'updatedAt'
+          ]);
+        allow delete: if isValidId(shopId) && isValidId(productId)
+          && isVerifiedUser()
+          && get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
+      }
+
+      // Tables Subcollection
+      match /tables/{tableId} {
+        allow get: if isValidId(shopId) && isValidId(tableId);
+        allow list: if isValidId(shopId);
+        allow create: if isValidId(shopId) && isValidId(tableId)
+          && isVerifiedUser()
+          && isValidShopTable(incoming())
+          && incoming().id == tableId
+          && incoming().shopId == shopId
+          && incoming().shopOwnerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/shops/$(shopId))
+          && get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
+        allow update: if false;
+        allow delete: if isValidId(shopId) && isValidId(tableId)
+          && isVerifiedUser()
+          && get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
+      }
+
+      // Orders Subcollection (Guest/Customer create if shop accepts orders; owner/admin read & manage)
+      match /orders/{orderId} {
+        allow get: if isValidId(shopId) && isValidId(orderId)
+          && isSignedIn()
+          && (existing().shopOwnerId == request.auth.uid || isAdmin());
+        allow list: if isValidId(shopId)
+          && isSignedIn()
+          && (resource.data.shopOwnerId == request.auth.uid || isAdmin());
+        allow create: if isValidId(shopId) && isValidId(orderId)
+          && isValidOrder(incoming())
+          && incoming().id == orderId
+          && incoming().shopId == shopId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/shops/$(shopId))
+          && get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == incoming().shopOwnerId
+          && (
+            (incoming().source == 'menu' && incoming().status == 'new' && get(/databases/$(database)/documents/shops/$(shopId)).data.acceptOrders == true && get(/databases/$(database)/documents/shops/$(shopId)).data.subscriptionStatus in ['trial', 'active']) ||
+            (incoming().source == 'cashier' && isVerifiedUser() && incoming().shopOwnerId == request.auth.uid && incoming().status in ['new', 'held', 'completed'] && get(/databases/$(database)/documents/shops/$(shopId)).data.subscriptionStatus in ['trial', 'active'])
+          );
+        allow update: if isValidId(shopId) && isValidId(orderId)
+          && isVerifiedUser()
+          && isValidOrder(incoming())
+          && incoming().id == existing().id
+          && incoming().shopId == existing().shopId
+          && incoming().shopOwnerId == existing().shopOwnerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            isAdmin() ||
+            (
+              existing().shopOwnerId == request.auth.uid
+              && existing().status != 'completed'
+              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'driverName', 'notes', 'updatedAt'])
+            )
+          );
+        allow delete: if isValidId(shopId) && isValidId(orderId) && isAdmin();
+      }
+    }
+
+    // Admin Security Settings (PIN management - strictly Admin only)
+    match /app_settings/{settingId} {
+      allow get: if isValidId(settingId) && isAdmin();
+      allow create: if isValidId(settingId)
+        && isAdmin()
+        && isValidAdminSettings(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId)
+        && isAdmin()
+        && isValidAdminSettings(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['adminPin', 'updatedAt']);
+      allow delete: if isValidId(settingId) && isAdmin();
+    }
+  }
+}
