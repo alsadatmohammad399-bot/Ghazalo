@@ -288,8 +288,9 @@ async function resolveDishPhotoUrl(
   return VERIFIED_DISH_FALLBACKS[family] || VERIFIED_DISH_FALLBACKS.grill;
 }
 
+const app = express();
+
 async function startServer() {
-  const app = express();
   app.use(express.json({ limit: '50mb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
@@ -536,3 +537,5 @@ startServer().catch((err) => {
   console.error('Failed to start server:', err);
   process.exit(1);
 });
+
+export default app;
