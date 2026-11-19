@@ -19,6 +19,7 @@ import {
   Info,
   Phone,
   ArrowRight,
+  Check,
   Loader2,
   Tag,
   Sparkles,
@@ -52,6 +53,136 @@ const UPSELL_FALLBACKS: Array<{ id: string; name: string; price: number }> = [
   { id: 'upsell-2', name: 'ساندوتش سجق', price: 40 },
   { id: 'upsell-3', name: 'طبق سجق', price: 100 },
 ];
+
+type SizeOptionId = 'kilo' | 'half' | 'quarter' | 'meal';
+
+interface ProductAddonOption {
+  id: string;
+  label: string;
+  price: number;
+}
+
+function detectDefaultSize(product: Product): SizeOptionId {
+  const txt = `${product.name} ${product.description || ''}`;
+  if (/نصف\s*كيلو|نص\s*كيلو/.test(txt)) return 'half';
+  if (/ربع\s*كيلو/.test(txt)) return 'quarter';
+  if (/كيلو/.test(txt)) return 'kilo';
+  return 'meal';
+}
+
+function getProductSizeOptions(product: Product): Array<{
+  id: SizeOptionId;
+  label: string;
+  price: number;
+}> {
+  const base = Math.max(0, Number(product.price) || 0);
+  const def = detectDefaultSize(product);
+
+  if (def === 'kilo') {
+    return [
+      { id: 'kilo', label: 'بالكيلو', price: base },
+      { id: 'half', label: 'نص كيلو', price: Math.round(base * 0.5) },
+      { id: 'quarter', label: 'ربع كيلو', price: Math.round(base * 0.25) },
+      { id: 'meal', label: 'وجبة', price: Math.round(base * 0.3) },
+    ];
+  }
+
+  if (def === 'half') {
+    return [
+      { id: 'kilo', label: 'بالكيلو', price: Math.round(base * 2) },
+      { id: 'half', label: 'نص كيلو', price: base },
+      { id: 'quarter', label: 'ربع كيلو', price: Math.round(base * 0.5) },
+      { id: 'meal', label: 'وجبة', price: Math.round(base * 0.6) },
+    ];
+  }
+
+  if (def === 'quarter') {
+    return [
+      { id: 'kilo', label: 'بالكيلو', price: Math.round(base * 3.6) },
+      { id: 'half', label: 'نص كيلو', price: Math.round(base * 1.9) },
+      { id: 'quarter', label: 'ربع كيلو', price: base },
+      { id: 'meal', label: 'وجبة', price: Math.round(base * 1.15) },
+    ];
+  }
+
+  return [
+    { id: 'meal', label: 'وجبة', price: base },
+    { id: 'quarter', label: 'ربع كيلو', price: Math.round(base * 1.4) },
+    { id: 'half', label: 'نص كيلو', price: Math.round(base * 2.5) },
+    { id: 'kilo', label: 'بالكيلو', price: Math.round(base * 4.5) },
+  ];
+}
+
+function getProductAddons(product: Product): ProductAddonOption[] {
+  if (product.variants && product.variants.length > 0) {
+    return product.variants.map((v, idx) => {
+      const priceMatch = v.match(/\+(\d+)/);
+      const cleanLabel = v.replace(/\(\s*\+?\d+\s*ج?\s*\)/g, '').trim() || v;
+      return {
+        id: `var-${idx}`,
+        label: cleanLabel,
+        price: priceMatch ? Number(priceMatch[1]) : 0,
+      };
+    });
+  }
+
+  const txt = `${product.name} ${product.category}`.toLowerCase();
+  if (/خضار|خضروات|فواكه|ألبان|أجبان|بقالة|زيوت|صيانة|سباكة|تنظيف|خدمات/.test(txt)) {
+    return [];
+  }
+  if (/قهوة|لاتيه|شاي|مشروبات|عصائر|موهيتو|حلويات|كيك|كرواسون|مخبوزات/.test(txt)) {
+    return [
+      { id: 'extra-shot', label: 'إضافة شوت إسبريسو / نكهة', price: 20 },
+      { id: 'extra-milk', label: 'حليب إضافي / صوص شوكولاتة', price: 15 },
+      { id: 'ice-cup', label: 'كوب ثلج أو كريمة مخفوقة', price: 10 },
+    ];
+  }
+  if (/برجر|ساندوتش|بيتزا|كريب|شاورما/.test(txt)) {
+    return [
+      { id: 'extra-cheese', label: 'جبنة شيدر سايحة', price: 20 },
+      { id: 'extra-fries', label: 'بطاطس مقرمشة', price: 30 },
+      { id: 'extra-sauce', label: 'صوص خاص / ثومية', price: 12 },
+    ];
+  }
+  return [
+    { id: 'tahina', label: 'سلطة طحينة بلدي', price: 15 },
+    { id: 'rice', label: 'أرز بسمتي بالخلطة', price: 35 },
+    { id: 'bread', label: 'عيش بلدي ساخن وسلطة خضراء', price: 12 },
+  ];
+}
+
+function getMealComponents(product: Product, selectedSize: SizeOptionId): string[] {
+  const txt = `${product.name} ${product.category}`.toLowerCase();
+  const isNaturallyMeal = /وجبة|وجبات|مشويات|طاجن|طواجن|محاشي|صواني|برجر|فراخ|دجاج|كفتة|كباب|ريش|كبدة|سجق|سلطات|طبق/.test(
+    txt
+  );
+  if (selectedSize !== 'meal' && !isNaturallyMeal) return [];
+
+  if (/برجر|ساندوتش|كريب/.test(txt)) {
+    return [
+      product.name,
+      'بطاطس مقرمشة ساخنة',
+      'صوص شيدر أو ثومية خاص',
+      'مخلل طازج وعيش محمص',
+    ];
+  }
+  if (/فراخ|دجاج|مشويات|كباب|كفتة|ريش|كبدة|سجق|طاجن|محشي/.test(txt)) {
+    return [
+      product.name,
+      'أرز بسمتي مبهر أو مكرونة',
+      'سلطة طحينة + سلطة خضراء طازجة',
+      'عيش بلدي ساخن ومخلل مشكل',
+    ];
+  }
+  if (selectedSize === 'meal') {
+    return [
+      product.name,
+      'تقديم متكامل جاهز للأكل فوراً',
+      'طبق جانبي ومقبلات طازجة',
+    ];
+  }
+  return [];
+}
 
 export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   shop,
@@ -94,6 +225,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const [checkoutError, setCheckoutError] = useState('');
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
+
+  // Product Detail Page / Modal state
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
+  const [detailSize, setDetailSize] = useState<SizeOptionId>('meal');
+  const [detailQty, setDetailQty] = useState<number>(1);
+  const [detailAddons, setDetailAddons] = useState<string[]>([]);
 
   // Customer local orders history for this shop
   const [customerOrders, setCustomerOrders] = useState<Order[]>(() => {
@@ -177,6 +314,27 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     }));
   }, [activeProducts, cart, shop.id, shop.ownerId]);
 
+  const openProductDetail = (product: Product) => {
+    setDetailProduct(product);
+    setDetailSize(detectDefaultSize(product));
+    setDetailQty(1);
+    setDetailAddons([]);
+  };
+
+  const toggleDetailAddon = (addonId: string) => {
+    setDetailAddons((prev) =>
+      prev.includes(addonId) ? prev.filter((id) => id !== addonId) : [...prev, addonId]
+    );
+  };
+
+  const getProductCartCount = (productId: string) => {
+    return Object.entries(cart).reduce(
+      (sum, [key, item]) =>
+        key === productId || key.startsWith(`${productId}__`) ? sum + item.quantity : sum,
+      0
+    );
+  };
+
   const addToCart = (product: Product) => {
     setCart((prev) => {
       const existing = prev[product.id];
@@ -191,26 +349,68 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     });
   };
 
-  const decrementCart = (productId: string) => {
+  const addConfiguredToCart = () => {
+    if (!detailProduct) return;
+    const sizeOpts = getProductSizeOptions(detailProduct);
+    const chosenSize = sizeOpts.find((s) => s.id === detailSize) || sizeOpts[0];
+    const availableAddons = getProductAddons(detailProduct);
+    const chosenAddonObjs = availableAddons.filter((a) => detailAddons.includes(a.id));
+    const addonsTotal = chosenAddonObjs.reduce((sum, a) => sum + a.price, 0);
+    const unitPrice = chosenSize.price + addonsTotal;
+
+    const noteParts = [
+      chosenSize.label,
+      ...chosenAddonObjs.map((a) => a.label),
+    ].filter(Boolean);
+    const noteText = noteParts.join(' + ');
+    const cartKey = `${detailProduct.id}__${chosenSize.id}__${detailAddons.slice().sort().join(',')}`;
+
     setCart((prev) => {
-      const existing = prev[productId];
-      if (!existing) return prev;
-      if (existing.quantity <= 1) {
-        const next = { ...prev };
-        delete next[productId];
-        return next;
-      }
+      const existing = prev[cartKey];
       return {
         ...prev,
-        [productId]: { ...existing, quantity: existing.quantity - 1 },
+        [cartKey]: {
+          product: detailProduct,
+          unitPrice,
+          quantity: existing ? existing.quantity + detailQty : detailQty,
+          note: noteText,
+        },
+      };
+    });
+    setDetailProduct(null);
+  };
+
+  const incrementCartKey = (cartKey: string) => {
+    setCart((prev) => {
+      const existing = prev[cartKey];
+      if (!existing) return prev;
+      return {
+        ...prev,
+        [cartKey]: { ...existing, quantity: existing.quantity + 1 },
       };
     });
   };
 
-  const removeFromCart = (productId: string) => {
+  const decrementCart = (cartKey: string) => {
+    setCart((prev) => {
+      const existing = prev[cartKey];
+      if (!existing) return prev;
+      if (existing.quantity <= 1) {
+        const next = { ...prev };
+        delete next[cartKey];
+        return next;
+      }
+      return {
+        ...prev,
+        [cartKey]: { ...existing, quantity: existing.quantity - 1 },
+      };
+    });
+  };
+
+  const removeFromCart = (cartKey: string) => {
     setCart((prev) => {
       const next = { ...prev };
-      delete next[productId];
+      delete next[cartKey];
       return next;
     });
   };
@@ -242,7 +442,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     setSubmitting(true);
     try {
       const itemSummary = cartItems.map(
-        (c) => `${c.product.name} × ${c.quantity} (${c.unitPrice * c.quantity})`
+        (c) =>
+          `${c.product.name}${c.note ? ` (${c.note})` : ''} × ${c.quantity} (${c.unitPrice * c.quantity})`
       );
 
       let created: Order;
@@ -582,12 +783,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
             <div className="flex gap-3.5 overflow-x-auto no-scrollbar pb-1 snap-x">
               {offerProducts.map((product) => {
-                const inCartQty = cart[product.id]?.quantity || 0;
+                const inCartQty = getProductCartCount(product.id);
                 const pct = getDiscountPct(product);
                 return (
                   <div
                     key={`offer-${product.id}`}
-                    className="min-w-[235px] sm:min-w-[260px] max-w-[270px] shrink-0 snap-start bg-white dark:bg-slate-900 rounded-3xl p-3 border border-amber-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5"
+                    onClick={() => openProductDetail(product)}
+                    className="cursor-pointer min-w-[235px] sm:min-w-[260px] max-w-[270px] shrink-0 snap-start bg-white dark:bg-slate-900 rounded-3xl p-3 border border-amber-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-emerald-300 transition-colors"
                   >
                     <div className="space-y-2">
                       <div className="relative h-28 rounded-2xl bg-emerald-50/70 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
@@ -636,7 +838,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
+                    <div
+                      className="flex items-center justify-between gap-2 pt-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <div className="flex items-baseline gap-1.5 tabular-nums">
                         <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
                           {formatMoney(product.price, shop.country)}
@@ -651,7 +856,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       {inCartQty === 0 ? (
                         <button
                           type="button"
-                          onClick={() => addToCart(product)}
+                          onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
                           className="px-3.5 py-1.5 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1"
                         >
@@ -791,7 +996,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             }
           >
             {filteredProducts.map((product) => {
-              const inCartQty = cart[product.id]?.quantity || 0;
+              const inCartQty = getProductCartCount(product.id);
               const isFav = Boolean(favorites[product.id]);
 
               // Explicit List Mode OR Compact Fast-Ordering Template
@@ -799,7 +1004,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 return (
                   <div
                     key={product.id}
-                    className="bg-white dark:bg-slate-900 rounded-3xl p-3 border border-emerald-100 dark:border-slate-800 flex items-center justify-between gap-3 shadow-xs"
+                    onClick={() => openProductDetail(product)}
+                    className="cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-3 border border-emerald-100 dark:border-slate-800 flex items-center justify-between gap-3 shadow-xs hover:border-emerald-300 transition-colors"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="relative w-16 h-16 rounded-2xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
@@ -851,11 +1057,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div
+                      className="flex items-center gap-2 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {inCartQty === 0 ? (
                         <button
                           type="button"
-                          onClick={() => addToCart(product)}
+                          onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
                           aria-label={`إضافة ${product.name}`}
                           className="w-10 h-10 rounded-full glass-btn-primary disabled:opacity-40 flex items-center justify-center"
@@ -893,7 +1102,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 return (
                   <div
                     key={product.id}
-                    className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-amber-200/80 dark:border-amber-900/50 shadow-xs flex items-center justify-between gap-4"
+                    onClick={() => openProductDetail(product)}
+                    className="cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-4 border border-amber-200/80 dark:border-amber-900/50 shadow-xs flex items-center justify-between gap-4 hover:border-emerald-400 transition-colors"
                   >
                     <div className="flex-1 min-w-0 space-y-2">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -914,7 +1124,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           {product.description}
                         </p>
                       )}
-                      <div className="flex items-center justify-between gap-2 pt-1">
+                      <div
+                        className="flex items-center justify-between gap-2 pt-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="flex items-baseline gap-1.5 tabular-nums">
                           <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-400">
                             {formatMoney(product.price, shop.country)}
@@ -928,7 +1141,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         {inCartQty === 0 ? (
                           <button
                             type="button"
-                            onClick={() => addToCart(product)}
+                            onClick={() => openProductDetail(product)}
                             disabled={!shop.acceptOrders}
                             className="px-4 py-2 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1"
                           >
@@ -988,7 +1201,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 return (
                   <div
                     key={product.id}
-                    className="bg-white dark:bg-slate-900 rounded-3xl overflow-hidden border border-emerald-100 dark:border-slate-800 shadow-xs flex flex-col justify-between"
+                    onClick={() => openProductDetail(product)}
+                    className="cursor-pointer bg-white dark:bg-slate-900 rounded-3xl overflow-hidden border border-emerald-100 dark:border-slate-800 shadow-xs flex flex-col justify-between hover:border-emerald-300 transition-colors"
                   >
                     <div className="relative h-48 sm:h-52 bg-emerald-50/70 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
                       {product.imageUrl && !brokenImages[product.id] ? (
@@ -1005,9 +1219,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
                       <button
                         type="button"
-                        onClick={() =>
-                          setFavorites((prev) => ({ ...prev, [product.id]: !isFav }))
-                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFavorites((prev) => ({ ...prev, [product.id]: !isFav }));
+                        }}
                         aria-label="مفضلة"
                         className="absolute top-3 right-3 w-8 h-8 rounded-full glass-btn flex items-center justify-center"
                       >
@@ -1049,7 +1264,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between gap-2 pt-1">
+                      <div
+                        className="flex items-center justify-between gap-2 pt-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {product.isOffer && product.originalPrice && product.originalPrice > product.price ? (
                           <span className="text-xs font-bold text-slate-400 line-through tabular-nums">
                             بدلاً من {formatMoney(product.originalPrice, shop.country)}
@@ -1063,7 +1281,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         {inCartQty === 0 ? (
                           <button
                             type="button"
-                            onClick={() => addToCart(product)}
+                            onClick={() => openProductDetail(product)}
                             disabled={!shop.acceptOrders}
                             className="px-4 py-2 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1"
                           >
@@ -1101,7 +1319,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               return (
                 <div
                   key={product.id}
-                  className="bg-white dark:bg-slate-900 rounded-3xl p-3 border border-emerald-100 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-3"
+                  onClick={() => openProductDetail(product)}
+                  className="cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-3 border border-emerald-100 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-3 hover:border-emerald-300 transition-colors"
                 >
                   <div className="space-y-2.5">
                     <div className="relative h-32 sm:h-36 rounded-2xl bg-emerald-50/70 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
@@ -1118,9 +1337,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       )}
                       <button
                         type="button"
-                        onClick={() =>
-                          setFavorites((prev) => ({ ...prev, [product.id]: !isFav }))
-                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFavorites((prev) => ({ ...prev, [product.id]: !isFav }));
+                        }}
                         aria-label="مفضلة"
                         className="absolute top-2 right-2 w-8 h-8 rounded-full glass-btn flex items-center justify-center"
                       >
@@ -1158,7 +1378,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1">
+                  <div
+                    className="flex items-center justify-between gap-2 pt-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <div className="flex items-baseline gap-1.5 tabular-nums flex-wrap">
                       <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
                         {formatMoney(product.price, shop.country)}
@@ -1173,7 +1396,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     {inCartQty === 0 ? (
                       <button
                         type="button"
-                        onClick={() => addToCart(product)}
+                        onClick={() => openProductDetail(product)}
                         disabled={!shop.acceptOrders}
                         aria-label={`إضافة ${product.name}`}
                         className="w-9 h-9 rounded-full glass-btn-primary disabled:opacity-40 flex items-center justify-center shrink-0"
@@ -1255,23 +1478,36 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <p className="text-center text-sm font-bold text-slate-500 py-8">السلة فارغة</p>
               ) : (
                 <div className="space-y-3">
-                  {cartItems.map(({ product, quantity, unitPrice }) => (
+                  {Object.entries(cart).map(([cartKey, { product, quantity, unitPrice, note }]) => (
                     <div
-                      key={product.id}
+                      key={cartKey}
                       className="flex items-center justify-between gap-3 bg-emerald-50/40 dark:bg-slate-800/70 rounded-2xl p-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-700 flex items-center justify-center shrink-0">
-                          <Utensils className="w-5 h-5 text-emerald-500" />
+                        <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-700 flex items-center justify-center shrink-0 overflow-hidden">
+                          {product.imageUrl && !brokenImages[product.id] ? (
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <Utensils className="w-5 h-5 text-emerald-500" />
+                          )}
                         </div>
                         <div className="min-w-0">
                           <div className="font-extrabold text-sm truncate">{product.name}</div>
+                          {note && (
+                            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">
+                              {note}
+                            </div>
+                          )}
                           <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
                             {formatMoney(unitPrice * quantity, shop.country)}
                           </div>
                           <button
                             type="button"
-                            onClick={() => removeFromCart(product.id)}
+                            onClick={() => removeFromCart(cartKey)}
                             className="text-xs font-bold text-slate-500 hover:text-amber-600 mt-0.5"
                           >
                             حذف
@@ -1282,7 +1518,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       <div className="inline-flex items-center gap-2 bg-white dark:bg-slate-900 rounded-full px-2 py-1 border border-emerald-200 dark:border-slate-700 shrink-0">
                         <button
                           type="button"
-                          onClick={() => addToCart(product)}
+                          onClick={() => incrementCartKey(cartKey)}
                           className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center"
                         >
                           <Plus className="w-4 h-4" />
@@ -1292,7 +1528,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         </span>
                         <button
                           type="button"
-                          onClick={() => decrementCart(product.id)}
+                          onClick={() => decrementCart(cartKey)}
                           className="w-7 h-7 rounded-full bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center"
                         >
                           <Minus className="w-4 h-4" />
@@ -1680,6 +1916,228 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* Product Detail Page / Modal */}
+      {detailProduct && (() => {
+        const sizeOptions = getProductSizeOptions(detailProduct);
+        const activeSize = sizeOptions.find((s) => s.id === detailSize) || sizeOptions[0];
+        const addons = getProductAddons(detailProduct);
+        const addonsTotal = addons
+          .filter((a) => detailAddons.includes(a.id))
+          .reduce((sum, a) => sum + a.price, 0);
+        const unitTotalPrice = activeSize.price + addonsTotal;
+        const grandTotalPrice = unitTotalPrice * detailQty;
+        const mealComponents = getMealComponents(detailProduct, activeSize.id);
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-xs"
+            onClick={() => setDetailProduct(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-emerald-100 dark:border-slate-800"
+            >
+              {/* Large Product Image Header */}
+              <div className="relative h-56 sm:h-64 bg-emerald-50/70 dark:bg-slate-800 shrink-0 overflow-hidden flex items-center justify-center">
+                {detailProduct.imageUrl && !brokenImages[detailProduct.id] ? (
+                  <img
+                    src={detailProduct.imageUrl}
+                    alt={detailProduct.name}
+                    referrerPolicy="no-referrer"
+                    onError={() =>
+                      setBrokenImages((prev) => ({ ...prev, [detailProduct.id]: true }))
+                    }
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Utensils className="w-16 h-16 text-emerald-300" />
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setDetailProduct(null)}
+                  aria-label="إغلاق"
+                  className="absolute top-3 left-3 w-10 h-10 rounded-full bg-white/90 dark:bg-slate-900/90 text-slate-800 dark:text-white flex items-center justify-center shadow-md"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                {showDishLogo && shop.logoUrl && (
+                  <img
+                    src={shop.logoUrl}
+                    alt={shop.nameAr}
+                    className="w-10 h-10 rounded-full object-cover border-2 border-white bg-white shadow-md absolute top-3 right-3"
+                  />
+                )}
+
+                {detailProduct.isOffer && (
+                  <span className="absolute bottom-3 right-3 px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-xs font-extrabold shadow-sm">
+                    {detailProduct.offerLabel || 'عرض خاص'}
+                  </span>
+                )}
+              </div>
+
+              {/* Scrollable Details Body */}
+              <div className="overflow-y-auto p-5 sm:p-6 space-y-5 flex-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
+                      {detailProduct.category}
+                    </span>
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+                      {detailProduct.name}
+                    </h2>
+                    {detailProduct.description && (
+                      <p className="text-sm font-medium text-slate-600 dark:text-slate-300 leading-relaxed">
+                        {detailProduct.description}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-left shrink-0 tabular-nums">
+                    <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400">
+                      {formatMoney(unitTotalPrice, shop.country)}
+                    </div>
+                    {detailProduct.isOffer &&
+                      detailProduct.originalPrice &&
+                      detailProduct.originalPrice > detailProduct.price && (
+                        <div className="text-xs font-bold text-slate-400 line-through">
+                          {formatMoney(detailProduct.originalPrice, shop.country)}
+                        </div>
+                      )}
+                  </div>
+                </div>
+
+                {/* Size Selector: Kilo, Half Kilo, Quarter Kilo, Meal */}
+                <div className="space-y-2.5">
+                  <div className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
+                    اختر الحجم
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {sizeOptions.map((opt) => {
+                      const active = opt.id === detailSize;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setDetailSize(opt.id)}
+                          className={`p-3 rounded-2xl border text-center transition-all space-y-1 ${
+                            active
+                              ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 text-emerald-800 dark:text-emerald-300 ring-2 ring-emerald-500/20'
+                              : 'bg-white dark:bg-slate-800 border-emerald-100 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                          }`}
+                        >
+                          <div className="text-xs font-extrabold">{opt.label}</div>
+                          <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                            {formatMoney(opt.price, shop.country)}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Meal Components (Shown when item is a meal) */}
+                {mealComponents.length > 0 && (
+                  <div className="rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900 p-4 space-y-2">
+                    <div className="text-sm font-extrabold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
+                      <Utensils className="w-4 h-4" />
+                      <span>مكونات الوجبة</span>
+                    </div>
+                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200">
+                      {mealComponents.map((comp) => (
+                        <li key={comp} className="flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>{comp}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Optional Add-ons (Shown if available) */}
+                {addons.length > 0 && (
+                  <div className="space-y-2.5">
+                    <div className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
+                      إضافات اختيارية
+                    </div>
+                    <div className="space-y-2">
+                      {addons.map((addon) => {
+                        const checked = detailAddons.includes(addon.id);
+                        return (
+                          <button
+                            key={addon.id}
+                            type="button"
+                            onClick={() => toggleDetailAddon(addon.id)}
+                            className={`w-full px-4 py-3 rounded-2xl border flex items-center justify-between text-right transition-colors ${
+                              checked
+                                ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 text-emerald-900 dark:text-emerald-200'
+                                : 'bg-white dark:bg-slate-800 border-emerald-100 dark:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <span
+                                className={`w-5 h-5 rounded-md flex items-center justify-center border ${
+                                  checked
+                                    ? 'bg-emerald-600 border-emerald-600 text-white'
+                                    : 'border-slate-300 dark:border-slate-600'
+                                }`}
+                              >
+                                {checked && <Check className="w-3.5 h-3.5" />}
+                              </span>
+                              <span className="text-xs sm:text-sm font-bold">{addon.label}</span>
+                            </div>
+                            <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                              {addon.price > 0
+                                ? `+ ${formatMoney(addon.price, shop.country)}`
+                                : 'مشمول'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Sticky Footer: Quantity +/- & Big Add to Cart Button */}
+              <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-t border-emerald-100 dark:border-slate-800 flex items-center gap-3 shrink-0">
+                <div className="inline-flex items-center gap-2.5 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 rounded-full px-2.5 py-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setDetailQty((q) => q + 1)}
+                    aria-label="زيادة الكمية"
+                    className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                  <span className="font-extrabold text-base tabular-nums min-w-[20px] text-center">
+                    {detailQty}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDetailQty((q) => Math.max(1, q - 1))}
+                    aria-label="إنقاص الكمية"
+                    className="w-8 h-8 rounded-full bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 flex items-center justify-center"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={!shop.acceptOrders}
+                  onClick={addConfiguredToCart}
+                  className="flex-1 py-3.5 px-5 rounded-full glass-btn-primary disabled:opacity-40 font-extrabold text-sm sm:text-base flex items-center justify-between gap-2 shadow-md tabular-nums"
+                >
+                  <span>أضف للسلة</span>
+                  <span>{formatMoney(grandTotalPrice, shop.country)}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

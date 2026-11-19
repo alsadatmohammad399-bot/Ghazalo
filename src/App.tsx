@@ -119,7 +119,7 @@ function AppShell() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
-      if (user && user.emailVerified) {
+      if (user && (user.emailVerified || Boolean(user.phoneNumber))) {
         try {
           const shops = await getOwnerShops(user.uid);
           if (shops.length > 0) {
@@ -143,7 +143,7 @@ function AppShell() {
 
   // Real-time Firestore subscriptions for Merchant's Active Shop
   useEffect(() => {
-    if (!activeShopId || !currentUser || !currentUser.emailVerified) return;
+    if (!activeShopId || !currentUser || !(currentUser.emailVerified || Boolean(currentUser.phoneNumber))) return;
     const unsubShop = subscribeToShop(activeShopId, (s) => {
       if (s) setActiveShop(s);
     });
@@ -211,7 +211,7 @@ function AppShell() {
       <LandingPage
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((d) => !d)}
-        isAuthenticated={Boolean(currentUser && currentUser.emailVerified)}
+        isAuthenticated={Boolean(currentUser && (currentUser.emailVerified || currentUser.phoneNumber))}
         isAdminUser={isAdminUser}
         onNavigateAuth={(mode) => {
           setAuthMode(mode);
