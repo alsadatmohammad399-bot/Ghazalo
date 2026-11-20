@@ -3,12 +3,132 @@ import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
 import {defineConfig} from 'vite';
+import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
     plugins: [
       react(),
       tailwindcss(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: [
+          'apple-touch-icon.png',
+          'pwa-192x192.png',
+          'pwa-512x512.png',
+          'pwa-maskable-512x512.png',
+          'screenshot-mobile.png',
+          'screenshot-desktop.png',
+          'assets/aistudio/IMG-20261120-WA6738_8ef9b827.jpg',
+        ],
+        manifest: {
+          id: '/',
+          name: 'Ghazalo POS & Menu | غزالو',
+          short_name: 'غزالو POS',
+          description: 'منظومة غزالو لإدارة المنيو الإلكتروني ونظام الكاشير POS للمطاعم والمتاجر على الموبايل والكمبيوتر.',
+          theme_color: '#059669',
+          background_color: '#f6f6f6',
+          display: 'standalone',
+          orientation: 'any',
+          start_url: '/',
+          scope: '/',
+          lang: 'ar',
+          dir: 'rtl',
+          prefer_related_applications: false,
+          categories: ['business', 'food', 'productivity'],
+          icons: [
+            {
+              src: '/pwa-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: '/pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: '/pwa-maskable-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+          ],
+          screenshots: [
+            {
+              src: '/screenshot-mobile.png',
+              sizes: '540x960',
+              type: 'image/png',
+              form_factor: 'narrow',
+              label: 'تطبيق غزالو للموبايل والمنيو الإلكتروني',
+            },
+            {
+              src: '/screenshot-desktop.png',
+              sizes: '1280x720',
+              type: 'image/png',
+              form_factor: 'wide',
+              label: 'نظام كاشير غزالو POS للكمبيوتر والتابلت',
+            },
+          ],
+          shortcuts: [
+            {
+              name: 'كاشير نقطة البيع POS',
+              short_name: 'الكاشير POS',
+              description: 'فتح شاشة الكاشير السريعة مباشرة',
+              url: '/?mode=cashier',
+              icons: [{src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png'}],
+            },
+            {
+              name: 'لوحة تحكم المتجر',
+              short_name: 'لوحة التحكم',
+              description: 'إدارة المنيو والطلبات والإعدادات',
+              url: '/?mode=dashboard',
+              icons: [{src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png'}],
+            },
+          ],
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}'],
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          navigateFallbackDenylist: [/^\/api\//],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-cache',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'gstatic-fonts-cache',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+          ],
+        },
+        devOptions: {
+          enabled: true,
+          type: 'module',
+        },
+      }),
       // Copies src/assets into dist/ so root-relative URLs like
       // "/src/assets/images/..." (e.g. generate_image output) still resolve
       // in production builds. Do not remove.

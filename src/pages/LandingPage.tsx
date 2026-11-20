@@ -21,6 +21,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { GhazaloLogo } from '../components/BrandLogo';
+import { PWAInstallButton } from '../components/PWAInstallButton';
 import { DEMO_PROJECTS } from '../data/demoProjects';
 import { QrCodeImage, downloadQrPng, downloadQrSvg, downloadQrPdf } from '../components/QrToolkit';
 import type { DemoProject } from '../types';
@@ -107,12 +108,12 @@ const PRICING_PLANS = [
     id: 'monthly',
     name: 'الباقة الشهرية المتكاملة',
     monthlyPrice: 600,
-    yearlyTotal: 6000,
+    yearlyTotal: 3000,
     periodLabel: '/ شهرياً',
     subtitle: 'اشتراك شهري شامل المنيو والكاشير والعروض',
     highlighted: true,
     features: [
-      'تجديد شهري مرن بـ 600 ج فقط',
+      'تجديد شهري مرن بـ 600 جنيه / شهري',
       'استقبال طلبات غير محدود بدون عمولة',
       'قائمة عروض خاصة وتصميم القالب باللوجو',
       'نظام كاشير POS ورموز طاولات QR',
@@ -122,14 +123,14 @@ const PRICING_PLANS = [
     id: 'yearly',
     name: 'الباقة السنوية الشاملة',
     monthlyPrice: 600,
-    yearlyTotal: 6000,
+    yearlyTotal: 3000,
     forceAnnual: true,
     periodLabel: '/ سنوياً',
-    subtitle: 'سنة كاملة بـ 6,000 ج بدلاً من 7,200 ج (شهرين مجاناً)',
+    subtitle: 'سنة كاملة بـ 3,000 جنيه بدلاً من 7,200 جنيه — وفّر 4200 جنيه',
     highlighted: false,
     features: [
-      'توفير 1,200 جنيه سنوياً مقارنة بالاشتراك الشهري',
-      'تفعيل فوري لمدة 365 يوماً بعد المراجعة',
+      'وفّر 4200 جنيه سنوياً مقارنة بالاشتراك الشهري',
+      'تفعيل فوري لمدة 365 يوماً بعد التواصل مع الإدارة',
       'أولوية في الدعم الفني والتحديثات',
       'كافة القوالب والأزرار الزجاجية والعروض',
     ],
@@ -147,7 +148,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'ماذا يحدث بعد 7 أيام؟',
-    a: 'تبقى بياناتك وأصنافك محفوظة تماماً، ويتوقف الحساب لحين اختيار الباقة (600 ج شهرياً أو 6,000 ج سنوياً) وتأكيد التفعيل من الإدارة.',
+    a: 'تبقى بياناتك وأصنافك محفوظة تماماً، ويتوقف المنيو لحين التواصل مع إدارة غزالو وتفعيل الاشتراك (600 جنيه شهرياً أو 3,000 جنيه سنوياً — وفّر 4200 جنيه).',
   },
   {
     q: 'هل يمكن للعملاء الطلب من المنيو؟',
@@ -205,8 +206,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </a>
           </nav>
 
-          {/* Login / Admin quick actions + 3 icons on left */}
+          {/* Login / Admin quick actions + Install + icons */}
           <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton variant="compact" label="تحميل التطبيق" />
             {isAuthenticated && isAdminUser && onOpenAdminPanel && (
               <button
                 type="button"
@@ -447,7 +449,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     : 'text-slate-600 dark:text-slate-300 hover:text-emerald-700'
                 }`}
               >
-                سنوي (شهرين مجاناً)
+                سنوي (وفّر 4200 جنيه)
               </button>
             </div>
           </div>
@@ -591,6 +593,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
+      {/* App Install Banner: Android / iOS / PC */}
+      <section className="py-4 px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto">
+          <PWAInstallButton variant="card" />
+        </div>
+      </section>
+
       {/* Last Section: Big Green CTA Card */}
       <section className="py-8 sm:py-14 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto bg-emerald-600 rounded-3xl p-8 sm:p-12 text-center text-white space-y-5 shadow-md">
@@ -687,19 +696,28 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               تواصل معنا مباشرة
             </button>
             <a
-              href="mailto:support@ghazalo.app"
+              href="mailto:mohamed.ghazal.s203@gmail.com"
               className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-emerald-600"
             >
-              <Mail className="w-4 h-4 text-emerald-600" />
-              <span>support@ghazalo.app</span>
+              <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span dir="ltr">mohamed.ghazal.s203@gmail.com</span>
             </a>
             <a
-              href="tel:+201000000000"
+              href="https://wa.me/201015861991"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-emerald-600"
+            >
+              <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>واتساب: 01015861991</span>
+            </a>
+            <a
+              href="tel:+201015861991"
               className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-emerald-600 tabular-nums"
               dir="ltr"
             >
-              <Phone className="w-4 h-4 text-emerald-600" />
-              <span>+20 100 000 0000</span>
+              <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>01015861991</span>
             </a>
           </div>
         </div>
@@ -756,6 +774,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
             <div className="space-y-2.5">
+              <PWAInstallButton variant="drawer" label="تثبيت التطبيق على جهازك" />
               <button
                 type="button"
                 onClick={() => {
@@ -800,20 +819,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </p>
             <div className="space-y-3">
               <a
-                href="https://wa.me/201000000000"
+                href="https://wa.me/201015861991"
                 target="_blank"
                 rel="noreferrer"
                 className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center justify-center gap-2"
               >
                 <MessageCircle className="w-5 h-5" />
-                تواصل عبر واتساب
+                <span>تواصل واتساب: 01015861991</span>
               </a>
               <a
-                href="mailto:support@ghazalo.app"
-                className="w-full py-3.5 px-4 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-emerald-800 dark:text-emerald-200 font-bold text-sm flex items-center justify-center gap-2"
+                href="mailto:mohamed.ghazal.s203@gmail.com"
+                className="w-full py-3.5 px-4 rounded-2xl bg-emerald-50 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-slate-700 text-emerald-800 dark:text-emerald-200 font-bold text-sm flex items-center justify-center gap-2"
               >
                 <Mail className="w-5 h-5" />
-                support@ghazalo.app
+                <span dir="ltr">mohamed.ghazal.s203@gmail.com</span>
+              </a>
+              <a
+                href="tel:+201015861991"
+                className="w-full py-3 px-4 rounded-2xl border border-emerald-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 tabular-nums"
+              >
+                <Phone className="w-4 h-4 text-emerald-600" />
+                <span>اتصال مباشر: 01015861991</span>
               </a>
             </div>
           </div>

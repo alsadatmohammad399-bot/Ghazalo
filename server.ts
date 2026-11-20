@@ -39,18 +39,28 @@ interface ExtractMenuRequestBody {
 
 const CATEGORY_RANK_RULES: Array<{ rank: number; keywords: string[] }> = [
   {
+    rank: 5,
+    keywords: [
+      'عروض', 'عرض', 'عروض اليوم', 'عروض خاصة', 'عروض التوفير', 'باقات', 'باقة',
+      'بوكسات', 'بوكس', 'توفير', 'خصومات', 'offers', 'offer', 'deals', 'bundles', 'combo',
+    ],
+  },
+  {
     rank: 10,
     keywords: [
       'مشويات', 'مشاوي', 'المشويات', 'كباب', 'كفتة', 'كفته', 'ريش', 'طرب',
-      'نيفا', 'شيش', 'تكا', 'فحم', 'جريل', 'ستيك', 'استيك', 'grill', 'bbq', 'kebab', 'steak',
+      'نيفا', 'شيش', 'تكا', 'فحم', 'جريل', 'ستيك', 'استيك', 'جزارة', 'لحوم طازجة',
+      'لحم بلدي', 'كندوز', 'بتلو', 'ضاني', 'مفروم', 'بوفتيك', 'انتركوت', 'فلتو', 'عرق',
+      'grill', 'bbq', 'kebab', 'steak', 'butcher', 'fresh meat',
     ],
   },
   {
     rank: 20,
     keywords: [
       'أطباق رئيسية', 'اطباق رئيسية', 'رئيسية', 'رئيسي', 'وجبات', 'ولائم', 'فتة', 'فته',
-      'موزة', 'لحوم', 'لحم', 'فراخ', 'دجاج', 'بط', 'حمام', 'كوارع', 'ممبار',
-      'مأكولات بحرية', 'بحرية', 'أسماك', 'اسماك', 'سمك', 'جمبري', 'main', 'platter', 'chicken', 'meat', 'seafood', 'fish',
+      'موزة', 'لحوم', 'لحم', 'لحمة', 'فراخ', 'فرخة', 'فرخه', 'دجاج', 'دواجن', 'طيور',
+      'بط', 'حمام', 'كوارع', 'ممبار', 'كبدة', 'سجق',
+      'مأكولات بحرية', 'بحرية', 'أسماك', 'اسماك', 'سمك', 'جمبري', 'main', 'platter', 'chicken', 'poultry', 'meat', 'seafood', 'fish',
     ],
   },
   {
@@ -185,7 +195,7 @@ function inferDishFamily(name: string, category: string, photoQuery?: string): D
   if (/رز|أرز|ارز|كبسة|مندي|برياني|محشي|كشري|فتة|فته|rice|mandi|biryani|fattah/.test(txt)) return 'rice';
   if (/طاجن|طواجن|برام|بامية|ملوخية|مسقعة|tagine|casserole/.test(txt)) return 'tagine';
   if (/سمك|جمبري|سبيط|كاليماري|سي فود|فيليه|بلطي|بوري|fish|shrimp|seafood/.test(txt)) return 'fish';
-  if (/فراخ|دجاج|شيش|بانيه|بروست|مسحب|حمام|بط|chicken|duck|pigeon|wings/.test(txt)) return 'chicken';
+  if (/فراخ|فرخة|فرخه|دواجن|طيور|دجاج|شيش|بانيه|بروست|مسحب|حمام|بط|chicken|duck|pigeon|wings|poultry/.test(txt)) return 'chicken';
   if (/كفتة|كفته|طرب|برجر لحم|kofta/.test(txt)) return 'kofta';
   return 'grill';
 }
@@ -335,16 +345,16 @@ async function startServer() {
 
       const fileNamesList = validFiles.map((f, i) => f.fileName || `صفحة ${i + 1}`).join('، ');
 
-      const promptText = `أنت خبير رقمنة وتنظيم قوائم الطعام والمتاجر لمنصة Ghazalo.
-مهمتك استخراج جميع الأقسام والأصناف والأسعار والأوصاف والمتغيرات بدقة عالية من جميع صفحات وصور المنيو المرفقة (${validFiles.length} ملفات) للنشاط "${businessName || 'متجر'}".
+      const promptText = `أنت خبير رقمنة وتنظيم قوائم الطعام والمطاعم والجزارة والدواجن والمتاجر لمنصة Ghazalo.
+مهمتك استخراج وتفسير جميع الأقسام والأصناف والعروض والأسعار والأوزان والأوصاف والمتغيرات بدقة عالية من جميع صفحات وصور المنيو المرفقة (${validFiles.length} ملفات) للنشاط "${businessName || 'متجر'}".
 لغة المنيو المفضلة: ${language || 'العربية'}.
 الملفات المرفقة: ${fileNamesList}.
 
 القواعد الصارمة:
-1. افحص كل الصور والملفات المرفقة دون استثناء واجمع كل الأصناف منها في قائمة واحدة موحدة.
-2. **ترتيب الأقسام والأصناف (مهم جداً)**: رتب الأقسام والأصناف ترتيباً منطقياً احترافياً للمطاعم يبدأ بالأطباق الرئيسية الثقيلة وينتهي بالمياه والمشروبات الغازية بالترتيب التالي:
-   أولاً: المشويات ومشويات الفحم والكباب والكفتة والستيك
-   ثانياً: الأطباق الرئيسية والوجبات والفراخ واللحوم والأسماك
+1. افحص كل الصور والملفات المرفقة دون استثناء واجمع كل الأصناف والعروض منها في قائمة واحدة موحدة.
+2. **ترتيب الأقسام والأصناف (مهم جداً)**: رتب الأقسام والأصناف ترتيباً منطقياً احترافياً يبدأ بالعروض والباقات والأطباق/المنتجات الرئيسية الثقيلة وينتهي بالمياه والمشروبات الغازية بالترتيب التالي:
+   أولاً: العروض والباقات وعروض التوفير (إن وجدت)
+   ثانياً: المشويات والجزارة واللحوم الطازجة والدواجن والفراخ والأطباق الرئيسية والأسماك
    ثالثاً: الطواجن والمحاشي والأرز والمكرونات
    رابعاً: البيتزا والفطائر والكريب والشاورما والساندوتشات والبرجر
    خامساً: الشوربة والسلطات والمقبلات
@@ -352,9 +362,18 @@ async function startServer() {
    سابعاً: الحلويات
    ثامناً: المشروبات الساخنة والعصائر الطازجة
    تاسعاً (في آخر القائمة): المشروبات الغازية (الساقع) والمياه المعدنية (المايه)
-3. استخرج كل صنف مع اسمه الواضح، القسم التابع له، سعره كرقم (إذا وُجد أكثر من حجم، ضع السعر الأساسي واذكر الأحجام في variants مثل "وسط - 120" أو "كبير - 180"). إذا لم يوجد سعر ضع 0.
-4. لكل صنف اكتب في حقل photoQuery اسم الطبق أو المشروب بالإنجليزية بكلمة أو كلمتين واضحتين للبحث عن صورته الحقيقية (مثال: "Kofta kebab", "Grilled chicken", "Shawarma", "Lentil soup", "Tahini", "French fries", "Kunafa", "Mango juice", "Cola", "Bottled water").
-5. لا تبتكر أصنافاً غير موجودة في الملفات المرفقة، ولا تكرر نفس الصنف إذا ظهر في أكثر من صورة.`;
+3. **حفظ النص والأوصاف والعروض كما هي مكتوبة**:
+   - انقل أي وصف أو مكونات أو شروط عرض أو ملاحظات مكتوبة في المنيو **كما هي** في حقل description بالضبط دون حذف تفاصيل مهمة.
+   - إذا كان الصنف عبارة عن عرض أو باقة (مثل "عرض التوفير" أو "4 فرخة بـ 1000 والاثنين بـ 550")، اجعل isOffer: true واكتب في offerLabel شارة قصيرة مناسبة (مثل "عرض خاص" أو "توفير").
+4. **تفسير الأسعار المتعددة والأوزان والكميات والأحجام في variants (مهم جداً)**:
+   - إذا ذكر المنيو لنفس الصنف أو العرض أكثر من كمية أو وزن أو حجم بأسعار مختلفة، فسرها وضع كل خيار في مصفوفة variants بالصيغة الثابتة: "اسم الخيار كما في المنيو - السعر" (مرتبة من الأقل سعراً للأعلى)، وضع في price أقل سعر متاح لهذا الصنف:
+     * مثال عروض الكميات: لو مكتوب "4 فرخة بـ 1000 والاثنين بـ 550" -> اسم الصنف "فراخ (عرض التوفير)" أو حسب عنوانه في المنيو، price: 550، وvariants: ["2 فرخة - 550", "4 فرخة - 1000"]، وdescription: "الاثنين بـ 550 و4 فرخة بـ 1000".
+     * مثال الجزارة واللحوم: لو مكتوب "لحم بلدي الكيلو 420 والنص 215 والربع 110" -> price: 110، وvariants: ["ربع كيلو - 110", "نص كيلو - 215", "كيلو - 420"].
+     * مثال الأحجام: لو مكتوب "وسط 120 / كبير 170" -> price: 120، وvariants: ["وسط - 120", "كبير - 170"].
+   - **ممنوع تماماً اختراع أي أوزان أو أحجام أو خيارات غير مكتوبة في المنيو المرفق.** إذا كان للصنف سعر واحد فقط بدون أوزان أو كميات متعددة في المنيو، اترك variants فارغة [].
+   - إذا لم يوجد سعر نهائياً ضع 0.
+5. لكل صنف اكتب في حقل photoQuery اسم الطبق أو المنتج بالإنجليزية بكلمة أو كلمتين واضحتين للبحث عن صورته الحقيقية (مثال: "Kofta kebab", "Grilled chicken", "Raw beef steak", "Shawarma", "Lentil soup", "Tahini", "French fries", "Kunafa", "Mango juice", "Cola", "Bottled water").
+6. لا تبتكر أصنافاً غير موجودة في الملفات المرفقة، ولا تكرر نفس الصنف إذا ظهر في أكثر من صورة.`;
 
       const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
 
@@ -380,7 +399,7 @@ async function startServer() {
         model: 'gemini-4-hydrogen',
         contents: { parts },
         config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -388,25 +407,33 @@ async function startServer() {
               categories: {
                 type: Type.ARRAY,
                 items: { type: Type.STRING },
-                description: 'أسماء الأقسام مرتبة من المشويات والأطباق الرئيسية أولاً إلى الحلويات والمشروبات والمياه أخيراً.',
+                description: 'أسماء الأقسام مرتبة من العروض والمشويات/اللحوم/الأطباق الرئيسية أولاً إلى الحلويات والمشروبات والمياه أخيراً.',
               },
               items: {
                 type: Type.ARRAY,
                 items: {
                   type: Type.OBJECT,
                   properties: {
-                    name: { type: Type.STRING, description: 'اسم الصنف' },
+                    name: { type: Type.STRING, description: 'اسم الصنف أو العرض كما في المنيو' },
                     category: { type: Type.STRING, description: 'اسم القسم' },
-                    price: { type: Type.NUMBER, description: 'السعر كرقم' },
-                    description: { type: Type.STRING, description: 'وصف مختصر للصنف إن وجد' },
+                    price: { type: Type.NUMBER, description: 'السعر الأساسي أو أقل سعر متاح كرقم' },
+                    description: { type: Type.STRING, description: 'الوصف أو تفاصيل العرض أو المكونات المكتوبة كما هي في المنيو' },
                     photoQuery: {
                       type: Type.STRING,
-                      description: 'اسم الطبق أو المشروب بالإنجليزية للبحث عن صورة حقيقية له (كلمة أو كلمتان)',
+                      description: 'اسم الطبق أو المنتج بالإنجليزية للبحث عن صورة حقيقية له (كلمة أو كلمتان)',
                     },
                     variants: {
                       type: Type.ARRAY,
                       items: { type: Type.STRING },
-                      description: 'المتغيرات أو الأحجام مثل كبير، وسط، إضافات',
+                      description: 'قائمة الخيارات أو الأوزان أو عروض الكميات المذكورة فعلياً في المنيو بصيغة "الاسم - السعر" مثل "2 فرخة - 550" أو "نص كيلو - 215"',
+                    },
+                    isOffer: {
+                      type: Type.BOOLEAN,
+                      description: 'هل هذا الصنف عرض أو باقة توفير مذكورة في المنيو',
+                    },
+                    offerLabel: {
+                      type: Type.STRING,
+                      description: 'شارة العرض القصيرة إن كان عرضاً مثل "عرض خاص" أو "عرض التوفير"',
                     },
                   },
                   required: ['name', 'category', 'price', 'photoQuery'],
@@ -428,24 +455,64 @@ async function startServer() {
           description?: string;
           photoQuery?: string;
           variants?: string[];
+          isOffer?: boolean;
+          offerLabel?: string;
         }>;
+      };
+
+      const toAsciiDigits = (s: string) =>
+        s.replace(/[٠-٩۰-۹]/g, (ch) => {
+          const idx = '٠١٢٣٤٥٦٧٨٩'.indexOf(ch);
+          if (idx >= 0) return String(idx);
+          const idx2 = '۰۱۲۳۴۵۶۷۸۹'.indexOf(ch);
+          return idx2 >= 0 ? String(idx2) : ch;
+        });
+
+      const extractVariantMinPrice = (variantsList: string[]): number | null => {
+        const prices: number[] = [];
+        for (const v of variantsList) {
+          const norm = toAsciiDigits(v);
+          const m = norm.match(/(?:[-:–—|=]|بـ\s*|\()\s*([0-9]+(?:\.[0-9]+)?)\s*(?:ج\.?م\.?|جنيه|ريال|درهم|egp|sar|aed)?\s*\)?$/i);
+          if (m) {
+            const num = Number(m[1]);
+            if (Number.isFinite(num) && num > 0) prices.push(num);
+          }
+        }
+        return prices.length > 0 ? Math.min(...prices) : null;
       };
 
       const cleanedRaw = (parsed.items || [])
         .filter((item) => item && typeof item.name === 'string' && item.name.trim().length > 0)
-        .map((item, idx) => ({
-          name: item.name.trim().slice(0, 160),
-          category: (item.category || 'أصناف متنوعة').trim().slice(0, 80),
-          price: Number.isFinite(Number(item.price)) && Number(item.price) >= 0 ? Number(item.price) : 0,
-          description: (item.description || '').trim().slice(0, 400),
-          photoQuery: (item.photoQuery || '').trim().slice(0, 80),
-          variants: Array.isArray(item.variants)
-            ? item.variants.filter((v) => typeof v === 'string' && v.trim()).slice(0, 20)
-            : [],
-          rawIdx: idx,
-        }));
+        .map((item, idx) => {
+          const cleanVariants = Array.isArray(item.variants)
+            ? item.variants
+                .filter((v) => typeof v === 'string' && v.trim())
+                .map((v) => toAsciiDigits(v).trim().slice(0, 120))
+                .slice(0, 20)
+            : [];
+          const basePrice =
+            Number.isFinite(Number(item.price)) && Number(item.price) >= 0 ? Number(item.price) : 0;
+          const minVariantPrice = extractVariantMinPrice(cleanVariants);
+          const resolvedPrice = basePrice > 0 ? basePrice : minVariantPrice ?? 0;
+          const isOffer = Boolean(item.isOffer);
+          const offerLabel = isOffer
+            ? (item.offerLabel || 'عرض خاص').trim().slice(0, 60)
+            : '';
 
-      // Enforce strict culinary sort: Grills -> Mains -> Casseroles/Rice -> Sandwiches/Pizza -> Soups/Salads -> Extras -> Desserts -> Hot/Juices -> Water/Soda
+          return {
+            name: item.name.trim().slice(0, 160),
+            category: (item.category || 'أصناف متنوعة').trim().slice(0, 80),
+            price: resolvedPrice,
+            description: (item.description || '').trim().slice(0, 400),
+            photoQuery: (item.photoQuery || '').trim().slice(0, 80),
+            variants: cleanVariants,
+            isOffer,
+            offerLabel,
+            rawIdx: idx,
+          };
+        });
+
+      // Enforce strict culinary sort: Offers -> Grills/Butcher -> Mains -> Casseroles/Rice -> Sandwiches/Pizza -> Soups/Salads -> Extras -> Desserts -> Hot/Juices -> Water/Soda
       cleanedRaw.sort((a, b) => {
         const rankDiff = getCategoryCulinaryRank(a.category) - getCategoryCulinaryRank(b.category);
         if (rankDiff !== 0) return rankDiff;
@@ -461,6 +528,8 @@ async function startServer() {
         price: number;
         description: string;
         variants: string[];
+        isOffer?: boolean;
+        offerLabel?: string;
         imageUrl: string;
         sortOrder: number;
       }> = [];
@@ -480,6 +549,7 @@ async function startServer() {
             price: item.price,
             description: item.description,
             variants: item.variants,
+            ...(item.isOffer ? { isOffer: true, offerLabel: item.offerLabel } : {}),
             imageUrl: photos[offset] || VERIFIED_DISH_FALLBACKS.grill,
             sortOrder: start + offset,
           });

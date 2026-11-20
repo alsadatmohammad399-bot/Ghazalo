@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   BarChart3,
@@ -6,12 +6,14 @@ import {
   Boxes,
   Check,
   CreditCard,
+  Edit3,
   ExternalLink,
   Home,
   ImagePlus,
   LayoutGrid,
   Loader2,
   LogOut,
+  Mail,
   Menu,
   MessageCircle,
   Monitor,
@@ -30,6 +32,7 @@ import {
   Utensils,
   X,
 } from 'lucide-react';
+import { PWAInstallButton } from '../components/PWAInstallButton';
 import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
 import {
   addProduct,
@@ -41,12 +44,14 @@ import {
 } from '../services/firestoreService';
 import { formatMoney, getShopThemeHex } from '../utils/calculations';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
-import { compressLogoFile } from '../utils/logoUpload';
+import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
 import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { getCategoryCulinaryRank, sortProductsCulinary } from '../utils/menuSorting';
+import { getProductOptions, parseVariantsInput } from '../utils/productVariants';
 import {
   ADMIN_EMAIL,
   SUBSCRIPTION_PRICING,
+  SUPPORT_CONTACT,
   type ExtractedMenuItem,
   type MenuTemplateId,
   type Order,
@@ -60,6 +65,7 @@ interface DashboardPageProps {
   orders: Order[];
   userName: string;
   userEmail: string;
+  isAdminUser?: boolean;
   darkMode: boolean;
   onSetThemeMode: (mode: 'light' | 'dark' | 'system') => void;
   onOpenStorefront: () => void;
@@ -76,6 +82,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   orders,
   userName,
   userEmail,
+  isAdminUser = false,
   darkMode,
   onSetThemeMode,
   onOpenStorefront,
@@ -100,8 +107,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [prodCategory, setProdCategory] = useState('');
   const [prodPrice, setProdPrice] = useState('');
   const [prodDesc, setProdDesc] = useState('');
+  const [prodVariants, setProdVariants] = useState('');
   const [prodBarcode, setProdBarcode] = useState('');
   const [addingProd, setAddingProd] = useState(false);
+
+  // Inline Edit Product State
+  const [editingProdId, setEditingProdId] = useState<string | null>(null);
+  const [editProdName, setEditProdName] = useState('');
+  const [editProdPrice, setEditProdPrice] = useState('');
+  const [editProdDesc, setEditProdDesc] = useState('');
+  const [editProdVariants, setEditProdVariants] = useState('');
+  const [savingProdEdit, setSavingProdEdit] = useState(false);
 
   // Offer Form State
   const [offerName, setOfferName] = useState('');
@@ -116,8 +132,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
 
-  // Settings (Design, Template & Brand Logo) form state
+  // Settings (Design, Template, Brand Logo & Cover Background) form state
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
   const [editNameAr, setEditNameAr] = useState(shop.nameAr);
   const [editWhatsapp, setEditWhatsapp] = useState(shop.whatsapp || '');
   const [editAddress, setEditAddress] = useState(shop.address || '');
@@ -128,9 +145,24 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     shop.showLogoOnItems !== undefined ? shop.showLogoOnItems : true
   );
   const [logoError, setLogoError] = useState('');
+  const [editCoverImage, setEditCoverImage] = useState(shop.coverImage || '');
+  const [coverError, setCoverError] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
 
-  const isAdminUser = userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  useEffect(() => {
+    if (!settingsModalOpen) return;
+    setEditNameAr(shop.nameAr);
+    setEditWhatsapp(shop.whatsapp || '');
+    setEditAddress(shop.address || '');
+    setEditTemplate(shop.menuTemplate || 'classic');
+    setEditThemeColor(shop.themeColor || 'أخضر');
+    setEditLogoUrl(shop.logoUrl || '');
+    setEditShowLogoOnItems(shop.showLogoOnItems !== undefined ? shop.showLogoOnItems : true);
+    setEditCoverImage(shop.coverImage || '');
+    setLogoError('');
+    setCoverError('');
+  }, [settingsModalOpen, shop]);
+
   const menuUrl = `${window.location.origin}/?shop=${shop.id}`;
 
   const daysRemaining = useMemo(() => {
@@ -189,20 +221,77 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     if (!prodName.trim() || !prodCategory.trim()) return;
     setAddingProd(true);
     try {
+      const variantsList = parseVariantsInput(prodVariants);
+      const parsedOptions = getProductOptions({ price: Number(prodPrice) || 0, variants: variantsList });
+      const explicitPrices = parsedOptions
+        .filter((o) => o.hasExplicitPrice && o.price > 0)
+        .map((o) => o.price);
+      const basePrice =
+        Number(prodPrice) > 0
+          ? Number(prodPrice)
+          : explicitPrices.length > 0
+            ? Math.min(...explicitPrices)
+            : 0;
+
       await addProduct(shop.id, shop.ownerId, {
         name: prodName.trim(),
         category: prodCategory.trim(),
-        price: Number(prodPrice) || 0,
+        price: basePrice,
         description: prodDesc.trim(),
+        variants: variantsList,
         barcode: prodBarcode.trim(),
         imageUrl: resolveDishPhotoClient(prodName.trim(), prodCategory.trim()),
       });
       setProdName('');
       setProdPrice('');
       setProdDesc('');
+      setProdVariants('');
       setProdBarcode('');
     } finally {
       setAddingProd(false);
+    }
+  };
+
+  const startEditProduct = (product: Product) => {
+    if (editingProdId === product.id) {
+      setEditingProdId(null);
+      return;
+    }
+    setEditingProdId(product.id);
+    setEditProdName(product.name);
+    setEditProdPrice(String(product.price ?? 0));
+    setEditProdDesc(product.description || '');
+    setEditProdVariants((product.variants || []).join('، '));
+  };
+
+  const handleSaveProductEdit = async (productId: string) => {
+    if (!editProdName.trim()) return;
+    setSavingProdEdit(true);
+    try {
+      const variantsList = parseVariantsInput(editProdVariants);
+      const parsedOptions = getProductOptions({
+        price: Number(editProdPrice) || 0,
+        variants: variantsList,
+      });
+      const explicitPrices = parsedOptions
+        .filter((o) => o.hasExplicitPrice && o.price > 0)
+        .map((o) => o.price);
+      const resolvedPrice =
+        Number(editProdPrice) > 0
+          ? Number(editProdPrice)
+          : explicitPrices.length > 0
+            ? Math.min(...explicitPrices)
+            : 0;
+
+      await updateProduct(shop.id, productId, {
+        name: editProdName.trim(),
+        price: resolvedPrice,
+        description: editProdDesc.trim(),
+        variants: variantsList,
+      });
+      setEditingProdId(null);
+    } finally {
+      setSavingProdEdit(false);
     }
   };
 
@@ -272,6 +361,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       setEditShowLogoOnItems(true);
     } catch (err: unknown) {
       setLogoError(err instanceof Error ? err.message : 'تعذر رفع اللوجو');
+    }
+  };
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setCoverError('');
+    try {
+      const compressed = await compressCoverFile(file);
+      setEditCoverImage(compressed);
+    } catch (err: unknown) {
+      setCoverError(err instanceof Error ? err.message : 'تعذر رفع صورة الخلفية');
     }
   };
 
@@ -384,6 +486,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         themeColor: editThemeColor,
         logoUrl: editLogoUrl,
         showLogoOnItems: Boolean(editLogoUrl && editShowLogoOnItems),
+        coverImage: editCoverImage,
       });
       setSettingsModalOpen(false);
     } finally {
@@ -414,7 +517,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <span className="font-extrabold text-base sm:text-lg">لوحة التحكم</span>
         </div>
 
-        <div className="flex items-center gap-2.5 relative">
+        <div className="flex items-center gap-2 relative">
+          <PWAInstallButton variant="compact" label="تثبيت التطبيق" />
           <button
             type="button"
             onClick={() => void handleToggleOpen()}
@@ -666,6 +770,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
 
+        {/* PWA App Install Banner for Android / iOS / Desktop POS */}
+        <PWAInstallButton variant="card" />
+
         {/* Needs Attention + Recent Orders */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 space-y-3">
@@ -720,7 +827,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
       {/* Floating Green WhatsApp Button Bottom Left */}
       <a
-        href="https://wa.me/201000000000"
+        href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}`}
         target="_blank"
         rel="noreferrer"
         aria-label="دعم واتساب"
@@ -937,6 +1044,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
               </div>
 
+              <PWAInstallButton variant="drawer" label="تثبيت التطبيق (Android / iOS / PC)" />
+
               <button
                 type="button"
                 onClick={onLogout}
@@ -1037,11 +1146,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   />
                   <input
                     type="number"
-                    required
+                    required={!prodVariants.trim()}
                     min={0}
                     value={prodPrice}
                     onChange={(e) => setProdPrice(e.target.value)}
-                    placeholder="السعر"
+                    placeholder={prodVariants.trim() ? 'السعر الأساسي (تلقائي)' : 'السعر'}
                     className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                   />
                 </div>
@@ -1050,7 +1159,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     type="text"
                     value={prodDesc}
                     onChange={(e) => setProdDesc(e.target.value)}
-                    placeholder="وصف اختياري"
+                    placeholder="وصف أو تفاصيل العرض كما هي في المنيو"
                     className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
@@ -1061,6 +1170,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                 </div>
+                <input
+                  type="text"
+                  value={prodVariants}
+                  onChange={(e) => setProdVariants(e.target.value)}
+                  placeholder="خيارات وأسعار (اختياري، افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000 أو نص كيلو - 215، كيلو - 420)"
+                  className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                />
                 <button
                   type="submit"
                   disabled={addingProd}
@@ -1078,76 +1194,166 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     لا توجد أصناف مضافة حتى الآن.
                   </p>
                 ) : (
-                  sortedProducts.map((p) => (
+                  sortedProducts.map((p) => {
+                    const pOptions = getProductOptions(p);
+                    const isEditingThis = editingProdId === p.id;
+                    return (
                     <div
                       key={p.id}
-                      className="flex items-center justify-between gap-2 bg-emerald-50/40 dark:bg-slate-800 rounded-2xl p-3 text-xs"
+                      className="bg-emerald-50/40 dark:bg-slate-800 rounded-2xl p-3 text-xs space-y-2.5"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="relative w-11 h-11 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border border-emerald-100 dark:border-slate-700">
-                          {p.imageUrl ? (
-                            <img
-                              src={p.imageUrl}
-                              alt={p.name}
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <Utensils className="w-4 h-4 text-emerald-400" />
-                          )}
-                          {shop.logoUrl && shop.showLogoOnItems && (
-                            <img
-                              src={shop.logoUrl}
-                              alt="شعار"
-                              className="w-4 h-4 rounded-full object-cover border border-white absolute top-0.5 right-0.5 bg-white"
-                            />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-extrabold truncate">{p.name}</div>
-                          <div className="text-slate-500 font-semibold">
-                            {p.category} · {formatMoney(p.price, shop.country)}
-                            {p.isOffer && p.originalPrice ? ` (بدلاً من ${p.originalPrice})` : ''}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="relative w-11 h-11 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border border-emerald-100 dark:border-slate-700">
+                            {p.imageUrl ? (
+                              <img
+                                src={p.imageUrl}
+                                alt={p.name}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <Utensils className="w-4 h-4 text-emerald-400" />
+                            )}
+                            {shop.logoUrl && shop.showLogoOnItems && (
+                              <img
+                                src={shop.logoUrl}
+                                alt="شعار"
+                                className="w-4 h-4 rounded-full object-cover border border-white absolute top-0.5 right-0.5 bg-white"
+                              />
+                            )}
+                          </div>
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="font-extrabold truncate">{p.name}</div>
+                            <div className="text-slate-500 font-semibold">
+                              {p.category} · {formatMoney(p.price, shop.country)}
+                              {p.isOffer && p.originalPrice ? ` (بدلاً من ${p.originalPrice})` : ''}
+                            </div>
+                            {p.description && (
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                                {p.description}
+                              </div>
+                            )}
+                            {pOptions.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-0.5">
+                                {pOptions.map((opt) => (
+                                  <span
+                                    key={opt.raw}
+                                    className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 text-emerald-800 dark:text-emerald-300 text-[10px] font-extrabold tabular-nums"
+                                  >
+                                    {opt.label}
+                                    {opt.hasExplicitPrice ? ` · ${opt.price}` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => startEditProduct(p)}
+                            className={`p-1.5 rounded-xl border ${
+                              isEditingThis
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-emerald-100 dark:border-slate-700'
+                            }`}
+                            aria-label="تعديل"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleProductOffer(p)}
+                            className={`px-2.5 py-1 rounded-xl font-bold inline-flex items-center gap-1 ${
+                              p.isOffer
+                                ? 'bg-amber-400 text-slate-900'
+                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-emerald-100 dark:border-slate-700'
+                            }`}
+                          >
+                            <Tag className="w-3 h-3" />
+                            عرض
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void updateProduct(shop.id, p.id, { available: !p.available })
+                            }
+                            className={`px-3 py-1 rounded-xl font-bold ${
+                              p.available !== false
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {p.available !== false ? 'متاح' : 'نفد'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteProduct(shop.id, p.id)}
+                            className="p-1.5 text-slate-400 hover:text-amber-600"
+                            aria-label="حذف"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => void handleToggleProductOffer(p)}
-                          className={`px-2.5 py-1 rounded-xl font-bold inline-flex items-center gap-1 ${
-                            p.isOffer
-                              ? 'bg-amber-400 text-slate-900'
-                              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-emerald-100 dark:border-slate-700'
-                          }`}
-                        >
-                          <Tag className="w-3 h-3" />
-                          عرض
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void updateProduct(shop.id, p.id, { available: !p.available })
-                          }
-                          className={`px-3 py-1 rounded-xl font-bold ${
-                            p.available !== false
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-slate-200 text-slate-600'
-                          }`}
-                        >
-                          {p.available !== false ? 'متاح' : 'نفد'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deleteProduct(shop.id, p.id)}
-                          className="p-1.5 text-slate-400 hover:text-amber-600"
-                          aria-label="حذف"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+
+                      {isEditingThis && (
+                        <div className="pt-2 border-t border-emerald-200/70 dark:border-slate-700 space-y-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <input
+                              type="text"
+                              value={editProdName}
+                              onChange={(e) => setEditProdName(e.target.value)}
+                              placeholder="اسم الصنف"
+                              className="sm:col-span-2 px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                            />
+                            <input
+                              type="number"
+                              min={0}
+                              value={editProdPrice}
+                              onChange={(e) => setEditProdPrice(e.target.value)}
+                              placeholder="السعر"
+                              className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                            />
+                          </div>
+                          <input
+                            type="text"
+                            value={editProdDesc}
+                            onChange={(e) => setEditProdDesc(e.target.value)}
+                            placeholder="الوصف أو نص العرض"
+                            className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                          />
+                          <input
+                            type="text"
+                            value={editProdVariants}
+                            onChange={(e) => setEditProdVariants(e.target.value)}
+                            placeholder="الخيارات والأسعار (افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000)"
+                            className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingProdId(null)}
+                              className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-bold"
+                            >
+                              إلغاء
+                            </button>
+                            <button
+                              type="button"
+                              disabled={savingProdEdit}
+                              onClick={() => void handleSaveProductEdit(p.id)}
+                              className="px-4 py-1.5 rounded-xl bg-emerald-600 text-white font-bold inline-flex items-center gap-1"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              {savingProdEdit ? 'جاري الحفظ...' : 'حفظ التعديل'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1352,7 +1558,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   dir="ltr"
                   value={editWhatsapp}
                   onChange={(e) => setEditWhatsapp(e.target.value)}
-                  placeholder="201000000000"
+                  placeholder={SUPPORT_CONTACT.WHATSAPP_NUMBER}
                   className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                 />
               </div>
@@ -1475,6 +1681,94 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               )}
             </div>
 
+            {/* Restaurant Cover / Background Behind Name & Logo */}
+            <div className="rounded-2xl border border-emerald-100 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-extrabold">خلفية المطعم (ورا الاسم واللوجو)</div>
+                  <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    صورة تظهر خلف اسم مطعمك واللوجو في أعلى المنيو
+                  </div>
+                </div>
+                <input
+                  ref={coverInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => void handleCoverUpload(e)}
+                  className="hidden"
+                />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => coverInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-full glass-btn-primary text-xs font-bold inline-flex items-center gap-1"
+                  >
+                    <ImagePlus className="w-3.5 h-3.5" />
+                    {editCoverImage ? 'تغيير' : 'رفع خلفية'}
+                  </button>
+                  {editCoverImage && (
+                    <button
+                      type="button"
+                      onClick={() => setEditCoverImage('')}
+                      className="px-2.5 py-1.5 rounded-full glass-btn text-xs font-bold text-amber-800"
+                    >
+                      حذف
+                    </button>
+                  )}
+                </div>
+              </div>
+              {coverError && <p className="text-xs font-bold text-amber-800">{coverError}</p>}
+              <div className="relative h-24 rounded-2xl overflow-hidden border border-emerald-200/70 dark:border-slate-700 flex items-end p-3">
+                {editCoverImage ? (
+                  <>
+                    <img
+                      src={editCoverImage}
+                      alt="خلفية المطعم"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/40 to-slate-950/15" />
+                  </>
+                ) : (
+                  <div
+                    style={{ backgroundColor: `${getShopThemeHex(editThemeColor)}18` }}
+                    className="absolute inset-0"
+                  />
+                )}
+                <div className="relative z-10 flex items-center gap-2.5 min-w-0">
+                  {editLogoUrl ? (
+                    <img
+                      src={editLogoUrl}
+                      alt="شعار"
+                      className="w-10 h-10 rounded-xl object-cover border-2 border-white bg-white shadow-xs shrink-0"
+                    />
+                  ) : (
+                    <div
+                      style={{ backgroundColor: getShopThemeHex(editThemeColor) }}
+                      className="w-10 h-10 rounded-xl text-white font-extrabold text-sm flex items-center justify-center shrink-0"
+                    >
+                      {(editNameAr || 'م').trim().slice(0, 1)}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div
+                      className={`font-extrabold text-xs truncate ${
+                        editCoverImage ? 'text-white' : 'text-slate-900 dark:text-white'
+                      }`}
+                    >
+                      {editNameAr || shop.nameAr}
+                    </div>
+                    <div
+                      className={`text-[10px] font-bold ${
+                        editCoverImage ? 'text-emerald-200' : 'text-emerald-700 dark:text-emerald-300'
+                      }`}
+                    >
+                      معاينة الخلفية واللوجو
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={savingSettings}
@@ -1553,34 +1847,48 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
             <div className="grid grid-cols-2 gap-2.5 text-center">
               <div className="rounded-2xl border border-emerald-200 dark:border-slate-700 p-3 space-y-0.5">
-                <div className="text-xs font-bold text-slate-500">اشتراك شهر واحد</div>
-                <div className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                  {SUBSCRIPTION_PRICING.MONTHLY_EGP} ج
+                <div className="text-xs font-bold text-slate-500">اشتراك شهري</div>
+                <div className="text-base font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                  {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / شهري
                 </div>
               </div>
-              <div className="rounded-2xl border border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/30 dark:border-emerald-800 p-3 space-y-0.5">
+              <div className="rounded-2xl border border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/30 dark:border-emerald-800 p-3 space-y-1">
                 <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                  اشتراك سنة كاملة
+                  اشتراك سنوي
                 </div>
-                <div className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                  {SUBSCRIPTION_PRICING.YEARLY_EGP.toLocaleString('en-US')} ج
+                <div className="text-base font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                  {SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / سنوي
+                </div>
+                <div className="inline-block px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[10px] font-extrabold">
+                  وفّر {SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه
                 </div>
               </div>
             </div>
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              لتجديد اشتراكك وتفعيل الحساب بعد الدفع، تواصل مباشرة مع الإدارة:
+              لتجديد اشتراكك وتفعيل المنيو، تواصل مباشرة مع إدارة غزالو (التفعيل يتم عن طريق الإدارة فقط):
             </p>
-            <a
-              href={`https://wa.me/201000000000?text=${encodeURIComponent(
-                `مرحباً، أرغب في تجديد اشتراك متجر ${shop.nameAr}`
-              )}`}
-              target="_blank"
-              rel="noreferrer"
-              className="w-full py-3 rounded-full glass-btn-primary font-bold text-sm flex items-center justify-center gap-2"
-            >
-              <MessageCircle className="w-4 h-4" />
-              تواصل لتأكيد الدفع والتفعيل
-            </a>
+            <div className="space-y-2">
+              <a
+                href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
+                  `مرحباً إدارة غزالو، أرغب في تفعيل اشتراك متجر ${shop.nameAr}`
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full py-3 rounded-full glass-btn-primary font-bold text-sm flex items-center justify-center gap-2"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>تواصل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
+              </a>
+              <a
+                href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${encodeURIComponent(
+                  `تفعيل اشتراك متجر ${shop.nameAr}`
+                )}`}
+                className="w-full py-3 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-bold text-xs flex items-center justify-center gap-2"
+              >
+                <Mail className="w-4 h-4" />
+                <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>
+              </a>
+            </div>
           </div>
         </div>
       )}

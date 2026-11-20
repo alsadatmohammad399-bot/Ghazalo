@@ -60,3 +60,30 @@
     display: block !important;
   }
 }
+
+@keyframes ghazalo-bar {
+  0% {
+    transform: translateX(180%);
+  }
+  100% {
+    transform: translateX(-180%);
+  }
+}
+
+@keyframes ghazalo-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-ghazalo-bar {
+  animation: ghazalo-bar 1.35s ease-in-out infinite;
+}
+
+.animate-ghazalo-float {
+  animation: ghazalo-float 2.8s ease-in-out infinite;
+}

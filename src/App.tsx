@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
-import { CheckCircle2, Loader2, Lock, LogOut, MessageCircle, RefreshCw, Send } from 'lucide-react';
+import { Lock, LogOut, Mail, MessageCircle, RefreshCw } from 'lucide-react';
 import { auth } from './firebase';
 import {
   getOwnerShops,
@@ -8,10 +8,16 @@ import {
   subscribeToProducts,
   subscribeToShop,
   subscribeToTables,
-  updateShop,
 } from './services/firestoreService';
 import { getShopAccessState } from './utils/calculations';
+import {
+  formatAuthContactLabel,
+  isPhoneAuthEmail,
+  isUserActivated,
+} from './utils/authHelpers';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { PlatformLoader } from './components/PlatformLoader';
 import { LandingPage } from './pages/LandingPage';
 import { AuthPage } from './pages/AuthPage';
 import { OnboardingPage } from './pages/OnboardingPage';
@@ -23,7 +29,9 @@ import { ShareQrPage } from './pages/ShareQrPage';
 import { AdminPage } from './pages/AdminPage';
 import {
   ADMIN_EMAIL,
+  ADMIN_PORTAL_KEY,
   SUBSCRIPTION_PRICING,
+  SUPPORT_CONTACT,
   type AppView,
   type DemoProject,
   type Order,
@@ -37,7 +45,16 @@ function AppShell() {
   const [view, setView] = useState<AppView>('landing');
   const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authSyncTick, setAuthSyncTick] = useState(0);
   const [authReady, setAuthReady] = useState(false);
+  const [bootSplash, setBootSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setBootSplash(false);
+    }, 1100);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const [signupMeta, setSignupMeta] = useState<{
     fullName: string;
@@ -60,13 +77,6 @@ function AppShell() {
   const [publicShop, setPublicShop] = useState<Shop | null>(null);
   const [publicProducts, setPublicProducts] = useState<Product[]>([]);
 
-  // Lock Screen Subscription Payment Request State
-  const [requestedPlanChoice, setRequestedPlanChoice] = useState<'monthly_600' | 'yearly_6000'>('monthly_600');
-  const [paymentNoteInput, setPaymentNoteInput] = useState('');
-  const [submittingPaymentReq, setSubmittingPaymentReq] = useState(false);
-  const [paymentReqSaved, setPaymentReqSaved] = useState(false);
-  const [paymentReqError, setPaymentReqError] = useState('');
-
   // Apply Dark Mode class on <html>
   useEffect(() => {
     const root = document.documentElement;
@@ -82,18 +92,16 @@ function AppShell() {
     }
   };
 
-  // Detect URL ?shop=...&table=... or private ?admin=ghazalo-owner on mount
+  const [pendingShortcutMode, setPendingShortcutMode] = useState<'cashier' | 'dashboard' | null>(null);
+
+  // Detect URL ?shop=...&table=..., PWA shortcut ?mode=..., or exclusive owner ?portal=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const adminParam = params.get('admin');
+    const portalParam = params.get('portal');
     const shopParam = params.get('shop');
     const tableParam = params.get('table') || '';
-    if (
-      adminParam === '1' ||
-      adminParam === 'ghazalo-owner' ||
-      adminParam === 'sofrtek-owner' ||
-      window.location.hash === '#admin'
-    ) {
+    const modeParam = params.get('mode');
+    if (portalParam && portalParam === ADMIN_PORTAL_KEY) {
       setView('admin');
       return;
     }
@@ -101,6 +109,10 @@ function AppShell() {
       setQrTargetShopId(shopParam);
       setQrTableLabel(tableParam);
       setView('storefront');
+      return;
+    }
+    if (modeParam === 'cashier' || modeParam === 'dashboard') {
+      setPendingShortcutMode(modeParam);
     }
   }, []);
 
@@ -118,13 +130,28 @@ function AppShell() {
   // Listen to Firebase Auth state
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user && !isUserActivated(user)) {
+        try {
+          await user.reload();
+        } catch {
+          // ignore reload failure if offline
+        }
+      }
       setCurrentUser(user);
-      if (user && (user.emailVerified || Boolean(user.phoneNumber))) {
+      setAuthSyncTick((t) => t + 1);
+      if (user && isUserActivated(user)) {
         try {
           const shops = await getOwnerShops(user.uid);
           if (shops.length > 0) {
             setActiveShopId(shops[0].id);
             setActiveShop(shops[0]);
+            if (pendingShortcutMode === 'cashier') {
+              setView('cashier');
+              setPendingShortcutMode(null);
+            } else if (pendingShortcutMode === 'dashboard') {
+              setView('dashboard');
+              setPendingShortcutMode(null);
+            }
           }
         } catch {
           // handled gracefully
@@ -143,7 +170,7 @@ function AppShell() {
 
   // Real-time Firestore subscriptions for Merchant's Active Shop
   useEffect(() => {
-    if (!activeShopId || !currentUser || !(currentUser.emailVerified || Boolean(currentUser.phoneNumber))) return;
+    if (!activeShopId || !currentUser || !isUserActivated(currentUser)) return;
     const unsubShop = subscribeToShop(activeShopId, (s) => {
       if (s) setActiveShop(s);
     });
@@ -162,7 +189,7 @@ function AppShell() {
       unsubOrders();
       unsubTables();
     };
-  }, [activeShopId, currentUser]);
+  }, [activeShopId, currentUser, authSyncTick]);
 
   const handleAuthComplete = async (meta: {
     fullName: string;
@@ -173,6 +200,8 @@ function AppShell() {
     setSignupMeta(meta);
     const user = auth.currentUser;
     if (!user) return;
+    setCurrentUser(user);
+    setAuthSyncTick((t) => t + 1);
     const isAdmin = Boolean(
       user.emailVerified && user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
     );
@@ -198,11 +227,13 @@ function AppShell() {
       currentUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
   );
 
-  if (!authReady && view !== 'landing' && view !== 'storefront') {
+  if (bootSplash || !authReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-slate-950">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-      </div>
+      <PlatformLoader
+        subtitle={
+          view === 'storefront' ? 'جاري تحميل المنيو...' : 'جاري تحميل المنصة...'
+        }
+      />
     );
   }
 
@@ -211,7 +242,7 @@ function AppShell() {
       <LandingPage
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((d) => !d)}
-        isAuthenticated={Boolean(currentUser && (currentUser.emailVerified || currentUser.phoneNumber))}
+        isAuthenticated={Boolean(currentUser && isUserActivated(currentUser))}
         isAdminUser={isAdminUser}
         onNavigateAuth={(mode) => {
           setAuthMode(mode);
@@ -258,12 +289,16 @@ function AppShell() {
     );
   }
 
-  if (view === 'onboarding' && currentUser) {
+  if (view === 'onboarding' && currentUser && isUserActivated(currentUser)) {
     return (
       <OnboardingPage
         ownerId={currentUser.uid}
         ownerName={signupMeta.fullName || currentUser.displayName || 'تاجر'}
-        ownerEmail={currentUser.email || signupMeta.contact}
+        ownerEmail={
+          currentUser.email && !isPhoneAuthEmail(currentUser.email)
+            ? currentUser.email
+            : ''
+        }
         initialBusinessName={signupMeta.businessName}
         initialCountry={signupMeta.country}
         onCancel={() => setView('landing')}
@@ -296,11 +331,7 @@ function AppShell() {
 
     if (qrTargetShopId) {
       if (!publicShop) {
-        return (
-          <div className="min-h-screen flex items-center justify-center bg-white dark:bg-slate-950">
-            <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-          </div>
-        );
+        return <PlatformLoader subtitle="جاري تحميل المنيو..." />;
       }
       return (
         <StorefrontPage
@@ -335,6 +366,29 @@ function AppShell() {
   }
 
   if (view === 'admin') {
+    const hasValidPortalParam =
+      new URLSearchParams(window.location.search).get('portal') === ADMIN_PORTAL_KEY;
+    if (!hasValidPortalParam && !isAdminUser) {
+      return (
+        <LandingPage
+          darkMode={darkMode}
+          onToggleDarkMode={() => setDarkMode((d) => !d)}
+          isAuthenticated={Boolean(currentUser && isUserActivated(currentUser))}
+          isAdminUser={isAdminUser}
+          onNavigateAuth={(mode) => {
+            setAuthMode(mode);
+            setView(mode);
+          }}
+          onNavigateDashboard={() => setView(activeShop ? 'dashboard' : 'onboarding')}
+          onOpenDemoMenu={(demo) => {
+            setDemoPreview(demo);
+            setQrTargetShopId(null);
+            setQrTableLabel('');
+            setView('storefront');
+          }}
+        />
+      );
+    }
     return (
       <AdminPage
         onBack={() => {
@@ -351,30 +405,19 @@ function AppShell() {
     );
   }
 
-  // Enforce 7-day trial expiration & Admin approval on Merchant Portal views
+  // Enforce 7-day trial expiration & Admin-only approval on Merchant Portal views
   if (
     activeShop &&
     currentUser &&
+    isUserActivated(currentUser) &&
     (view === 'dashboard' || view === 'cashier' || view === 'orders' || view === 'share')
   ) {
     const shopAccess = getShopAccessState(activeShop);
     if (!shopAccess.isActive) {
-      const handleSubmitPaymentRequest = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setPaymentReqError('');
-        setSubmittingPaymentReq(true);
-        try {
-          await updateShop(activeShop.id, {
-            requestedPlan: requestedPlanChoice,
-            paymentNote: paymentNoteInput.trim() || 'تم التحويل وفي انتظار المراجعة',
-          });
-          setPaymentReqSaved(true);
-        } catch (err: unknown) {
-          setPaymentReqError(err instanceof Error ? err.message : 'تعذر إرسال طلب التفعيل.');
-        } finally {
-          setSubmittingPaymentReq(false);
-        }
-      };
+      const waText = encodeURIComponent(
+        `مرحباً إدارة غزالو، أرغب في تفعيل منيو مطعم (${activeShop.nameAr})`
+      );
+      const mailSubject = encodeURIComponent(`تفعيل منيو ${activeShop.nameAr} - Ghazalo`);
 
       return (
         <div dir="rtl" className="min-h-screen bg-emerald-50/40 dark:bg-slate-950 flex items-center justify-center p-4">
@@ -385,136 +428,62 @@ function AppShell() {
               </div>
 
               <div className="space-y-1.5">
-                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
-                  {shopAccess.reason === 'trial_expired'
-                    ? 'انتهت الفترة التجريبية (7 أيام)'
-                    : shopAccess.reason === 'subscription_expired'
-                      ? 'انتهى اشتراك الباقة'
-                      : 'الحساب موقوف مؤقتاً'}
+                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white leading-snug">
+                  انتهت الفترة المجانية، لتفعيل المنيو تواصل مع إدارة غزالو
                 </h1>
                 <p className="text-sm font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
-                  تم إيقاف حساب متجر{' '}
+                  تم إيقاف متجر{' '}
                   <span className="text-emerald-700 dark:text-emerald-400">"{activeShop.nameAr}"</span>{' '}
-                  لحين دفع الاشتراك وموافقة الإدارة. جميع أصنافك وبياناتك محفوظة بأمان.
+                  لحين التفعيل من الإدارة. جميع أصنافك وبياناتك محفوظة بأمان.
                 </p>
               </div>
             </div>
 
-            {/* Subscription Plans & Payment Confirmation Request */}
-            <form onSubmit={(e) => void handleSubmitPaymentRequest(e)} className="space-y-3.5">
-              <div className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
-                اختر باقة الاشتراك لتجديد الحساب:
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRequestedPlanChoice('monthly_600');
-                    setPaymentReqSaved(false);
-                  }}
-                  className={`p-3.5 rounded-2xl border text-right transition-all space-y-1 ${
-                    requestedPlanChoice === 'monthly_600'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 ring-2 ring-emerald-500/20'
-                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <div className="font-extrabold text-sm text-slate-900 dark:text-white">
-                    الباقة الشهرية
-                  </div>
-                  <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                    {SUBSCRIPTION_PRICING.MONTHLY_EGP} ج
-                    <span className="text-xs font-bold text-slate-500"> / شهر (30 يوم)</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRequestedPlanChoice('yearly_6000');
-                    setPaymentReqSaved(false);
-                  }}
-                  className={`p-3.5 rounded-2xl border text-right transition-all space-y-1 ${
-                    requestedPlanChoice === 'yearly_6000'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 ring-2 ring-emerald-500/20'
-                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="font-extrabold text-sm text-slate-900 dark:text-white">
-                      الباقة السنوية
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[10px] font-extrabold">
-                      وفّر 1,200 ج
-                    </span>
-                  </div>
-                  <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                    {SUBSCRIPTION_PRICING.YEARLY_EGP.toLocaleString('en-US')} ج
-                    <span className="text-xs font-bold text-slate-500"> / سنة (365 يوم)</span>
-                  </div>
-                </button>
-              </div>
-
-              <input
-                type="text"
-                maxLength={180}
-                value={paymentNoteInput}
-                onChange={(e) => {
-                  setPaymentNoteInput(e.target.value);
-                  setPaymentReqSaved(false);
-                }}
-                placeholder="رقم المحول منه / مرجع إنستاباي أو فودافون كاش (اختياري)"
-                className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-emerald-50/30 dark:bg-slate-800 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-
-              {paymentReqError && (
-                <div className="rounded-2xl bg-amber-50 border border-amber-200 p-3 text-xs font-bold text-amber-800">
-                  {paymentReqError}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-4 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800/70 space-y-1">
+                <div className="font-extrabold text-sm text-slate-900 dark:text-white">
+                  الباقة الشهرية
                 </div>
-              )}
+                <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                  {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / شهري
+                </div>
+              </div>
 
-              {(paymentReqSaved || activeShop.requestedPlan) && (
-                <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 p-3 text-xs font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>
-                    تم إرسال طلب تفعيل{' '}
-                    {(activeShop.requestedPlan || requestedPlanChoice) === 'yearly_6000'
-                      ? 'الباقة السنوية (6,000 ج)'
-                      : 'الباقة الشهرية (600 ج)'}{' '}
-                    بنجاح، وبانتظار موافقة الإدارة.
+              <div className="p-4 rounded-2xl border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 space-y-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                    الباقة السنوية
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">
+                    وفّر {SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه
                   </span>
                 </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={submittingPaymentReq}
-                className="w-full py-3.5 rounded-full glass-btn-primary font-extrabold text-sm flex items-center justify-center gap-2"
-              >
-                {submittingPaymentReq ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                إرسال تأكيد الدفع وطلب التفعيل
-              </button>
-            </form>
+                <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                  {SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / سنوي
+                </div>
+              </div>
+            </div>
 
             <div className="space-y-2.5 pt-1 border-t border-emerald-100 dark:border-slate-800">
               <a
-                href={`https://wa.me/201000000000?text=${encodeURIComponent(
-                  `مرحباً إدارة Ghazalo، أرغب في تفعيل اشتراك متجري (${activeShop.nameAr}) على باقة ${
-                    requestedPlanChoice === 'yearly_6000' ? 'السنة (6,000 ج)' : 'الشهر (600 ج)'
-                  }${paymentNoteInput ? ` - مرجع الدفع: ${paymentNoteInput}` : ''}`
-                )}`}
+                href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${waText}`}
                 target="_blank"
                 rel="noreferrer"
-                className="w-full py-3 rounded-full glass-btn-amber font-extrabold text-sm flex items-center justify-center gap-2"
+                className="w-full py-3.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
               >
                 <MessageCircle className="w-4 h-4" />
-                تواصل واتساب لتأكيد الدفع فوراً
+                <span>تواصل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
               </a>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <a
+                href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${mailSubject}`}
+                className="w-full py-3.5 px-4 rounded-full bg-emerald-50 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-slate-700 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-slate-700 font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+              >
+                <Mail className="w-4 h-4" />
+                <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>
+              </a>
+
+              <div className="grid grid-cols-2 gap-2.5 pt-1">
                 <button
                   type="button"
                   onClick={async () => {
@@ -549,6 +518,7 @@ function AppShell() {
         shop={activeShop}
         products={shopProducts}
         tables={shopTables}
+        orders={shopOrders}
         onBackDashboard={() => setView('dashboard')}
         onOrderCreated={() => {
           // Firestore onSnapshot automatically refreshes shopOrders
@@ -584,14 +554,15 @@ function AppShell() {
     );
   }
 
-  if (activeShop && currentUser) {
+  if (activeShop && currentUser && isUserActivated(currentUser)) {
     return (
       <DashboardPage
         shop={activeShop}
         products={shopProducts}
         orders={shopOrders}
         userName={currentUser.displayName || signupMeta.fullName || 'تاجر Ghazalo'}
-        userEmail={currentUser.email || ''}
+        userEmail={formatAuthContactLabel(currentUser.email) || signupMeta.contact || ''}
+        isAdminUser={isAdminUser}
         darkMode={darkMode}
         onSetThemeMode={handleSetThemeMode}
         onOpenStorefront={() => {
@@ -631,6 +602,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AppShell />
+      <OfflineIndicator />
     </ErrorBoundary>
   );
 }

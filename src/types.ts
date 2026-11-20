@@ -16,12 +16,23 @@ export type OrderStatus = 'new' | 'preparing' | 'ready' | 'held' | 'completed';
 export type SubscriptionStatus = 'trial' | 'active' | 'expired' | 'suspended';
 
 export const ADMIN_EMAIL = 'alsadatmohammad399@gmail.com';
+export const ADMIN_PORTAL_KEY: string =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_PORTAL_KEY) ||
+  'ghz-991-owner';
 
 export type MenuTemplateId = 'classic' | 'luxury' | 'magazine' | 'compact';
 
 export const SUBSCRIPTION_PRICING = {
   MONTHLY_EGP: 600,
-  YEARLY_EGP: 6000,
+  YEARLY_EGP: 3000,
+  YEARLY_SAVINGS_EGP: 4200,
+} as const;
+
+export const SUPPORT_CONTACT = {
+  PHONE_DISPLAY: '01015861991',
+  WHATSAPP_NUMBER: '201015861991',
+  TEL_LINK: '+201015861991',
+  EMAIL: 'mohamed.ghazal.s203@gmail.com',
 } as const;
 
 export const FIELD_LIMITS = {
@@ -40,6 +51,7 @@ export const FIELD_LIMITS = {
   OFFER_LABEL_MAX: 60,
   PAYMENT_NOTE_MAX: 200,
   LOGO_URL_MAX: 24000,
+  COVER_IMAGE_MAX: 90000,
 } as const;
 
 export interface UserProfile {
@@ -81,7 +93,7 @@ export interface Shop {
   approvedByAdmin?: boolean;
   approvedAt?: number;
   plan?: string;
-  requestedPlan?: '' | 'monthly_600' | 'yearly_6000';
+  requestedPlan?: '' | 'monthly_600' | 'yearly_3000' | 'yearly_6000';
   paymentNote?: string;
   trialEndsAt?: number;
   subscriptionExpiresAt?: number;

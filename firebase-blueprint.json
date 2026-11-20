@@ -126,7 +126,7 @@
         },
         "coverImage": {
           "type": "string",
-          "maxLength": 500
+          "maxLength": 90000
         },
         "logoUrl": {
           "type": "string",

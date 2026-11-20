@@ -116,7 +116,7 @@ export async function createShop(
       paymentMethods: (shopData.paymentMethods || ['نقداً']).slice(0, 10),
       bio: (shopData.bio || '').trim().slice(0, FIELD_LIMITS.BIO_MAX),
       whatsapp: (shopData.whatsapp || '').trim().slice(0, FIELD_LIMITS.PHONE_MAX),
-      coverImage: (shopData.coverImage || '').trim().slice(0, 500),
+      coverImage: (shopData.coverImage || '').trim().slice(0, FIELD_LIMITS.COVER_IMAGE_MAX),
       isOpen: true,
       subscriptionStatus: 'trial',
       approvedByAdmin: false,
@@ -204,7 +204,7 @@ export async function updateShop(
     if (updates.paymentMethods !== undefined) allowed.paymentMethods = updates.paymentMethods.slice(0, 10);
     if (updates.bio !== undefined) allowed.bio = updates.bio.slice(0, FIELD_LIMITS.BIO_MAX);
     if (updates.whatsapp !== undefined) allowed.whatsapp = updates.whatsapp.slice(0, FIELD_LIMITS.PHONE_MAX);
-    if (updates.coverImage !== undefined) allowed.coverImage = updates.coverImage.slice(0, 500);
+    if (updates.coverImage !== undefined) allowed.coverImage = updates.coverImage.slice(0, FIELD_LIMITS.COVER_IMAGE_MAX);
     if (updates.isOpen !== undefined) allowed.isOpen = Boolean(updates.isOpen);
     if (updates.plan !== undefined) allowed.plan = updates.plan.slice(0, 40);
     if (updates.requestedPlan !== undefined) allowed.requestedPlan = updates.requestedPlan;
@@ -225,7 +225,7 @@ export async function approveAndActivateShop(shopId: string, days = 30): Promise
   try {
     const now = Date.now();
     const expiresAt = now + days * 24 * 60 * 60 * 1000;
-    const planLabel = days >= 360 ? 'السنوية (6,000 ج)' : 'الشهرية (600 ج)';
+    const planLabel = days >= 360 ? 'السنوية (3,000 ج)' : 'الشهرية (600 ج)';
     await updateDoc(doc(db, 'shops', shopId), {
       subscriptionStatus: 'active',
       approvedByAdmin: true,

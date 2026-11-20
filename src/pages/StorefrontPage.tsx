@@ -23,6 +23,8 @@ import {
   Loader2,
   Tag,
   Sparkles,
+  Lock,
+  Mail,
 } from 'lucide-react';
 import { ShopInitialAvatar } from '../components/BrandLogo';
 import { createOrder } from '../services/firestoreService';
@@ -35,7 +37,8 @@ import {
 import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
 import { getMenuTemplateMeta } from '../utils/menuTemplates';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
-import type { CartItem, Order, Product, Shop } from '../types';
+import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
+import { SUBSCRIPTION_PRICING, SUPPORT_CONTACT, type CartItem, type Order, type Product, type Shop } from '../types';
 
 interface StorefrontPageProps {
   shop: Shop;
@@ -99,6 +102,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   // Product Detail Page / Modal state
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [detailQty, setDetailQty] = useState<number>(1);
+  const [selectedOptionIndex, setSelectedOptionIndex] = useState<number>(0);
 
   // Customer local orders history for this shop
   const [customerOrders, setCustomerOrders] = useState<Order[]>(() => {
@@ -168,8 +172,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
   const totals = useMemo(() => calculateOrderTotals(cartSubtotal, 0, false), [cartSubtotal]);
 
+  const getProductCartCount = (productId: string) => {
+    return Object.entries(cart).reduce((sum, [key, item]) => {
+      if (key === productId || key.startsWith(`${productId}__`)) {
+        return sum + item.quantity;
+      }
+      return sum;
+    }, 0);
+  };
+
   const upsellSuggestions = useMemo(() => {
-    const notInCart = activeProducts.filter((p) => !cart[p.id]).slice(0, 3);
+    const notInCart = activeProducts
+      .filter(
+        (p) =>
+          !Object.keys(cart).some((key) => key === p.id || key.startsWith(`${p.id}__`))
+      )
+      .slice(0, 3);
     if (notInCart.length >= 3) return notInCart;
     return UPSELL_FALLBACKS.map((fb) => ({
       id: fb.id,
@@ -182,16 +200,72 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     }));
   }, [activeProducts, cart, shop.id, shop.ownerId]);
 
-  const openProductDetail = (product: Product) => {
+  const openProductDetail = (product: Product, initialOptionIdx = 0) => {
     setDetailProduct(product);
     setDetailQty(1);
+    setSelectedOptionIndex(initialOptionIdx);
   };
 
-  const getProductCartCount = (productId: string) => {
-    return cart[productId]?.quantity || 0;
+  const detailOptions = useMemo<ParsedProductOption[]>(() => {
+    if (!detailProduct) return [];
+    return getProductOptions(detailProduct);
+  }, [detailProduct]);
+
+  const selectedDetailOption: ParsedProductOption | null =
+    detailOptions[selectedOptionIndex] || detailOptions[0] || null;
+
+  const activeDetailUnitPrice = detailProduct
+    ? selectedDetailOption
+      ? selectedDetailOption.price
+      : detailProduct.price
+    : 0;
+
+  const getProductPriceDisplay = (product: Product, options: ParsedProductOption[]) => {
+    const priced = options.filter((o) => o.hasExplicitPrice && o.price > 0).map((o) => o.price);
+    if (priced.length > 1) {
+      const minP = Math.min(...priced);
+      const maxP = Math.max(...priced);
+      if (maxP > minP) {
+        return `من ${formatMoney(minP, shop.country)}`;
+      }
+      return formatMoney(minP, shop.country);
+    }
+    return formatMoney(product.price, shop.country);
+  };
+
+  const renderCardOptionChips = (product: Product, options: ParsedProductOption[]) => {
+    if (options.length === 0) return null;
+    return (
+      <div className="flex flex-wrap gap-1 pt-0.5">
+        {options.slice(0, 4).map((opt, idx) => (
+          <button
+            key={opt.raw}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openProductDetail(product, idx);
+            }}
+            className="px-2 py-0.5 rounded-lg bg-emerald-50/90 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 border border-emerald-200/80 dark:border-emerald-800 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-200 tabular-nums transition-colors"
+          >
+            {opt.label}
+            {opt.hasExplicitPrice ? ` · ${formatMoney(opt.price, shop.country, 0)}` : ''}
+          </button>
+        ))}
+        {options.length > 4 && (
+          <span className="px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+            +{options.length - 4}
+          </span>
+        )}
+      </div>
+    );
   };
 
   const addToCart = (product: Product) => {
+    const options = getProductOptions(product);
+    if (options.length > 0) {
+      openProductDetail(product);
+      return;
+    }
     setCart((prev) => {
       const existing = prev[product.id];
       return {
@@ -207,14 +281,18 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
   const addDetailToCart = () => {
     if (!detailProduct) return;
+    const option = selectedDetailOption;
+    const cartKey = option ? `${detailProduct.id}__${option.label}` : detailProduct.id;
+    const unitPrice = option ? option.price : detailProduct.price;
     setCart((prev) => {
-      const existing = prev[detailProduct.id];
+      const existing = prev[cartKey];
       return {
         ...prev,
-        [detailProduct.id]: {
+        [cartKey]: {
           product: detailProduct,
-          unitPrice: detailProduct.price,
+          unitPrice,
           quantity: existing ? existing.quantity + detailQty : detailQty,
+          note: option?.label,
         },
       };
     });
@@ -362,21 +440,75 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const shopAccess = useMemo(() => getShopAccessState(shop), [shop]);
 
   if (!isDemo && !shopAccess.isActive) {
+    const waText = encodeURIComponent(
+      `مرحباً إدارة غزالو، أرغب في تفعيل منيو مطعم (${shop.nameAr})`
+    );
+    const mailSubject = encodeURIComponent(`تفعيل منيو ${shop.nameAr} - Ghazalo`);
+
     return (
       <div dir="rtl" className="min-h-screen bg-emerald-50/30 dark:bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-7 border border-amber-200 dark:border-amber-800 text-center space-y-4 shadow-sm">
-          <div className="w-14 h-14 rounded-3xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 mx-auto flex items-center justify-center">
-            <Utensils className="w-7 h-7" />
+        <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-amber-300 dark:border-amber-800 text-center space-y-5 shadow-sm">
+          <div className="w-16 h-16 rounded-3xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 mx-auto flex items-center justify-center">
+            <Lock className="w-8 h-8" />
           </div>
-          <h1 className="text-xl font-extrabold text-slate-900 dark:text-white">{shop.nameAr}</h1>
-          <p className="text-sm font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
-            عذراً، هذا المنيو متوقف مؤقتاً لحين موافقة الإدارة وتجديد الاشتراك.
-          </p>
+
+          <div className="space-y-1.5">
+            <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
+              {shop.nameAr}
+            </div>
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white leading-snug">
+              انتهت الفترة المجانية، لتفعيل المنيو تواصل مع إدارة غزالو
+            </h1>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-right">
+            <div className="p-4 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800/70 space-y-1">
+              <div className="text-xs font-bold text-slate-500 dark:text-slate-400">اشتراك شهري</div>
+              <div className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / شهري
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 space-y-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                  اشتراك سنوي
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">
+                  وفّر {SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه
+                </span>
+              </div>
+              <div className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                {SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / سنوي
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2.5 pt-1">
+            <a
+              href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${waText}`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-3.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span>تواصل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
+            </a>
+
+            <a
+              href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${mailSubject}`}
+              className="w-full py-3.5 px-4 rounded-full bg-emerald-50 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-slate-700 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-slate-700 font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+            >
+              <Mail className="w-4 h-4" />
+              <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>
+            </a>
+          </div>
+
           {onBack && (
             <button
               type="button"
               onClick={onBack}
-              className="px-6 py-3 rounded-2xl bg-emerald-600 text-white font-bold text-sm"
+              className="px-6 py-2.5 rounded-full glass-btn text-slate-700 dark:text-slate-200 font-bold text-xs"
             >
               {backLabel}
             </button>
@@ -521,65 +653,90 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         </div>
       </div>
 
-      {/* Compact Cover Image & Store Identity */}
+      {/* Store Hero Header: Cover Background Behind Logo & Store Name */}
       <div className="max-w-5xl mx-auto px-4 pt-4">
         <div
-          className={`rounded-3xl overflow-hidden border shadow-xs ${
-            templateId === 'luxury'
-              ? 'bg-gradient-to-br from-white via-amber-50/30 to-white dark:from-slate-900 dark:via-slate-900 dark:to-amber-950/20 border-amber-200/80 dark:border-amber-900/50'
-              : 'bg-white dark:bg-slate-900 border-emerald-100 dark:border-slate-800'
+          className={`relative rounded-3xl overflow-hidden border shadow-xs ${
+            shop.coverImage
+              ? 'min-h-[180px] sm:min-h-[215px] flex flex-col justify-end border-emerald-200/60 dark:border-slate-800'
+              : templateId === 'luxury'
+                ? 'bg-gradient-to-br from-white via-amber-50/30 to-white dark:from-slate-900 dark:via-slate-900 dark:to-amber-950/20 border-amber-200/80 dark:border-amber-900/50'
+                : 'bg-white dark:bg-slate-900 border-emerald-100 dark:border-slate-800'
           }`}
         >
           {shop.coverImage ? (
-            <img
-              src={shop.coverImage}
-              alt={shop.nameAr}
-              referrerPolicy="no-referrer"
-              className="w-full h-28 sm:h-36 object-cover"
-            />
+            <>
+              <img
+                src={shop.coverImage}
+                alt={shop.nameAr}
+                referrerPolicy="no-referrer"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/45 to-slate-950/15" />
+            </>
           ) : (
             <div
-              style={{ backgroundColor: `${themeHex}15` }}
-              className="w-full h-24 sm:h-28 flex items-center justify-center"
+              style={{ backgroundColor: `${themeHex}12` }}
+              className="h-20 sm:h-24 w-full flex items-center justify-center border-b border-emerald-100/70 dark:border-slate-800"
             >
-              <Utensils style={{ color: themeHex }} className="w-8 h-8 opacity-40" />
+              <Utensils style={{ color: themeHex }} className="w-8 h-8 opacity-35" />
             </div>
           )}
 
-          {/* Store Identity + WhatsApp BELOW cover */}
-          <div className="p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
+          {/* Store Identity + WhatsApp */}
+          <div className="relative z-10 p-4 sm:p-6 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
               {shop.logoUrl ? (
                 <img
                   src={shop.logoUrl}
                   alt={shop.nameAr}
-                  className="w-14 h-14 rounded-2xl object-cover border-2 border-emerald-200 dark:border-slate-700 bg-white shadow-xs shrink-0"
+                  className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 bg-white shadow-md shrink-0 ${
+                    shop.coverImage
+                      ? 'border-white'
+                      : 'border-emerald-200 dark:border-slate-700'
+                  }`}
                 />
               ) : (
                 <ShopInitialAvatar name={shop.nameAr} themeHex={themeHex} size="md" />
               )}
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+                  <h1
+                    className={`text-xl sm:text-2xl font-extrabold ${
+                      shop.coverImage
+                        ? 'text-white drop-shadow-xs'
+                        : 'text-slate-900 dark:text-white'
+                    }`}
+                  >
                     {shop.nameAr}
                   </h1>
                   <span
                     className={`px-2.5 py-0.5 rounded-xl text-xs font-extrabold ${
                       shop.isOpen
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                        ? shop.coverImage
+                          ? 'bg-emerald-500 text-white shadow-xs'
+                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : shop.coverImage
+                          ? 'bg-slate-900/80 text-slate-200'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                     }`}
                   >
                     {shop.isOpen ? 'مفتوح الآن' : 'مغلق الآن'}
                   </span>
                   {templateId !== 'classic' && (
-                    <span className="px-2.5 py-0.5 rounded-xl text-[11px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/50">
+                    <span className="px-2.5 py-0.5 rounded-xl text-[11px] font-bold bg-amber-50/95 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/50">
                       {templateMeta.name}
                     </span>
                   )}
                 </div>
                 {(shop.city || shop.address || initialTableLabel) && (
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  <p
+                    className={`text-xs font-semibold ${
+                      shop.coverImage
+                        ? 'text-slate-200'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
                     {[shop.city, shop.address, initialTableLabel].filter(Boolean).join(' · ')}
                   </p>
                 )}
@@ -587,10 +744,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             </div>
 
             <a
-              href={`https://wa.me/${(shop.whatsapp || '201000000000').replace(/[^0-9]/g, '')}`}
+              href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full glass-btn-primary font-bold text-xs whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full glass-btn-primary font-bold text-xs whitespace-nowrap shadow-sm"
             >
               <MessageCircle className="w-4 h-4" />
               تواصل واتساب
@@ -626,6 +783,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               {offerProducts.map((product) => {
                 const inCartQty = getProductCartCount(product.id);
                 const pct = getDiscountPct(product);
+                const options = getProductOptions(product);
                 return (
                   <div
                     key={`offer-${product.id}`}
@@ -667,15 +825,16 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         )}
                       </div>
 
-                      <div>
+                      <div className="space-y-1">
                         <h3 className="font-extrabold text-sm text-slate-900 dark:text-white line-clamp-1">
                           {product.name}
                         </h3>
                         {product.description && (
-                          <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 line-clamp-1">
+                          <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 line-clamp-2">
                             {product.description}
                           </p>
                         )}
+                        {renderCardOptionChips(product, options)}
                       </div>
                     </div>
 
@@ -685,7 +844,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     >
                       <div className="flex items-baseline gap-1.5 tabular-nums">
                         <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
-                          {formatMoney(product.price, shop.country)}
+                          {getProductPriceDisplay(product, options)}
                         </span>
                         {product.originalPrice && product.originalPrice > product.price && (
                           <span className="text-[11px] font-bold text-slate-400 line-through">
@@ -694,15 +853,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         )}
                       </div>
 
-                      {inCartQty === 0 ? (
+                      {inCartQty === 0 || options.length > 0 ? (
                         <button
                           type="button"
                           onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
-                          className="px-3.5 py-1.5 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1"
+                          className="px-3.5 py-1.5 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          أضف
+                          {inCartQty > 0 ? `في السلة (${inCartQty})` : options.length > 0 ? 'اختر' : 'أضف'}
                         </button>
                       ) : (
                         <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
@@ -839,6 +998,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             {filteredProducts.map((product) => {
               const inCartQty = getProductCartCount(product.id);
               const isFav = Boolean(favorites[product.id]);
+              const options = getProductOptions(product);
+              const displayPrice = getProductPriceDisplay(product, options);
 
               // Explicit List Mode OR Compact Fast-Ordering Template
               if (viewMode === 'list' || templateId === 'compact') {
@@ -881,13 +1042,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           )}
                         </div>
                         {product.description && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
                             {product.description}
                           </p>
                         )}
+                        {renderCardOptionChips(product, options)}
                         <div className="flex items-baseline gap-1.5 tabular-nums">
                           <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
-                            {formatMoney(product.price, shop.country)}
+                            {displayPrice}
                           </span>
                           {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
                             <span className="text-[11px] font-bold text-slate-400 line-through">
@@ -902,15 +1064,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       className="flex items-center gap-2 shrink-0"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {inCartQty === 0 ? (
+                      {inCartQty === 0 || options.length > 0 ? (
                         <button
                           type="button"
                           onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
                           aria-label={`إضافة ${product.name}`}
-                          className="w-10 h-10 rounded-full glass-btn-primary disabled:opacity-40 flex items-center justify-center"
+                          className={
+                            options.length > 0
+                              ? 'px-3.5 py-2 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums'
+                              : 'w-10 h-10 rounded-full glass-btn-primary disabled:opacity-40 flex items-center justify-center'
+                          }
                         >
-                          <Plus className="w-5 h-5" />
+                          <Plus className="w-4 h-4" />
+                          {options.length > 0 && (
+                            <span>{inCartQty > 0 ? `في السلة (${inCartQty})` : 'اختر'}</span>
+                          )}
                         </button>
                       ) : (
                         <div className="inline-flex items-center gap-2 glass-surface rounded-full px-2 py-1">
@@ -965,13 +1134,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           {product.description}
                         </p>
                       )}
+                      {renderCardOptionChips(product, options)}
                       <div
                         className="flex items-center justify-between gap-2 pt-1"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-baseline gap-1.5 tabular-nums">
                           <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-400">
-                            {formatMoney(product.price, shop.country)}
+                            {displayPrice}
                           </span>
                           {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
                             <span className="text-xs font-bold text-slate-400 line-through">
@@ -979,15 +1149,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             </span>
                           )}
                         </div>
-                        {inCartQty === 0 ? (
+                        {inCartQty === 0 || options.length > 0 ? (
                           <button
                             type="button"
                             onClick={() => openProductDetail(product)}
                             disabled={!shop.acceptOrders}
-                            className="px-4 py-2 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1"
+                            className="px-4 py-2 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums"
                           >
                             <Plus className="w-4 h-4" />
-                            أضف
+                            {inCartQty > 0 ? `في السلة (${inCartQty})` : options.length > 0 ? 'اختر' : 'أضف'}
                           </button>
                         ) : (
                           <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
@@ -1089,12 +1259,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       )}
 
                       <div className="absolute bottom-3 left-3 px-3 py-1 rounded-full glass-surface text-xs font-extrabold text-emerald-800 dark:text-emerald-300 tabular-nums">
-                        {formatMoney(product.price, shop.country)}
+                        {displayPrice}
                       </div>
                     </div>
 
                     <div className="p-4 flex flex-col justify-between gap-3 flex-1">
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <h3 className="font-extrabold text-base text-slate-900 dark:text-white line-clamp-2">
                           {product.name}
                         </h3>
@@ -1103,6 +1273,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             {product.description}
                           </p>
                         )}
+                        {renderCardOptionChips(product, options)}
                       </div>
 
                       <div
@@ -1119,15 +1290,19 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           </span>
                         )}
 
-                        {inCartQty === 0 ? (
+                        {inCartQty === 0 || options.length > 0 ? (
                           <button
                             type="button"
                             onClick={() => openProductDetail(product)}
                             disabled={!shop.acceptOrders}
-                            className="px-4 py-2 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1"
+                            className="px-4 py-2 rounded-full glass-btn-primary disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums"
                           >
                             <Plus className="w-4 h-4" />
-                            أضف للسلة
+                            {inCartQty > 0
+                              ? `في السلة (${inCartQty})`
+                              : options.length > 0
+                                ? 'اختر الحجم / العرض'
+                                : 'أضف للسلة'}
                           </button>
                         ) : (
                           <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
@@ -1212,10 +1387,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         {product.name}
                       </h3>
                       {product.description && (
-                        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 line-clamp-1">
+                        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 line-clamp-2">
                           {product.description}
                         </p>
                       )}
+                      {renderCardOptionChips(product, options)}
                     </div>
                   </div>
 
@@ -1225,7 +1401,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   >
                     <div className="flex items-baseline gap-1.5 tabular-nums flex-wrap">
                       <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
-                        {formatMoney(product.price, shop.country)}
+                        {displayPrice}
                       </span>
                       {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
                         <span className="text-[10px] font-bold text-slate-400 line-through">
@@ -1234,15 +1410,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       )}
                     </div>
 
-                    {inCartQty === 0 ? (
+                    {inCartQty === 0 || options.length > 0 ? (
                       <button
                         type="button"
                         onClick={() => openProductDetail(product)}
                         disabled={!shop.acceptOrders}
                         aria-label={`إضافة ${product.name}`}
-                        className="w-9 h-9 rounded-full glass-btn-primary disabled:opacity-40 flex items-center justify-center shrink-0"
+                        className={
+                          options.length > 0
+                            ? 'px-3 py-1.5 rounded-full glass-btn-primary disabled:opacity-40 text-[11px] font-extrabold inline-flex items-center gap-1 shrink-0 tabular-nums'
+                            : 'w-9 h-9 rounded-full glass-btn-primary disabled:opacity-40 flex items-center justify-center shrink-0'
+                        }
                       >
-                        <Plus className="w-5 h-5" />
+                        <Plus className="w-4 h-4" />
+                        {options.length > 0 && (
+                          <span>{inCartQty > 0 ? `(${inCartQty})` : 'اختر'}</span>
+                        )}
                       </button>
                     ) : (
                       <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
@@ -1719,7 +1902,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   عن المطعم
                 </button>
                 <a
-                  href={`https://wa.me/${(shop.whatsapp || '201000000000').replace(/[^0-9]/g, '')}`}
+                  href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
                   target="_blank"
                   rel="noreferrer"
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
@@ -1808,7 +1991,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               )}
             </div>
 
-            {/* Original Item Name, Full Description & Original Price */}
+            {/* Original Item Name, Full Description & Real Menu Options */}
             <div className="overflow-y-auto p-5 sm:p-6 space-y-4 flex-1">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1.5">
@@ -1821,11 +2004,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 </div>
                 <div className="text-left shrink-0 tabular-nums">
                   <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400">
-                    {formatMoney(detailProduct.price, shop.country)}
+                    {formatMoney(activeDetailUnitPrice, shop.country)}
                   </div>
                   {detailProduct.isOffer &&
                     detailProduct.originalPrice &&
-                    detailProduct.originalPrice > detailProduct.price && (
+                    detailProduct.originalPrice > activeDetailUnitPrice && (
                       <div className="text-xs font-bold text-slate-400 line-through">
                         {formatMoney(detailProduct.originalPrice, shop.country)}
                       </div>
@@ -1834,9 +2017,58 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               </div>
 
               {detailProduct.description && (
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-300 leading-relaxed">
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
                   {detailProduct.description}
                 </p>
+              )}
+
+              {/* ONLY shown when the uploaded menu/product actually contains options/weights/offers */}
+              {detailOptions.length > 0 && (
+                <div className="space-y-2.5 pt-2 border-t border-emerald-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                      اختر من الخيارات المتاحة في المنيو
+                    </span>
+                    <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                      مطلوب
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {detailOptions.map((opt, idx) => {
+                      const active = (selectedDetailOption?.raw ?? '') === opt.raw;
+                      return (
+                        <button
+                          key={opt.raw}
+                          type="button"
+                          onClick={() => setSelectedOptionIndex(idx)}
+                          className={`p-3 rounded-2xl border text-right transition-all flex items-center justify-between gap-2 ${
+                            active
+                              ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 ring-2 ring-emerald-500/30'
+                              : 'bg-white dark:bg-slate-800 border-emerald-100 dark:border-slate-700 hover:border-emerald-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                                active
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'border border-slate-300 dark:border-slate-600'
+                              }`}
+                            >
+                              {active && <Check className="w-3 h-3" />}
+                            </span>
+                            <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                              {opt.label}
+                            </span>
+                          </div>
+                          <span className="text-sm font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums shrink-0">
+                            {formatMoney(opt.price, shop.country)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
 
@@ -1871,7 +2103,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 className="flex-1 py-3.5 px-5 rounded-full glass-btn-primary disabled:opacity-40 font-extrabold text-sm sm:text-base flex items-center justify-between gap-2 shadow-md tabular-nums"
               >
                 <span>أضف للسلة</span>
-                <span>{formatMoney(detailProduct.price * detailQty, shop.country)}</span>
+                <span>{formatMoney(activeDetailUnitPrice * detailQty, shop.country)}</span>
               </button>
             </div>
           </div>

@@ -24,13 +24,14 @@ export interface OrderTotals {
 export function calculateOrderTotals(
   subtotal: number,
   discount = 0,
-  roundForCashier = false
+  roundForCashier = false,
+  applyTaxAndService = true
 ): OrderTotals {
   const safeSubtotal = round2(Math.max(0, subtotal));
   const safeDiscount = round2(Math.min(safeSubtotal, Math.max(0, discount)));
   const afterDiscount = round2(Math.max(0, safeSubtotal - safeDiscount));
-  const serviceFee = round2(afterDiscount * 0.12);
-  const vat = round2((afterDiscount + serviceFee) * 0.14);
+  const serviceFee = applyTaxAndService ? round2(afterDiscount * 0.12) : 0;
+  const vat = applyTaxAndService ? round2((afterDiscount + serviceFee) * 0.14) : 0;
   const rawTotal = round2(afterDiscount + serviceFee + vat);
   const total = roundForCashier ? Math.round(rawTotal) : rawTotal;
   const roundingDiff = roundForCashier ? round2(total - rawTotal) : 0;
@@ -115,8 +116,8 @@ export function getShopAccessState(shop: Shop): ShopAccessState {
     if (shop.approvedByAdmin === false) {
       return { isActive: false, reason: 'suspended', daysLeft: 0, hoursLeft: 0 };
     }
-    const exp = shop.subscriptionExpiresAt || now + 30 * dayMs;
-    if (now >= exp) {
+    const exp = shop.subscriptionExpiresAt || 0;
+    if (!exp || now >= exp) {
       return { isActive: false, reason: 'subscription_expired', daysLeft: 0, hoursLeft: 0 };
     }
     return {
@@ -128,8 +129,8 @@ export function getShopAccessState(shop: Shop): ShopAccessState {
   }
 
   // Trial period (7 days)
-  const trialEnds = shop.trialEndsAt || now + 7 * dayMs;
-  if (now >= trialEnds) {
+  const trialEnds = shop.trialEndsAt || 0;
+  if (!trialEnds || now >= trialEnds) {
     return { isActive: false, reason: 'trial_expired', daysLeft: 0, hoursLeft: 0 };
   }
 

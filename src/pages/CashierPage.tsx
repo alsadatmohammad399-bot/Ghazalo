@@ -1,62 +1,83 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
-  Bell,
+  Barcode,
+  CheckCircle2,
+  Clock,
+  CreditCard,
   Edit3,
   Grid,
   List,
   Loader2,
   Minus,
+  PauseCircle,
   Plus,
   Printer,
+  Receipt,
   Search,
   ShoppingCart,
   Trash2,
   Utensils,
   X,
 } from 'lucide-react';
-import { createOrder } from '../services/firestoreService';
+import { PWAInstallButton } from '../components/PWAInstallButton';
+import { createOrder, updateOrderStatus } from '../services/firestoreService';
 import { calculateOrderTotals, formatCompactMoney, formatMoney } from '../utils/calculations';
 import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
+import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
 import type { CartItem, Order, Product, Shop, ShopTable } from '../types';
 
 interface CashierPageProps {
   shop: Shop;
   products: Product[];
   tables: ShopTable[];
+  orders?: Order[];
   onBackDashboard: () => void;
   onOrderCreated: (order: Order) => void;
 }
+
+const ORDER_TYPE_OPTIONS = [
+  { id: 'dine_in', label: 'محلي' },
+  { id: 'pickup', label: 'تيك أواي' },
+  { id: 'delivery', label: 'دليفري' },
+  { id: 'table', label: 'طاولة' },
+] as const;
 
 export const CashierPage: React.FC<CashierPageProps> = ({
   shop,
   products,
   tables,
+  orders = [],
   onBackDashboard,
   onOrderCreated,
 }) => {
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('الكل');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
-  const [closeCartOpen, setCloseCartOpen] = useState(false);
-  const [closeCartTab, setCloseCartTab] = useState<'cart' | 'details'>('cart');
+  const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [ticketTab, setTicketTab] = useState<'cart' | 'details'>('cart');
+  const [ordersQueueOpen, setOrdersQueueOpen] = useState(false);
 
-  // Close Cart Details State
+  // POS Checkout State
   const [orderType, setOrderType] = useState<'delivery' | 'pickup' | 'dine_in' | 'table'>('dine_in');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [driverName, setDriverName] = useState('');
   const [customerInput, setCustomerInput] = useState('');
   const [manualDiscount, setManualDiscount] = useState<number>(0);
+  const [applyTaxAndService, setApplyTaxAndService] = useState<boolean>(true);
   const [orderNotes, setOrderNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('نقداً');
   const [paidAmount, setPaidAmount] = useState<string>('');
   const [selectedTable, setSelectedTable] = useState('');
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [optionPickerProduct, setOptionPickerProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
+  const [lastReceiptOrder, setLastReceiptOrder] = useState<Order | null>(null);
 
   const sortedProducts = useMemo(() => sortProductsCulinary(products), [products]);
 
@@ -78,6 +99,16 @@ export const CashierPage: React.FC<CashierPageProps> = ({
     });
   }, [sortedProducts, selectedCategory, searchQuery]);
 
+  const heldAndActiveOrders = useMemo(
+    () => orders.filter((o) => o.status === 'held' || o.status === 'new' || o.status === 'preparing'),
+    [orders]
+  );
+
+  const heldOrdersCount = useMemo(
+    () => orders.filter((o) => o.status === 'held' || o.status === 'new').length,
+    [orders]
+  );
+
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const totalCount = useMemo(
     () => cartItems.reduce((acc, c) => acc + c.quantity, 0),
@@ -88,52 +119,137 @@ export const CashierPage: React.FC<CashierPageProps> = ({
     [cartItems]
   );
 
-  // Exact Cashier Calculation (Service 12%, VAT 14%, Rounding Diff)
   const totals = useMemo(
-    () => calculateOrderTotals(subtotal, manualDiscount, true),
-    [subtotal, manualDiscount]
+    () => calculateOrderTotals(subtotal, manualDiscount, true, applyTaxAndService),
+    [subtotal, manualDiscount, applyTaxAndService]
   );
 
-  const addItem = (product: Product) => {
+  const quickCashAmounts = useMemo(() => {
+    const base = Math.max(0, totals.total);
+    if (base <= 0) return [50, 100, 200];
+    const suggestions = new Set<number>([base]);
+    const steps = [50, 100, 200, 500, 1000];
+    for (const step of steps) {
+      const rounded = Math.ceil(base / step) * step;
+      if (rounded > base) suggestions.add(rounded);
+      if (suggestions.size >= 4) break;
+    }
+    return Array.from(suggestions).slice(0, 4);
+  }, [totals.total]);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 3000);
+  };
+
+  const getProductQty = (productId: string) => {
+    return Object.entries(cart).reduce((sum, [key, item]) => {
+      if (key === productId || key.startsWith(`${productId}__`)) {
+        return sum + item.quantity;
+      }
+      return sum;
+    }, 0);
+  };
+
+  const addItemWithOption = (product: Product, option?: ParsedProductOption) => {
+    if (product.available === false) {
+      showToast('هذا الصنف غير متاح حالياً');
+      return;
+    }
+    const cartKey = option ? `${product.id}__${option.label}` : product.id;
+    const unitPrice = option ? option.price : product.price;
     setCart((prev) => {
-      const existing = prev[product.id];
+      const existing = prev[cartKey];
       return {
         ...prev,
-        [product.id]: {
+        [cartKey]: {
           product,
-          unitPrice: existing ? existing.unitPrice : product.price,
+          unitPrice: existing ? existing.unitPrice : unitPrice,
           quantity: existing ? existing.quantity + 1 : 1,
-          note: existing?.note,
+          note: option ? option.label : existing?.note,
         },
       };
     });
   };
 
-  const decItem = (productId: string) => {
+  const handleProductTap = (product: Product) => {
+    if (product.available === false) {
+      showToast('هذا الصنف غير متاح حالياً');
+      return;
+    }
+    const options = getProductOptions(product);
+    if (options.length > 0) {
+      setOptionPickerProduct(product);
+      return;
+    }
+    addItemWithOption(product);
+  };
+
+  const handleBarcodeOrEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return;
+    const exactBarcode = sortedProducts.find(
+      (p) => p.barcode && p.barcode.trim().toLowerCase() === q
+    );
+    const target = exactBarcode || (filteredProducts.length === 1 ? filteredProducts[0] : null);
+    if (target) {
+      e.preventDefault();
+      handleProductTap(target);
+      setSearchQuery('');
+    }
+  };
+
+  const incCartKey = (cartKey: string) => {
     setCart((prev) => {
-      const existing = prev[productId];
+      const existing = prev[cartKey];
       if (!existing) return prev;
-      if (existing.quantity <= 1) {
-        const next = { ...prev };
-        delete next[productId];
-        return next;
-      }
       return {
         ...prev,
-        [productId]: { ...existing, quantity: existing.quantity - 1 },
+        [cartKey]: { ...existing, quantity: existing.quantity + 1 },
       };
     });
   };
 
-  const removeItem = (productId: string) => {
+  const decItem = (cartKey: string) => {
+    setCart((prev) => {
+      const existing = prev[cartKey];
+      if (!existing) return prev;
+      if (existing.quantity <= 1) {
+        const next = { ...prev };
+        delete next[cartKey];
+        return next;
+      }
+      return {
+        ...prev,
+        [cartKey]: { ...existing, quantity: existing.quantity - 1 },
+      };
+    });
+  };
+
+  const removeItem = (cartKey: string) => {
     setCart((prev) => {
       const next = { ...prev };
-      delete next[productId];
+      delete next[cartKey];
       return next;
     });
   };
 
-  const submitCashierOrder = async (targetStatus: 'completed' | 'held') => {
+  const clearCart = () => {
+    setCart({});
+    setManualDiscount(0);
+    setPaidAmount('');
+    setOrderNotes('');
+    setCustomerInput('');
+    setDeliveryAddress('');
+    setDriverName('');
+    setSelectedTable('');
+  };
+
+  const submitCashierOrder = async (
+    targetStatus: 'completed' | 'held',
+    autoPrint = false
+  ) => {
     if (cartItems.length === 0) return;
     setSaving(true);
     try {
@@ -151,7 +267,9 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         tableLabel: orderType === 'table' ? selectedTable : '',
         notes: orderNotes.trim(),
         itemsCount: totalCount,
-        itemSummary: cartItems.map((c) => `${c.product.name} × ${c.quantity}`),
+        itemSummary: cartItems.map(
+          (c) => `${c.product.name}${c.note ? ` (${c.note})` : ''} × ${c.quantity}`
+        ),
         subtotal: totals.subtotal,
         discount: totals.discount,
         serviceFee: totals.serviceFee,
@@ -161,55 +279,420 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         paidAmount: Number(paidAmount) || totals.total,
       });
 
+      setLastReceiptOrder(order);
       onOrderCreated(order);
-      setCart({});
-      setManualDiscount(0);
-      setPaidAmount('');
-      setOrderNotes('');
-      setCloseCartOpen(false);
-      setToastMsg(
+      clearCart();
+      setMobileCartOpen(false);
+      showToast(
         targetStatus === 'held'
           ? `تم تعليق الطلب #${order.orderNumber}`
-          : `تم إنهاء الطلب #${order.orderNumber} بنجاح`
+          : `تم تسجيل الفاتورة #${order.orderNumber} بنجاح`
       );
-      setTimeout(() => setToastMsg(''), 3000);
+      if (autoPrint) {
+        setTimeout(() => window.print(), 120);
+      }
     } finally {
       setSaving(false);
     }
   };
 
+  const handlePrintActiveOrLast = () => {
+    if (cartItems.length > 0) {
+      setLastReceiptOrder(null);
+    }
+    setTimeout(() => window.print(), 50);
+  };
+
   const paidNum = Number(paidAmount) || 0;
   const changeDue = paidNum > totals.total ? paidNum - totals.total : 0;
 
+  // Reusable POS Checkout Ticket Body (used in desktop right column & mobile modal)
+  const renderTicketBody = () => (
+    <div className="space-y-3.5">
+      {/* Tabs: السلة & بيانات العميل */}
+      <div className="grid grid-cols-2 gap-1.5 bg-emerald-50/70 dark:bg-slate-800 p-1 rounded-2xl">
+        <button
+          type="button"
+          onClick={() => setTicketTab('cart')}
+          className={`py-2 rounded-xl text-xs font-extrabold transition-colors tabular-nums ${
+            ticketTab === 'cart'
+              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
+              : 'text-slate-600 dark:text-slate-300'
+          }`}
+        >
+          الأصناف ({totalCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setTicketTab('details')}
+          className={`py-2 rounded-xl text-xs font-extrabold transition-colors ${
+            ticketTab === 'details'
+              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
+              : 'text-slate-600 dark:text-slate-300'
+          }`}
+        >
+          بيانات العميل والخصم
+        </button>
+      </div>
+
+      {ticketTab === 'cart' ? (
+        <>
+          {/* Order Type Buttons */}
+          <div className="grid grid-cols-4 gap-1.5">
+            {ORDER_TYPE_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setOrderType(opt.id)}
+                className={`py-2 rounded-xl text-xs font-extrabold border transition-colors ${
+                  orderType === opt.id
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {orderType === 'table' && (
+            <button
+              type="button"
+              onClick={() => setTablePickerOpen(true)}
+              className="w-full py-2 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-bold text-xs"
+            >
+              {selectedTable ? `الطاولة المختارة: ${selectedTable}` : 'اضغط لاختيار الطاولة'}
+            </button>
+          )}
+
+          {orderType === 'delivery' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={deliveryAddress}
+                onChange={(e) => setDeliveryAddress(e.target.value)}
+                placeholder="عنوان التوصيل"
+                className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+              />
+              <input
+                type="text"
+                value={driverName}
+                onChange={(e) => setDriverName(e.target.value)}
+                placeholder="اسم الطيار / السائق"
+                className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+              />
+            </div>
+          )}
+
+          {/* Cart Items */}
+          {cartItems.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-emerald-200 dark:border-slate-700 py-8 px-4 text-center space-y-1.5">
+              <ShoppingCart className="w-8 h-8 text-emerald-300 mx-auto" />
+              <p className="text-xs font-bold text-slate-500">
+                اضغط على أي صنف أو امسح الباركود لإضافته للفاتورة
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[250px] lg:max-h-[270px] overflow-y-auto pr-0.5">
+              {Object.entries(cart).map(([cartKey, { product, quantity, unitPrice, note }]) => (
+                <div
+                  key={cartKey}
+                  className="bg-emerald-50/40 dark:bg-slate-800 rounded-2xl p-2.5 space-y-1.5 border border-emerald-100/70 dark:border-slate-700"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
+                        {product.name}
+                      </div>
+                      <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums truncate">
+                        {formatCompactMoney(unitPrice, shop.country)}
+                        {note ? ` · ${note}` : ''}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => incCartKey(cartKey)}
+                        className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="font-extrabold text-xs tabular-nums min-w-[18px] text-center">
+                        {quantity}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => decItem(cartKey)}
+                        className="w-7 h-7 rounded-full bg-white dark:bg-slate-900 text-emerald-700 flex items-center justify-center border border-emerald-100 dark:border-slate-700"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingItemId(editingItemId === cartKey ? null : cartKey)
+                        }
+                        className="w-7 h-7 rounded-xl bg-white dark:bg-slate-900 text-slate-600 flex items-center justify-center"
+                        aria-label="تعديل السعر"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(cartKey)}
+                        className="w-7 h-7 rounded-xl bg-white dark:bg-slate-900 text-amber-600 flex items-center justify-center"
+                        aria-label="حذف"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {editingItemId === cartKey && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <label className="text-[11px] font-bold">سعر الوحدة:</label>
+                      <input
+                        type="number"
+                        value={unitPrice}
+                        onChange={(e) => {
+                          const nextPrice = Math.max(0, Number(e.target.value) || 0);
+                          setCart((prev) => ({
+                            ...prev,
+                            [cartKey]: { ...prev[cartKey], unitPrice: nextPrice },
+                          }));
+                        }}
+                        className="w-24 px-2 py-1 rounded-xl border border-emerald-200 bg-white dark:bg-slate-900 text-xs font-bold tabular-nums"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="space-y-2.5">
+          <div>
+            <label className="block text-xs font-bold mb-1">اسم العميل / الهاتف</label>
+            <input
+              type="text"
+              value={customerInput}
+              onChange={(e) => setCustomerInput(e.target.value)}
+              placeholder="مثال: أحمد - 010..."
+              className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold mb-1">خصم يدوي</label>
+            <input
+              type="number"
+              min={0}
+              value={manualDiscount || ''}
+              onChange={(e) => setManualDiscount(Math.max(0, Number(e.target.value) || 0))}
+              placeholder="قيمة الخصم"
+              className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold tabular-nums"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold mb-1">ملاحظات للمطبخ</label>
+            <textarea
+              rows={2}
+              value={orderNotes}
+              onChange={(e) => setOrderNotes(e.target.value)}
+              placeholder="بدون بصل، زيادة صوص..."
+              className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Payment Method + Tax Toggle + Quick Cash */}
+      <div className="space-y-2.5 pt-2 border-t border-emerald-100 dark:border-slate-800">
+        <div className="grid grid-cols-3 gap-1.5">
+          {[
+            { id: 'نقداً', label: 'كاش' },
+            { id: 'فيزا / بطاقة', label: 'فيزا' },
+            { id: 'فودافون كاش', label: 'محفظة' },
+          ].map((pm) => (
+            <button
+              key={pm.id}
+              type="button"
+              onClick={() => setPaymentMethod(pm.id)}
+              className={`py-2 rounded-xl text-xs font-extrabold border flex items-center justify-center gap-1 ${
+                paymentMethod === pm.id
+                  ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+              }`}
+            >
+              <CreditCard className="w-3 h-3" />
+              <span>{pm.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Service & VAT toggle */}
+        <button
+          type="button"
+          onClick={() => setApplyTaxAndService((v) => !v)}
+          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-50/50 dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 text-xs font-bold"
+        >
+          <span>رسوم خدمة 12% + ضريبة 14%</span>
+          <span
+            className={`px-2 py-0.5 rounded-lg text-[11px] font-extrabold ${
+              applyTaxAndService
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+            }`}
+          >
+            {applyTaxAndService ? 'مفعل' : 'معفى'}
+          </span>
+        </button>
+
+        {/* Cash Tendered */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-[11px] font-bold">
+            <span>المدفوع من العميل</span>
+            {changeDue > 0 && (
+              <span className="text-emerald-700 dark:text-emerald-400 font-extrabold tabular-nums">
+                الباقي للعميل: {formatCompactMoney(changeDue, shop.country)}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {quickCashAmounts.map((amt, i) => (
+              <button
+                key={`${amt}-${i}`}
+                type="button"
+                onClick={() => setPaidAmount(String(amt))}
+                className={`py-1.5 rounded-xl text-[11px] font-extrabold border tabular-nums ${
+                  Number(paidAmount) === amt
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white dark:bg-slate-800 border-emerald-200 dark:border-slate-700'
+                }`}
+              >
+                {i === 0 && amt === totals.total && totals.total > 0 ? 'بالضبط' : amt}
+              </button>
+            ))}
+            <input
+              type="number"
+              value={paidAmount}
+              onChange={(e) => setPaidAmount(e.target.value)}
+              placeholder="مبلغ"
+              className="col-span-1 px-1.5 py-1.5 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] font-bold text-center tabular-nums"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Totals Breakdown */}
+      <div className="bg-emerald-50/70 dark:bg-slate-800 rounded-2xl p-3 space-y-1 text-xs font-bold">
+        <div className="flex justify-between">
+          <span>المجموع</span>
+          <span className="tabular-nums">{formatCompactMoney(totals.subtotal, shop.country)}</span>
+        </div>
+        {totals.discount > 0 && (
+          <div className="flex justify-between text-amber-700">
+            <span>الخصم</span>
+            <span className="tabular-nums">-{formatCompactMoney(totals.discount, shop.country)}</span>
+          </div>
+        )}
+        {applyTaxAndService && (
+          <>
+            <div className="flex justify-between text-slate-600 dark:text-slate-300">
+              <span>الخدمة 12%</span>
+              <span className="tabular-nums">{totals.serviceFee.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-slate-600 dark:text-slate-300">
+              <span>الضريبة 14%</span>
+              <span className="tabular-nums">{totals.vat.toFixed(2)}</span>
+            </div>
+          </>
+        )}
+        <div className="flex justify-between text-base font-extrabold pt-1.5 border-t border-emerald-200 dark:border-slate-700">
+          <span>الإجمالي</span>
+          <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
+            {formatCompactMoney(totals.total, shop.country)}
+          </span>
+        </div>
+      </div>
+
+      {/* POS Action Buttons */}
+      <div className="grid grid-cols-4 gap-2">
+        <button
+          type="button"
+          disabled={saving || cartItems.length === 0}
+          onClick={() => void submitCashierOrder('completed', true)}
+          className="col-span-2 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 tabular-nums"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+          <span>دفع وطباعة ({totals.total})</span>
+        </button>
+        <button
+          type="button"
+          disabled={saving || cartItems.length === 0}
+          onClick={() => void submitCashierOrder('held')}
+          className="py-3 rounded-2xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 disabled:opacity-40 font-extrabold text-xs inline-flex items-center justify-center gap-1"
+        >
+          <PauseCircle className="w-3.5 h-3.5" />
+          تعليق
+        </button>
+        <button
+          type="button"
+          disabled={cartItems.length === 0 && !lastReceiptOrder}
+          onClick={handlePrintActiveOrLast}
+          className="py-3 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 disabled:opacity-40 font-bold text-xs inline-flex items-center justify-center gap-1"
+        >
+          <Printer className="w-3.5 h-3.5" />
+          إيصال
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <div dir="rtl" className="min-h-screen bg-emerald-50/30 dark:bg-slate-950 pb-24">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-emerald-100 dark:border-slate-800 px-4 h-14 flex items-center justify-between gap-3 no-print">
-        <div className="flex items-center gap-2.5">
+    <div dir="rtl" className="min-h-screen bg-emerald-50/30 dark:bg-slate-950 pb-24 lg:pb-6">
+      {/* Top POS Bar */}
+      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-emerald-100 dark:border-slate-800 px-4 h-14 flex items-center justify-between gap-2 no-print">
+        <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
             onClick={onBackDashboard}
-            className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center"
+            className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0"
             aria-label="رجوع"
           >
             <ArrowRight className="w-5 h-5" />
           </button>
+          <div className="min-w-0">
+            <div className="font-extrabold text-sm truncate">كاشير {shop.nameAr} · POS</div>
+          </div>
           <span
-            className={`px-3 py-1 rounded-xl text-xs font-extrabold tabular-nums ${
+            className={`hidden sm:inline-flex px-2.5 py-0.5 rounded-xl text-[11px] font-extrabold tabular-nums ${
               shop.isOpen
                 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                 : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
             }`}
           >
-            {shop.isOpen ? 'مفتوح' : 'مغلق'} ({totalCount})
+            {shop.isOpen ? 'نقطة البيع نشطة' : 'مغلق'}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <PWAInstallButton variant="compact" label="تثبيت POS" />
+
           <button
             type="button"
-            onClick={() => setCloseCartOpen(true)}
-            className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center relative"
+            onClick={() => setOrdersQueueOpen(true)}
+            className="px-3 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 font-extrabold text-xs inline-flex items-center gap-1.5 relative"
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">المعلقة والواردة</span>
+            <span className="tabular-nums">({heldOrdersCount})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobileCartOpen(true)}
+            className="lg:hidden w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center relative"
             aria-label="السلة"
           >
             <ShoppingCart className="w-4 h-4" />
@@ -219,6 +702,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               </span>
             )}
           </button>
+
           <button
             type="button"
             onClick={() => setViewMode('list')}
@@ -243,14 +727,6 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           >
             <Grid className="w-4 h-4" />
           </button>
-          <button
-            type="button"
-            onClick={onBackDashboard}
-            className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center"
-            aria-label="الإشعارات"
-          >
-            <Bell className="w-4 h-4" />
-          </button>
         </div>
       </header>
 
@@ -260,482 +736,330 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-4 pt-4 space-y-4 no-print">
-        {/* Search Bar */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="اسم الصنف، الوصف، أو الباركود"
-            className="w-full pr-11 pl-4 py-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 text-sm font-semibold"
-          />
-        </div>
-
-        {/* Categories Bar */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-4 py-2 rounded-2xl text-sm font-bold whitespace-nowrap shrink-0 border transition-colors ${
-                selectedCategory === cat
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-emerald-100 dark:border-slate-800'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        {/* Product Cards (Taller POS Cards) */}
-        {filteredProducts.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 border border-emerald-100 dark:border-slate-800 text-center space-y-2">
-            <Utensils className="w-10 h-10 text-emerald-300 mx-auto" />
-            <p className="text-base font-bold text-slate-600 dark:text-slate-300">
-              لا توجد أصناف مطابقة للبحث
-            </p>
+      {/* Main Split-Screen POS Workspace */}
+      <div className="max-w-7xl mx-auto px-4 pt-4 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start no-print">
+        {/* Left/Main Catalog Panel (7 or 8 cols on desktop) */}
+        <div className="lg:col-span-7 xl:col-span-8 space-y-3.5">
+          {/* Search + Barcode Scanner Bar */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleBarcodeOrEnter}
+              placeholder="ابحث بالاسم أو امسح الباركود واضغط Enter للإضافة الفورية..."
+              className="w-full pr-11 pl-10 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            <Barcode className="w-4 h-4 text-emerald-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
           </div>
-        ) : (
-          <div
-            className={
-              viewMode === 'grid'
-                ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5'
-                : 'space-y-3'
-            }
-          >
-            {filteredProducts.map((product) => {
-              const qty = cart[product.id]?.quantity || 0;
-              return (
-                <div
-                  key={product.id}
-                  onClick={() => addItem(product)}
-                  className={`cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-3.5 border border-emerald-100 dark:border-slate-800 shadow-xs hover:border-emerald-400 transition-colors ${
-                    viewMode === 'grid' ? 'min-h-[235px] flex flex-col justify-between' : 'flex items-center justify-between gap-3'
-                  }`}
-                >
-                  <div className={viewMode === 'grid' ? 'space-y-2.5' : 'flex items-center gap-3'}>
+
+          {/* Categories Strip */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap shrink-0 border transition-colors ${
+                  selectedCategory === cat
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-emerald-100 dark:border-slate-800'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {/* Product Grid / List */}
+          {filteredProducts.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 border border-emerald-100 dark:border-slate-800 text-center space-y-2">
+              <Utensils className="w-10 h-10 text-emerald-300 mx-auto" />
+              <p className="text-base font-bold text-slate-600 dark:text-slate-300">
+                لا توجد أصناف مطابقة للبحث
+              </p>
+            </div>
+          ) : (
+            <div
+              className={
+                viewMode === 'grid'
+                  ? 'grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3'
+                  : 'space-y-2.5'
+              }
+            >
+              {filteredProducts.map((product) => {
+                const qty = getProductQty(product.id);
+                const options = getProductOptions(product);
+                const isUnavailable = product.available === false;
+                return (
+                  <div
+                    key={product.id}
+                    onClick={() => handleProductTap(product)}
+                    className={`cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-3 border transition-colors ${
+                      isUnavailable
+                        ? 'opacity-50 border-slate-200 dark:border-slate-800'
+                        : qty > 0
+                          ? 'border-emerald-500 shadow-xs'
+                          : 'border-emerald-100 dark:border-slate-800 hover:border-emerald-400'
+                    } ${
+                      viewMode === 'grid'
+                        ? 'min-h-[215px] flex flex-col justify-between'
+                        : 'flex items-center justify-between gap-3'
+                    }`}
+                  >
+                    <div className={viewMode === 'grid' ? 'space-y-2' : 'flex items-center gap-3'}>
+                      <div
+                        className={`${
+                          viewMode === 'grid' ? 'h-28 w-full' : 'w-14 h-14 shrink-0'
+                        } rounded-2xl bg-emerald-50/70 dark:bg-slate-800 flex items-center justify-center overflow-hidden relative`}
+                      >
+                        {product.imageUrl && !brokenImages[product.id] ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            referrerPolicy="no-referrer"
+                            onError={() =>
+                              setBrokenImages((prev) => ({ ...prev, [product.id]: true }))
+                            }
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <Utensils className="w-7 h-7 text-emerald-300" />
+                        )}
+                        {qty > 0 && (
+                          <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold tabular-nums shadow">
+                            {qty}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white line-clamp-2">
+                          {product.name}
+                        </div>
+                        <div className="text-[11px] font-semibold text-slate-400">
+                          {product.category}
+                          {isUnavailable ? ' · نفد' : ''}
+                        </div>
+                        {options.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {options.slice(0, 2).map((opt) => (
+                              <span
+                                key={opt.raw}
+                                className="px-1.5 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-[10px] font-extrabold tabular-nums"
+                              >
+                                {opt.label}
+                                {opt.hasExplicitPrice ? ` · ${opt.price}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
                     <div
-                      className={`${
-                        viewMode === 'grid' ? 'h-32 w-full' : 'w-14 h-14 shrink-0'
-                      } rounded-2xl bg-emerald-50/70 dark:bg-slate-800 flex items-center justify-center overflow-hidden`}
+                      className="flex items-center justify-between gap-2 pt-2"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      {product.imageUrl && !brokenImages[product.id] ? (
-                        <img
-                          src={product.imageUrl}
-                          alt={product.name}
-                          referrerPolicy="no-referrer"
-                          onError={() => setBrokenImages((prev) => ({ ...prev, [product.id]: true }))}
-                          className="w-full h-full object-cover"
-                        />
+                      <span className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        {formatCompactMoney(product.price, shop.country)}
+                      </span>
+                      {qty === 0 || options.length > 0 ? (
+                        <button
+                          type="button"
+                          disabled={isUnavailable}
+                          onClick={() => handleProductTap(product)}
+                          className={
+                            options.length > 0
+                              ? 'px-2.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-[11px] font-extrabold inline-flex items-center gap-1 tabular-nums'
+                              : 'w-8 h-8 rounded-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white flex items-center justify-center'
+                          }
+                        >
+                          <Plus className="w-4 h-4" />
+                          {options.length > 0 && <span>{qty > 0 ? `(${qty})` : 'خيارات'}</span>}
+                        </button>
                       ) : (
-                        <Utensils className="w-8 h-8 text-emerald-300" />
+                        <div className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950 rounded-full px-1.5 py-0.5 border border-emerald-200 dark:border-emerald-800">
+                          <button
+                            type="button"
+                            onClick={() => addItemWithOption(product)}
+                            className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                          <span className="font-extrabold text-xs tabular-nums min-w-[14px] text-center">
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => decItem(product.id)}
+                            className="w-6 h-6 rounded-full bg-white dark:bg-slate-800 text-emerald-700 flex items-center justify-center"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
-                    <div className="space-y-1">
-                      <div className="font-extrabold text-sm text-slate-900 dark:text-white line-clamp-2">
-                        {product.name}
-                      </div>
-                      <div className="text-xs font-semibold text-slate-400">{product.category}</div>
-                    </div>
                   </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-                  <div
-                    className="flex items-center justify-between gap-2 pt-2"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                      {formatMoney(product.price, shop.country)}
-                    </span>
-                    {qty === 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => addItem(product)}
-                        className="w-9 h-9 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center"
-                      >
-                        <Plus className="w-5 h-5" />
-                      </button>
-                    ) : (
-                      <div className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950 rounded-full px-1.5 py-1 border border-emerald-200 dark:border-emerald-800">
-                        <button
-                          type="button"
-                          onClick={() => addItem(product)}
-                          className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                        <span className="font-extrabold text-xs tabular-nums min-w-[14px] text-center">
-                          {qty}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => decItem(product.id)}
-                          className="w-6 h-6 rounded-full bg-white dark:bg-slate-800 text-emerald-700 flex items-center justify-center"
-                        >
-                          <Minus className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+        {/* Desktop Persistent POS Register Ticket Panel */}
+        <aside className="hidden lg:block lg:col-span-5 xl:col-span-4 sticky top-[72px] bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800 shadow-sm space-y-3">
+          <div className="flex items-center justify-between pb-2.5 border-b border-emerald-100 dark:border-slate-800">
+            <div className="flex items-center gap-2 font-extrabold text-base">
+              <Receipt className="w-4 h-4 text-emerald-600" />
+              <span>فاتورة الكاشير الحالية</span>
+            </div>
+            {cartItems.length > 0 && (
+              <button
+                type="button"
+                onClick={clearCart}
+                className="text-xs font-bold text-amber-700 hover:underline"
+              >
+                تفريغ السلة
+              </button>
+            )}
           </div>
-        )}
+          {renderTicketBody()}
+        </aside>
       </div>
 
-      {/* Bottom Sticky Cashier Bar */}
-      <div className="fixed bottom-4 left-4 right-4 z-30 max-w-2xl mx-auto no-print">
+      {/* Mobile Sticky Bottom Cart Bar */}
+      <div className="fixed bottom-4 left-4 right-4 z-30 max-w-2xl mx-auto lg:hidden no-print">
         <button
           type="button"
-          onClick={() => setCloseCartOpen(true)}
+          onClick={() => setMobileCartOpen(true)}
           className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-base shadow-lg flex items-center justify-between tabular-nums"
         >
           {totalCount === 0 ? (
             <>
-              <span>السلة فارغة</span>
+              <span>السلة فارغة — افتح الفاتورة</span>
               <span>0 {shop.country === 'السعودية' ? 'ر.س' : 'ج.م'}</span>
             </>
           ) : (
             <>
-              <span>عرض السلة - {totalCount} صنف</span>
-              <span>{formatMoney(totals.total, shop.country)}</span>
+              <span>إغلاق السلة - {totalCount} صنف</span>
+              <span>{formatCompactMoney(totals.total, shop.country)}</span>
             </>
           )}
         </button>
       </div>
 
-      {/* Close Cart ("إغلاق السلة") Modal/Sheet */}
-      {closeCartOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-xs no-print">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 max-h-[92vh] flex flex-col justify-between shadow-2xl">
-            <div className="space-y-3 pb-3 border-b border-emerald-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-extrabold">إغلاق السلة</h2>
-                <button
-                  type="button"
-                  onClick={() => setCloseCartOpen(false)}
-                  className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* 2 Tabs: السلة - N & البيانات */}
-              <div className="grid grid-cols-2 gap-2 bg-emerald-50/70 dark:bg-slate-800 p-1 rounded-2xl">
-                <button
-                  type="button"
-                  onClick={() => setCloseCartTab('cart')}
-                  className={`py-2 rounded-xl text-sm font-extrabold transition-colors tabular-nums ${
-                    closeCartTab === 'cart'
-                      ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300'
-                  }`}
-                >
-                  السلة - {totalCount}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCloseCartTab('details')}
-                  className={`py-2 rounded-xl text-sm font-extrabold transition-colors ${
-                    closeCartTab === 'details'
-                      ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300'
-                  }`}
-                >
-                  البيانات
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-y-auto py-4 space-y-4 flex-1">
-              {closeCartTab === 'cart' ? (
-                <>
-                  {/* Order Type Buttons */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {[
-                      { id: 'delivery', label: 'توصيل' },
-                      { id: 'pickup', label: 'استلام' },
-                      { id: 'dine_in', label: 'محلي' },
-                      { id: 'table', label: 'طاولة' },
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setOrderType(opt.id as typeof orderType)}
-                        className={`py-2.5 rounded-2xl text-xs font-extrabold border ${
-                          orderType === opt.id
-                            ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-600 text-emerald-800 dark:text-emerald-300'
-                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {orderType === 'table' && (
-                    <button
-                      type="button"
-                      onClick={() => setTablePickerOpen(true)}
-                      className="w-full py-2.5 px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-bold text-sm"
-                    >
-                      {selectedTable ? `الطاولة المختارة: ${selectedTable}` : 'اختر الطاولة'}
-                    </button>
-                  )}
-
-                  {orderType === 'delivery' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <input
-                        type="text"
-                        value={deliveryAddress}
-                        onChange={(e) => setDeliveryAddress(e.target.value)}
-                        placeholder="عنوان التوصيل"
-                        className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
-                      />
-                      <input
-                        type="text"
-                        value={driverName}
-                        onChange={(e) => setDriverName(e.target.value)}
-                        placeholder="اسم السائق (اختياري)"
-                        className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
-                      />
-                    </div>
-                  )}
-
-                  {/* Line Items */}
-                  {cartItems.length === 0 ? (
-                    <p className="text-center text-sm font-bold text-slate-500 py-6">
-                      السلة فارغة. أضف أصنافاً من شاشة الكاشير.
-                    </p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {cartItems.map(({ product, quantity, unitPrice }) => (
-                        <div
-                          key={product.id}
-                          className="bg-emerald-50/40 dark:bg-slate-800 rounded-2xl p-3 space-y-2"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="font-extrabold text-sm truncate">
-                                {product.name} - {formatCompactMoney(unitPrice, shop.country)}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => addItem(product)}
-                                className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                              </button>
-                              <span className="font-extrabold text-sm tabular-nums min-w-[18px] text-center">
-                                {quantity}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => decItem(product.id)}
-                                className="w-7 h-7 rounded-full bg-white dark:bg-slate-900 text-emerald-700 flex items-center justify-center"
-                              >
-                                <Minus className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setEditingItemId(editingItemId === product.id ? null : product.id)
-                                }
-                                className="w-7 h-7 rounded-xl bg-white dark:bg-slate-900 text-slate-600 flex items-center justify-center"
-                                aria-label="تعديل السعر"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => removeItem(product.id)}
-                                className="w-7 h-7 rounded-xl bg-white dark:bg-slate-900 text-amber-600 flex items-center justify-center"
-                                aria-label="حذف"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {editingItemId === product.id && (
-                            <div className="flex items-center gap-2 pt-1">
-                              <label className="text-xs font-bold">سعر الوحدة:</label>
-                              <input
-                                type="number"
-                                value={unitPrice}
-                                onChange={(e) => {
-                                  const nextPrice = Math.max(0, Number(e.target.value) || 0);
-                                  setCart((prev) => ({
-                                    ...prev,
-                                    [product.id]: { ...prev[product.id], unitPrice: nextPrice },
-                                  }));
-                                }}
-                                className="w-24 px-2 py-1 rounded-xl border border-emerald-200 bg-white dark:bg-slate-900 text-xs font-bold tabular-nums"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold mb-1">العميل</label>
-                    <input
-                      type="text"
-                      value={customerInput}
-                      onChange={(e) => setCustomerInput(e.target.value)}
-                      placeholder="الاسم أو رقم الهاتف أو رقم الطلب"
-                      className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold mb-1">الخصم</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={manualDiscount || ''}
-                      onChange={(e) => setManualDiscount(Math.max(0, Number(e.target.value) || 0))}
-                      placeholder="خصم يدوي (ج.م)"
-                      className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold tabular-nums"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold mb-1">ملاحظة</label>
-                    <textarea
-                      rows={2}
-                      value={orderNotes}
-                      onChange={(e) => setOrderNotes(e.target.value)}
-                      placeholder="ملاحظات الطلب"
-                      className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Payment & Cash Received */}
-              <div className="space-y-2.5 pt-2 border-t border-emerald-100 dark:border-slate-800">
-                <div className="grid grid-cols-2 gap-2">
-                  {['نقداً', 'فودافون كاش'].map((pm) => (
-                    <button
-                      key={pm}
-                      type="button"
-                      onClick={() => setPaymentMethod(pm)}
-                      className={`py-2.5 rounded-2xl text-xs font-extrabold border ${
-                        paymentMethod === pm
-                          ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-600 text-emerald-800 dark:text-emerald-300'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                      }`}
-                    >
-                      {pm}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-bold">
-                    <span>ما دفعه العميل</span>
-                    {changeDue > 0 && (
-                      <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
-                        الباقي للعميل: {formatCompactMoney(changeDue, shop.country)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-4 gap-2">
-                    {[120, 150, 200].map((amt) => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setPaidAmount(String(amt))}
-                        className={`py-2 rounded-xl text-xs font-extrabold border tabular-nums ${
-                          Number(paidAmount) === amt
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'bg-white dark:bg-slate-800 border-emerald-200 dark:border-slate-700'
-                        }`}
-                      >
-                        {amt}ج
-                      </button>
-                    ))}
-                    <input
-                      type="number"
-                      value={paidAmount}
-                      onChange={(e) => setPaidAmount(e.target.value)}
-                      placeholder="مبلغ آخر"
-                      className="px-2 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-center tabular-nums"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Exact Calculation Breakdown */}
-              <div className="bg-emerald-50/60 dark:bg-slate-800 rounded-2xl p-3.5 space-y-1.5 text-xs font-bold">
-                <div className="flex justify-between">
-                  <span>المجموع</span>
-                  <span className="tabular-nums">{formatCompactMoney(totals.subtotal, shop.country)}</span>
-                </div>
-                {totals.discount > 0 && (
-                  <div className="flex justify-between text-amber-700">
-                    <span>الخصم</span>
-                    <span className="tabular-nums">-{formatCompactMoney(totals.discount, shop.country)}</span>
-                  </div>
+      {/* Mobile Close Cart Modal/Sheet */}
+      {mobileCartOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex items-end justify-center bg-slate-900/40 backdrop-blur-xs no-print">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-t-3xl p-5 max-h-[92vh] overflow-y-auto shadow-2xl space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-emerald-100 dark:border-slate-800">
+              <h2 className="text-lg font-extrabold">إغلاق السلة والدفع</h2>
+              <div className="flex items-center gap-2">
+                {cartItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearCart}
+                    className="text-xs font-bold text-amber-700"
+                  >
+                    مسح الكل
+                  </button>
                 )}
-                <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                  <span>رسوم الخدمة 12%</span>
-                  <span className="tabular-nums">{totals.serviceFee.toFixed(2)}ج</span>
-                </div>
-                <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                  <span>ضريبة القيمة المضافة 14%</span>
-                  <span className="tabular-nums">{totals.vat.toFixed(2)}ج</span>
-                </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>فرق التقريب</span>
-                  <span className="tabular-nums">{totals.roundingDiff.toFixed(2)}ج</span>
-                </div>
-                <div className="flex justify-between text-base font-extrabold pt-2 border-t border-emerald-200 dark:border-slate-700">
-                  <span>الإجمالي</span>
-                  <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
-                    {totals.total}ج
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileCartOpen(false)}
+                  className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
+            {renderTicketBody()}
+          </div>
+        </div>
+      )}
 
-            {/* Bottom 3 Action Buttons */}
-            <div className="grid grid-cols-4 gap-2 pt-3 border-t border-emerald-100 dark:border-slate-800">
+      {/* Held & Active POS Queue Modal */}
+      {ordersQueueOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs no-print"
+          onClick={() => setOrdersQueueOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-5 max-h-[85vh] flex flex-col justify-between border border-emerald-100 dark:border-slate-800 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-emerald-100 dark:border-slate-800">
+              <h3 className="font-extrabold text-base">
+                الطلبات المعلقة والواردة ({heldAndActiveOrders.length})
+              </h3>
               <button
                 type="button"
-                disabled={saving || cartItems.length === 0}
-                onClick={() => void submitCashierOrder('completed')}
-                className="col-span-2 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-extrabold text-sm flex items-center justify-center gap-1.5 tabular-nums"
+                onClick={() => setOrdersQueueOpen(false)}
+                className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
               >
-                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>إنهاء - {totals.total}ج</span>
+                <X className="w-4 h-4" />
               </button>
-              <button
-                type="button"
-                disabled={cartItems.length === 0}
-                onClick={() => window.print()}
-                className="py-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-bold text-sm inline-flex items-center justify-center gap-1"
-              >
-                <Printer className="w-4 h-4" />
-                طباعة
-              </button>
-              <button
-                type="button"
-                disabled={saving || cartItems.length === 0}
-                onClick={() => void submitCashierOrder('held')}
-                className="py-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-bold text-sm"
-              >
-                معلق
-              </button>
+            </div>
+            <div className="overflow-y-auto space-y-2.5 flex-1">
+              {heldAndActiveOrders.length === 0 ? (
+                <p className="text-center text-sm font-bold text-slate-500 py-8">
+                  لا توجد طلبات معلقة أو قيد التنفيذ حالياً.
+                </p>
+              ) : (
+                heldAndActiveOrders.map((ord) => (
+                  <div
+                    key={ord.id}
+                    className="rounded-2xl bg-emerald-50/50 dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 p-3.5 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-extrabold text-sm tabular-nums">
+                          #{ord.orderNumber} · {ord.customerName || 'عميل'}
+                        </div>
+                        <div className="text-[11px] font-bold text-slate-500">
+                          {ord.status === 'held'
+                            ? 'معلق بالكاشير'
+                            : ord.status === 'new'
+                              ? 'طلب جديد من المنيو'
+                              : 'قيد التحضير'}
+                          {ord.tableLabel ? ` · ${ord.tableLabel}` : ''}
+                        </div>
+                      </div>
+                      <span className="font-extrabold text-sm text-emerald-700 dark:text-emerald-400 tabular-nums">
+                        {formatCompactMoney(ord.total, shop.country)}
+                      </span>
+                    </div>
+                    {ord.itemSummary && ord.itemSummary.length > 0 && (
+                      <div className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        {ord.itemSummary.join(' • ')}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLastReceiptOrder(ord);
+                          setTimeout(() => window.print(), 100);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 text-xs font-bold inline-flex items-center gap-1"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        طباعة
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void updateOrderStatus(shop.id, ord.id, 'completed')}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        إتمام الطلب
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -796,24 +1120,157 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         </div>
       )}
 
-      {/* Printable Receipt */}
-      <div className="hidden print-only p-6 text-right" dir="rtl">
-        <h2 className="text-xl font-extrabold text-center">{shop.nameAr}</h2>
-        <p className="text-xs text-center mb-4">فاتورة كاشير Ghazalo</p>
-        <div className="border-t border-b py-2 space-y-1 text-sm">
-          {cartItems.map((c) => (
-            <div key={c.product.id} className="flex justify-between">
-              <span>{c.product.name} × {c.quantity}</span>
-              <span>{c.unitPrice * c.quantity} ج</span>
+      {/* Cashier Option Picker Modal */}
+      {optionPickerProduct && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs no-print"
+          onClick={() => setOptionPickerProduct(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-5 space-y-4 border border-emerald-100 dark:border-slate-800 shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <h3 className="font-extrabold text-base truncate">{optionPickerProduct.name}</h3>
+                {optionPickerProduct.description && (
+                  <p className="text-xs font-medium text-slate-500 line-clamp-2">
+                    {optionPickerProduct.description}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setOptionPickerProduct(null)}
+                className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          ))}
+            <div className="space-y-2">
+              {getProductOptions(optionPickerProduct).map((opt) => (
+                <button
+                  key={opt.raw}
+                  type="button"
+                  onClick={() => {
+                    addItemWithOption(optionPickerProduct, opt);
+                    setOptionPickerProduct(null);
+                  }}
+                  className="w-full py-3 px-4 rounded-2xl bg-emerald-50/70 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-emerald-200 dark:border-slate-700 flex items-center justify-between text-sm font-extrabold"
+                >
+                  <span>{opt.label}</span>
+                  <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
+                    {formatMoney(opt.price, shop.country)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="pt-2 space-y-1 text-xs">
-          <div className="flex justify-between"><span>المجموع</span><span>{totals.subtotal}ج</span></div>
-          <div className="flex justify-between"><span>رسوم الخدمة 12%</span><span>{totals.serviceFee.toFixed(2)}ج</span></div>
-          <div className="flex justify-between"><span>ضريبة 14%</span><span>{totals.vat.toFixed(2)}ج</span></div>
-          <div className="flex justify-between font-extrabold text-base"><span>الإجمالي</span><span>{totals.total}ج</span></div>
+      )}
+
+      {/* Printable 80mm Thermal POS Receipt */}
+      <div className="hidden print-only p-4 text-right max-w-[320px] mx-auto" dir="rtl">
+        <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-400">
+          <h2 className="text-lg font-extrabold">{shop.nameAr}</h2>
+          {shop.address && <p className="text-[11px]">{shop.address}</p>}
+          {shop.whatsapp && <p className="text-[11px]" dir="ltr">{shop.whatsapp}</p>}
+          <p className="text-xs font-bold pt-1">
+            {lastReceiptOrder ? `فاتورة رقم #${lastReceiptOrder.orderNumber}` : 'إيصال مبيعات كاشير POS'}
+          </p>
         </div>
+        {lastReceiptOrder && cartItems.length === 0 ? (
+          <>
+            <div className="border-b border-dashed border-slate-400 py-2.5 space-y-1 text-xs">
+              {(lastReceiptOrder.itemSummary || []).map((line, i) => (
+                <div key={i} className="font-semibold">
+                  {line}
+                </div>
+              ))}
+            </div>
+            <div className="pt-2 space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span>المجموع</span>
+                <span>{lastReceiptOrder.subtotal}</span>
+              </div>
+              {lastReceiptOrder.discount ? (
+                <div className="flex justify-between">
+                  <span>الخصم</span>
+                  <span>-{lastReceiptOrder.discount}</span>
+                </div>
+              ) : null}
+              {lastReceiptOrder.serviceFee > 0 && (
+                <div className="flex justify-between">
+                  <span>الخدمة 12%</span>
+                  <span>{lastReceiptOrder.serviceFee.toFixed(2)}</span>
+                </div>
+              )}
+              {lastReceiptOrder.vat > 0 && (
+                <div className="flex justify-between">
+                  <span>ضريبة 14%</span>
+                  <span>{lastReceiptOrder.vat.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-slate-300">
+                <span>الإجمالي</span>
+                <span>{formatCompactMoney(lastReceiptOrder.total, shop.country)}</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="border-b border-dashed border-slate-400 py-2.5 space-y-1 text-xs">
+              {cartItems.map((c, idx) => (
+                <div key={`${c.product.id}-${idx}`} className="flex justify-between">
+                  <span>
+                    {c.product.name}
+                    {c.note ? ` (${c.note})` : ''} × {c.quantity}
+                  </span>
+                  <span>{c.unitPrice * c.quantity}</span>
+                </div>
+              ))}
+            </div>
+            <div className="pt-2 space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span>المجموع</span>
+                <span>{totals.subtotal}</span>
+              </div>
+              {totals.discount > 0 && (
+                <div className="flex justify-between">
+                  <span>الخصم</span>
+                  <span>-{totals.discount}</span>
+                </div>
+              )}
+              {applyTaxAndService && (
+                <>
+                  <div className="flex justify-between">
+                    <span>رسوم الخدمة 12%</span>
+                    <span>{totals.serviceFee.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>ضريبة 14%</span>
+                    <span>{totals.vat.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-slate-300">
+                <span>الإجمالي</span>
+                <span>{formatCompactMoney(totals.total, shop.country)}</span>
+              </div>
+              {paidNum > 0 && (
+                <div className="flex justify-between">
+                  <span>المدفوع / الباقي</span>
+                  <span>
+                    {paidNum} / {changeDue}
+                  </span>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        <p className="text-center text-[10px] pt-3 mt-2 border-t border-dashed border-slate-400">
+          شكراً لزيارتكم · Ghazalo POS
+        </p>
       </div>
     </div>
   );

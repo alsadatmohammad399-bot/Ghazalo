@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { onAuthStateChanged, signInWithPopup, type User } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import {
   ArrowRight,
   Ban,
@@ -15,6 +15,7 @@ import {
   KeyRound,
   Loader2,
   Lock,
+  LogOut,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -22,6 +23,8 @@ import {
   Unlock,
 } from 'lucide-react';
 import { GhazaloLogo } from '../components/BrandLogo';
+import { PWAInstallButton } from '../components/PWAInstallButton';
+import { PlatformLoader } from '../components/PlatformLoader';
 import { auth, googleProvider } from '../firebase';
 import {
   approveAndActivateShop,
@@ -33,7 +36,7 @@ import {
   suspendShop,
 } from '../services/firestoreService';
 import { getShopAccessState } from '../utils/calculations';
-import { ADMIN_EMAIL, type Shop } from '../types';
+import { ADMIN_EMAIL, ADMIN_PORTAL_KEY, type Shop } from '../types';
 
 interface AdminPageProps {
   onBack: () => void;
@@ -65,6 +68,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
   const [statusFilter, setStatusFilter] = useState<
     'all' | 'payment_requests' | 'needs_approval' | 'trial' | 'active' | 'suspended'
   >('all');
+  const [selectedDaysByShop, setSelectedDaysByShop] = useState<Record<string, number>>({});
   const [linkCopied, setLinkCopied] = useState(false);
 
   // Change PIN modal state
@@ -117,6 +121,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
   const handleVerifyPin = async (e: React.FormEvent) => {
     e.preventDefault();
     setPinError('');
+    if (!isAdminEmail) {
+      setPinError('يرجى تسجيل الدخول بحساب Gmail المخصص لمالك المنصة أولاً.');
+      return;
+    }
     const candidate = pinInput.trim();
     if (!candidate) {
       setPinError('يرجى إدخال الرقم السري.');
@@ -125,22 +133,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
 
     setVerifyingPin(true);
     try {
-      // Check custom Firestore PIN first if signed in as admin
-      if (isAdminEmail) {
-        const customPin = await getAdminCustomPin();
-        if (customPin && candidate === customPin) {
+      const customPin = await getAdminCustomPin();
+      if (customPin) {
+        if (candidate === customPin) {
           sessionStorage.setItem(PIN_SESSION_KEY, '1');
           setPinUnlocked(true);
           setPinInput('');
           return;
         }
-        if (customPin && candidate !== customPin) {
-          setPinError('الرقم السري غير صحيح.');
-          return;
-        }
+        setPinError('الرقم السري غير صحيح.');
+        return;
       }
 
-      // Otherwise verify against server ADMIN_PIN
       const res = await fetch('/api/admin/verify-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -233,7 +237,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
     }
   };
 
-  const privateAdminUrl = `${window.location.origin}/?admin=ghazalo-owner`;
+  const privateAdminUrl = `${window.location.origin}/?portal=${ADMIN_PORTAL_KEY}`;
 
   const handleCopyAdminLink = async () => {
     try {
@@ -286,11 +290,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
   }, [shops, searchQuery, statusFilter]);
 
   if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-emerald-50/30 dark:bg-slate-950">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-      </div>
-    );
+    return <PlatformLoader subtitle="جاري تحميل لوحة الإدارة..." />;
   }
 
   // Secret PIN & Admin Identity Gate
@@ -335,25 +335,52 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
               </div>
             )}
 
-            {!isAdminEmail && (
+            {!isAdminEmail ? (
               <div className="rounded-2xl bg-emerald-50/70 dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 p-4 space-y-3 text-center">
-                <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  {user
-                    ? `أنت مسجل حالياً بحساب (${user.email}). يرجى تسجيل الدخول بحساب Gmail الخاص بالإدارة.`
-                    : 'الخطوة 1: سجّل الدخول بحساب Gmail المعتمد للإدارة للوصول لقاعدة البيانات.'}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleGoogleAdminLogin()}
-                  className="w-full py-3 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-600 font-extrabold text-sm text-slate-800 dark:text-white hover:bg-emerald-50 transition-colors"
-                >
-                  تسجيل الدخول بحساب Gmail للإدارة
-                </button>
+                {user ? (
+                  <>
+                    <div className="text-xs font-extrabold text-amber-800 dark:text-amber-200">
+                      حساب ({user.email}) غير مصرح له بالدخول. هذه الصفحة محمية ومخصصة لمالك المنصة فقط.
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleGoogleAdminLogin()}
+                        className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition-colors"
+                      >
+                        الدخول بحساب المالك
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void signOut(auth)}
+                        className="w-full py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        تسجيل الخروج
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      تحقق مزدوج: سجّل الدخول بحساب Gmail المعتمد لمالك المنصة أولاً للمتابعة.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleGoogleAdminLogin()}
+                      className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm transition-colors"
+                    >
+                      تسجيل الدخول بحساب المالك (Google)
+                    </button>
+                  </>
+                )}
               </div>
-            )}
-
-            {!pinUnlocked ? (
+            ) : !pinUnlocked ? (
               <form onSubmit={handleVerifyPin} className="space-y-4">
+                <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 p-2.5 text-center text-xs font-extrabold text-emerald-800 dark:text-emerald-200 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>تم التحقق من حساب المالك: {user?.email}</span>
+                </div>
                 <div>
                   <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
                     الرقم السري للإدارة
@@ -392,12 +419,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
                   <span>فتح لوحة الإدارة</span>
                 </button>
               </form>
-            ) : (
-              <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 p-3 text-center text-xs font-extrabold text-emerald-800 dark:text-emerald-200 flex items-center justify-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4" />
-                تم التحقق من الرقم السري — أكمل تسجيل الدخول بحساب الإدارة بالأعلى
-              </div>
-            )}
+            ) : null}
           </div>
         </main>
       </div>
@@ -423,6 +445,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
         </div>
 
         <div className="flex items-center gap-2">
+          <PWAInstallButton variant="compact" label="تثبيت التطبيق" />
           <button
             type="button"
             onClick={() => void handleCopyAdminLink()}
@@ -494,6 +517,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
           )}
         </div>
 
+        {/* Google Play & App Store Package Export Readiness */}
+        <div className="bg-emerald-50/70 dark:bg-emerald-950/30 rounded-3xl p-4 border border-emerald-200 dark:border-emerald-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-0.5 max-w-2xl">
+            <div className="text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
+              تجهيز حزمة متجر Google Play (APK / AAB) ومتجر App Store
+            </div>
+            <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 leading-relaxed">
+              منصتك الآن متوافقة 100% مع متطلبات تحويل تطبيقات الويب لمتجر بلاي (Manifest + أيقونات + صور + Service Worker). يمكنك استخدام رابط موقعك المنشور مباشرة على أداة PWABuilder لاستخراج ملف APK/AAB جاهز للرفع على حسابك في Google Play Console.
+            </p>
+          </div>
+          <a
+            href="https://www.pwabuilder.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="px-4 py-2 rounded-full glass-btn-primary text-xs font-extrabold inline-flex items-center gap-1.5 shrink-0"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>إنشاء ملف APK / Google Play</span>
+          </a>
+        </div>
+
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800">
@@ -516,7 +560,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
           </div>
           <div className="bg-emerald-50/70 dark:bg-emerald-950/30 rounded-3xl p-4 border border-emerald-200 dark:border-emerald-800">
             <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-              مفعل (600ج شهري / 6000ج سنوي)
+              مفعل (600ج شهري / 3000ج سنوي)
             </div>
             <div className="text-2xl font-extrabold text-emerald-700 dark:text-emerald-400 mt-1 tabular-nums">
               {stats.active}
@@ -640,8 +684,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
                       <div className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
                         <CreditCard className="w-4 h-4" />
                         <span>
-                          {s.requestedPlan === 'yearly_6000'
-                            ? 'طلب تفعيل الباقة السنوية (6,000 ج)'
+                          {s.requestedPlan === 'yearly_3000' || s.requestedPlan === 'yearly_6000'
+                            ? 'طلب تفعيل الباقة السنوية (3,000 ج)'
                             : 'طلب تفعيل الباقة الشهرية (600 ج)'}
                         </span>
                       </div>
@@ -655,28 +699,44 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
 
                   {/* Admin Controls */}
                   <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-emerald-50 dark:border-slate-800">
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => void handleApproveAndActivate(s.id, 30)}
-                      className="px-3.5 py-2 rounded-full glass-btn-primary font-extrabold text-xs inline-flex items-center gap-1.5"
-                    >
-                      {isBusy ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                      )}
-                      موافقة وتفعيل شهر (600 ج)
-                    </button>
+                    <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-slate-800 p-1 border border-emerald-200 dark:border-slate-700">
+                      <select
+                        value={selectedDaysByShop[s.id] ?? 30}
+                        onChange={(e) =>
+                          setSelectedDaysByShop((prev) => ({
+                            ...prev,
+                            [s.id]: Number(e.target.value),
+                          }))
+                        }
+                        aria-label="مدة التفعيل"
+                        className="bg-transparent px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none"
+                      >
+                        <option value={30}>شهري (30 يوم - 600 ج)</option>
+                        <option value={365}>سنوي (365 يوم - 3,000 ج)</option>
+                      </select>
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => void handleApproveAndActivate(s.id, selectedDaysByShop[s.id] ?? 30)}
+                        className="px-3.5 py-1.5 rounded-full glass-btn-primary font-extrabold text-xs inline-flex items-center gap-1.5"
+                      >
+                        {isBusy ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        )}
+                        تفعيل
+                      </button>
+                    </div>
 
                     <button
                       type="button"
                       disabled={isBusy}
                       onClick={() => void handleApproveAndActivate(s.id, 365)}
-                      className="px-3.5 py-2 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-bold text-xs inline-flex items-center gap-1.5"
+                      className="px-3 py-2 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-bold text-xs inline-flex items-center gap-1"
                     >
                       <CalendarPlus className="w-3.5 h-3.5" />
-                      تفعيل سنة (6,000 ج)
+                      سنوي (3,000 ج)
                     </button>
 
                     <button

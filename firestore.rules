@@ -28,11 +28,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isPhoneAccount() {
+      return isSignedIn()
+        && request.auth.token.email is string
+        && request.auth.token.email.matches('^phone_[0-9]{8,15}@phone\\.ghazalo\\.app$');
+    }
+
     function isVerifiedUser() {
-      return isSignedIn() && (
-        request.auth.token.email_verified == true ||
-        (request.auth.token.phone_number is string && request.auth.token.phone_number.size() > 0)
-      );
+      return isSignedIn() && (request.auth.token.email_verified == true || isPhoneAccount());
     }
 
     function isAdmin() {
@@ -89,11 +92,11 @@ service cloud.firestore {
         && (!('paymentMethods' in data) || (data.paymentMethods is list && data.paymentMethods.size() <= 10 && (data.paymentMethods.size() == 0 || data.paymentMethods[0] is string)))
         && (!('bio' in data) || (data.bio is string && data.bio.size() <= 500))
         && (!('whatsapp' in data) || (data.whatsapp is string && data.whatsapp.size() <= 40))
-        && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 500))
+        && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 90000))
         && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 24000))
         && (!('showLogoOnItems' in data) || data.showLogoOnItems is bool)
         && (!('menuTemplate' in data) || (data.menuTemplate in ['classic', 'luxury', 'magazine', 'compact']))
-        && (!('requestedPlan' in data) || (data.requestedPlan in ['', 'monthly_600', 'yearly_6000']))
+        && (!('requestedPlan' in data) || (data.requestedPlan in ['', 'monthly_600', 'yearly_3000', 'yearly_6000']))
         && (!('paymentNote' in data) || (data.paymentNote is string && data.paymentNote.size() <= 200))
         && data.isOpen is bool
         && data.subscriptionStatus in ['trial', 'active', 'expired', 'suspended']

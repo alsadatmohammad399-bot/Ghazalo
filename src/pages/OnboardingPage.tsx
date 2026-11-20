@@ -17,10 +17,11 @@ import {
 } from 'lucide-react';
 import { GhazaloLogo } from '../components/BrandLogo';
 import { createShop, saveUserProfile } from '../services/firestoreService';
-import { compressLogoFile } from '../utils/logoUpload';
+import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
 import { getShopThemeHex } from '../utils/calculations';
 import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { sortExtractedMenuItems, sortMenuCategories } from '../utils/menuSorting';
+import { getProductOptions } from '../utils/productVariants';
 import type { ExtractedMenuItem, MenuTemplateId, Shop } from '../types';
 
 interface OnboardingPageProps {
@@ -80,12 +81,15 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
 
   // Step 4: Appearance, Templates & Logo
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
   const [themeColor, setThemeColor] = useState('أخضر');
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light');
   const [menuTemplate, setMenuTemplate] = useState<MenuTemplateId>('classic');
   const [logoUrl, setLogoUrl] = useState('');
   const [showLogoOnItems, setShowLogoOnItems] = useState(true);
   const [logoError, setLogoError] = useState('');
+  const [coverImage, setCoverImage] = useState('');
+  const [coverError, setCoverError] = useState('');
 
   // Step 5
   const [acceptOrders, setAcceptOrders] = useState(true);
@@ -115,6 +119,19 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
       setShowLogoOnItems(true);
     } catch (err: unknown) {
       setLogoError(err instanceof Error ? err.message : 'تعذر رفع اللوجو');
+    }
+  };
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setCoverError('');
+    try {
+      const compressed = await compressCoverFile(file);
+      setCoverImage(compressed);
+    } catch (err: unknown) {
+      setCoverError(err instanceof Error ? err.message : 'تعذر رفع صورة الخلفية');
     }
   };
 
@@ -297,7 +314,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
           paymentMethods: paymentMethods.length ? paymentMethods : ['نقداً'],
           bio: bio.trim(),
           whatsapp: '',
-          coverImage: '',
+          coverImage,
           isOpen: true,
           plan: 'بداية',
         },
@@ -704,6 +721,97 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                 </div>
               </div>
 
+              {/* Restaurant Cover / Background Behind Logo & Name */}
+              <div className="rounded-2xl border border-emerald-100 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800/60 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-extrabold">صورة خلفية المطعم (ورا الاسم واللوجو)</div>
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      أضف صورة مطعمك أو وجباتك لتظهر كخلفية مميزة وراء اسم المتجر واللوجو في أعلى المنيو
+                    </p>
+                  </div>
+
+                  <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => void handleCoverUpload(e)}
+                    className="hidden"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => coverInputRef.current?.click()}
+                      className="px-4 py-2 rounded-full glass-btn-primary text-xs font-extrabold inline-flex items-center gap-1.5"
+                    >
+                      <ImagePlus className="w-4 h-4" />
+                      {coverImage ? 'تغيير الخلفية' : 'رفع خلفية'}
+                    </button>
+                    {coverImage && (
+                      <button
+                        type="button"
+                        onClick={() => setCoverImage('')}
+                        className="px-3 py-2 rounded-full glass-btn text-xs font-bold text-amber-800"
+                      >
+                        حذف
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {coverError && <p className="text-xs font-bold text-amber-800">{coverError}</p>}
+
+                <div className="relative h-28 rounded-2xl overflow-hidden border border-emerald-200/70 dark:border-slate-700 flex items-end p-3.5">
+                  {coverImage ? (
+                    <>
+                      <img
+                        src={coverImage}
+                        alt="خلفية المطعم"
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/40 to-slate-950/15" />
+                    </>
+                  ) : (
+                    <div
+                      style={{ backgroundColor: `${getShopThemeHex(themeColor)}18` }}
+                      className="absolute inset-0"
+                    />
+                  )}
+                  <div className="relative z-10 flex items-center gap-3 min-w-0">
+                    {logoUrl ? (
+                      <img
+                        src={logoUrl}
+                        alt="شعار"
+                        className="w-11 h-11 rounded-2xl object-cover border-2 border-white bg-white shadow-sm shrink-0"
+                      />
+                    ) : (
+                      <div
+                        style={{ backgroundColor: getShopThemeHex(themeColor) }}
+                        className="w-11 h-11 rounded-2xl text-white font-extrabold flex items-center justify-center shadow-sm shrink-0"
+                      >
+                        {(nameAr || 'م').trim().slice(0, 1)}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div
+                        className={`font-extrabold text-sm truncate ${
+                          coverImage ? 'text-white' : 'text-slate-900 dark:text-white'
+                        }`}
+                      >
+                        {nameAr || 'اسم مطعمك هنا'}
+                      </div>
+                      <div
+                        className={`text-[11px] font-semibold ${
+                          coverImage ? 'text-emerald-200' : 'text-emerald-700 dark:text-emerald-300'
+                        }`}
+                      >
+                        مفتوح الآن
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <label className="block text-sm font-bold">لون المنيو</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -976,7 +1084,9 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                   </div>
 
                   <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                    {extractedItems.map((item, idx) => (
+                    {extractedItems.map((item, idx) => {
+                      const itemOptions = getProductOptions(item);
+                      return (
                       <div
                         key={`${item.name}-${idx}`}
                         className="flex items-center justify-between gap-2 bg-white dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 rounded-2xl p-2.5 text-sm"
@@ -1001,12 +1111,30 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                               />
                             )}
                           </div>
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0 flex-1 space-y-0.5">
                             <div className="font-bold truncate">{item.name}</div>
                             <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
                               {item.category}
-                              {item.isOffer ? ' · عرض خاص' : ''}
+                              {item.isOffer ? ` · ${item.offerLabel || 'عرض خاص'}` : ''}
                             </div>
+                            {item.description && (
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                                {item.description}
+                              </div>
+                            )}
+                            {itemOptions.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-0.5">
+                                {itemOptions.map((opt) => (
+                                  <span
+                                    key={opt.raw}
+                                    className="px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-[10px] font-extrabold tabular-nums border border-emerald-200/70 dark:border-emerald-800"
+                                  >
+                                    {opt.label}
+                                    {opt.hasExplicitPrice ? ` · ${opt.price}` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -1061,7 +1189,8 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                           </button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <button
