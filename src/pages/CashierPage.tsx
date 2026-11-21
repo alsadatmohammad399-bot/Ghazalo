@@ -25,15 +25,17 @@ import { createOrder, updateOrderStatus } from '../services/firestoreService';
 import { calculateOrderTotals, formatCompactMoney, formatMoney } from '../utils/calculations';
 import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
 import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
-import type { CartItem, Order, Product, Shop, ShopTable } from '../types';
+import type { CartItem, Order, OrderStatus, Product, Shop, ShopTable } from '../types';
 
 interface CashierPageProps {
   shop: Shop;
   products: Product[];
   tables: ShopTable[];
   orders?: Order[];
+  forceZeroFeesGlobally?: boolean;
   onBackDashboard: () => void;
   onOrderCreated: (order: Order) => void;
+  onOrderStatusChange?: (orderId: string, status: OrderStatus) => void;
 }
 
 const ORDER_TYPE_OPTIONS = [
@@ -48,8 +50,10 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   products,
   tables,
   orders = [],
+  forceZeroFeesGlobally = false,
   onBackDashboard,
   onOrderCreated,
+  onOrderStatusChange,
 }) => {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,13 +64,15 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   const [ticketTab, setTicketTab] = useState<'cart' | 'details'>('cart');
   const [ordersQueueOpen, setOrdersQueueOpen] = useState(false);
 
-  // POS Checkout State
+  // POS Checkout State — fees OFF by default unless enabled in restaurant settings & not disabled globally
   const [orderType, setOrderType] = useState<'delivery' | 'pickup' | 'dine_in' | 'table'>('dine_in');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [driverName, setDriverName] = useState('');
   const [customerInput, setCustomerInput] = useState('');
   const [manualDiscount, setManualDiscount] = useState<number>(0);
-  const [applyTaxAndService, setApplyTaxAndService] = useState<boolean>(true);
+  const [applyTaxAndService, setApplyTaxAndService] = useState<boolean>(() =>
+    Boolean(!forceZeroFeesGlobally && (shop.enableServiceFee || shop.enableVat || shop.enablePackagingFee))
+  );
   const [orderNotes, setOrderNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('نقداً');
   const [paidAmount, setPaidAmount] = useState<string>('');
@@ -120,8 +126,38 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   );
 
   const totals = useMemo(
-    () => calculateOrderTotals(subtotal, manualDiscount, true, applyTaxAndService),
-    [subtotal, manualDiscount, applyTaxAndService]
+    () =>
+      calculateOrderTotals(subtotal, {
+        discount: manualDiscount,
+        orderType,
+        deliveryFee: shop.deliveryFee,
+        freeDelivery: shop.freeDelivery,
+        freeDeliveryMinOrder: shop.freeDeliveryMinOrder,
+        enableServiceFee: applyTaxAndService && !forceZeroFeesGlobally,
+        serviceFeePct: shop.enableServiceFee ? Number(shop.serviceFeePct || 0) : 12,
+        enableVat: applyTaxAndService && !forceZeroFeesGlobally,
+        vatPct: shop.enableVat ? Number(shop.vatPct || 0) : 14,
+        enablePackagingFee: applyTaxAndService && Boolean(shop.enablePackagingFee) && !forceZeroFeesGlobally,
+        packagingFee: Number(shop.packagingFee || 0),
+        forceZeroFeesGlobally,
+        roundForCashier: true,
+      }),
+    [
+      subtotal,
+      manualDiscount,
+      orderType,
+      shop.deliveryFee,
+      shop.freeDelivery,
+      shop.freeDeliveryMinOrder,
+      shop.enableServiceFee,
+      shop.serviceFeePct,
+      shop.enableVat,
+      shop.vatPct,
+      shop.enablePackagingFee,
+      shop.packagingFee,
+      applyTaxAndService,
+      forceZeroFeesGlobally,
+    ]
   );
 
   const quickCashAmounts = useMemo(() => {
@@ -253,10 +289,10 @@ export const CashierPage: React.FC<CashierPageProps> = ({
     if (cartItems.length === 0) return;
     setSaving(true);
     try {
-      const order = await createOrder({
+      const orderPayload = {
         shopId: shop.id,
         shopOwnerId: shop.ownerId,
-        source: 'cashier',
+        source: 'cashier' as const,
         orderType,
         status: targetStatus,
         paymentMethod,
@@ -272,12 +308,32 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         ),
         subtotal: totals.subtotal,
         discount: totals.discount,
+        deliveryFee: totals.deliveryFee,
+        packagingFee: totals.packagingFee,
         serviceFee: totals.serviceFee,
         vat: totals.vat,
         roundingDiff: totals.roundingDiff,
         total: totals.total,
         paidAmount: Number(paidAmount) || totals.total,
+      };
+
+      const makeLocal = (): Order => ({
+        ...orderPayload,
+        id: `pos-${Date.now()}`,
+        orderNumber: `GH-${Math.floor(1000 + Math.random() * 9000)}`,
+        createdAt: Date.now(),
       });
+
+      let order: Order;
+      if (!shop.id.startsWith('shop-')) {
+        order = makeLocal();
+      } else {
+        try {
+          order = await createOrder(orderPayload);
+        } catch {
+          order = makeLocal();
+        }
+      }
 
       setLastReceiptOrder(order);
       onOrderCreated(order);
@@ -310,13 +366,13 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   const renderTicketBody = () => (
     <div className="space-y-3.5">
       {/* Tabs: السلة & بيانات العميل */}
-      <div className="grid grid-cols-2 gap-1.5 bg-emerald-50/70 dark:bg-slate-800 p-1 rounded-2xl">
+      <div className="grid grid-cols-2 gap-1.5 bg-orange-50/70 dark:bg-slate-800 p-1 rounded-2xl">
         <button
           type="button"
           onClick={() => setTicketTab('cart')}
           className={`py-2 rounded-xl text-xs font-extrabold transition-colors tabular-nums ${
             ticketTab === 'cart'
-              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
+              ? 'bg-white dark:bg-slate-900 text-[#FF6A00] dark:text-orange-300 shadow-xs'
               : 'text-slate-600 dark:text-slate-300'
           }`}
         >
@@ -327,7 +383,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           onClick={() => setTicketTab('details')}
           className={`py-2 rounded-xl text-xs font-extrabold transition-colors ${
             ticketTab === 'details'
-              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
+              ? 'bg-white dark:bg-slate-900 text-[#FF6A00] dark:text-orange-300 shadow-xs'
               : 'text-slate-600 dark:text-slate-300'
           }`}
         >
@@ -346,7 +402,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 onClick={() => setOrderType(opt.id)}
                 className={`py-2 rounded-xl text-xs font-extrabold border transition-colors ${
                   orderType === opt.id
-                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
                     : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
                 }`}
               >
@@ -359,7 +415,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             <button
               type="button"
               onClick={() => setTablePickerOpen(true)}
-              className="w-full py-2 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-bold text-xs"
+              className="w-full py-2 px-3 rounded-xl bg-orange-50 dark:bg-orange-950/60 border border-orange-200 dark:border-orange-800 text-orange-900 dark:text-orange-200 font-bold text-xs"
             >
               {selectedTable ? `الطاولة المختارة: ${selectedTable}` : 'اضغط لاختيار الطاولة'}
             </button>
@@ -372,22 +428,22 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 value={deliveryAddress}
                 onChange={(e) => setDeliveryAddress(e.target.value)}
                 placeholder="عنوان التوصيل"
-                className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+                className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
               />
               <input
                 type="text"
                 value={driverName}
                 onChange={(e) => setDriverName(e.target.value)}
                 placeholder="اسم الطيار / السائق"
-                className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+                className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
               />
             </div>
           )}
 
           {/* Cart Items */}
           {cartItems.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-emerald-200 dark:border-slate-700 py-8 px-4 text-center space-y-1.5">
-              <ShoppingCart className="w-8 h-8 text-emerald-300 mx-auto" />
+            <div className="rounded-2xl border border-dashed border-orange-200 dark:border-slate-700 py-8 px-4 text-center space-y-1.5">
+              <ShoppingCart className="w-8 h-8 text-orange-300 mx-auto" />
               <p className="text-xs font-bold text-slate-500">
                 اضغط على أي صنف أو امسح الباركود لإضافته للفاتورة
               </p>
@@ -397,14 +453,14 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               {Object.entries(cart).map(([cartKey, { product, quantity, unitPrice, note }]) => (
                 <div
                   key={cartKey}
-                  className="bg-emerald-50/40 dark:bg-slate-800 rounded-2xl p-2.5 space-y-1.5 border border-emerald-100/70 dark:border-slate-700"
+                  className="bg-orange-50/40 dark:bg-slate-800 rounded-2xl p-2.5 space-y-1.5 border border-orange-100/70 dark:border-slate-700"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
                         {product.name}
                       </div>
-                      <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums truncate">
+                      <div className="text-[11px] font-bold text-[#FF6A00] dark:text-orange-300 tabular-nums truncate">
                         {formatCompactMoney(unitPrice, shop.country)}
                         {note ? ` · ${note}` : ''}
                       </div>
@@ -413,7 +469,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                       <button
                         type="button"
                         onClick={() => incCartKey(cartKey)}
-                        className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center"
+                        className="w-7 h-7 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -423,7 +479,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                       <button
                         type="button"
                         onClick={() => decItem(cartKey)}
-                        className="w-7 h-7 rounded-full bg-white dark:bg-slate-900 text-emerald-700 flex items-center justify-center border border-emerald-100 dark:border-slate-700"
+                        className="w-7 h-7 rounded-full bg-white dark:bg-slate-900 text-[#FF6A00] flex items-center justify-center border border-orange-100 dark:border-slate-700"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -461,7 +517,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                             [cartKey]: { ...prev[cartKey], unitPrice: nextPrice },
                           }));
                         }}
-                        className="w-24 px-2 py-1 rounded-xl border border-emerald-200 bg-white dark:bg-slate-900 text-xs font-bold tabular-nums"
+                        className="w-24 px-2 py-1 rounded-xl border border-orange-200 bg-white dark:bg-slate-900 text-xs font-bold tabular-nums"
                       />
                     </div>
                   )}
@@ -479,7 +535,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               value={customerInput}
               onChange={(e) => setCustomerInput(e.target.value)}
               placeholder="مثال: أحمد - 010..."
-              className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+              className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
             />
           </div>
           <div>
@@ -490,7 +546,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               value={manualDiscount || ''}
               onChange={(e) => setManualDiscount(Math.max(0, Number(e.target.value) || 0))}
               placeholder="قيمة الخصم"
-              className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold tabular-nums"
+              className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold tabular-nums"
             />
           </div>
           <div>
@@ -500,14 +556,14 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               value={orderNotes}
               onChange={(e) => setOrderNotes(e.target.value)}
               placeholder="بدون بصل، زيادة صوص..."
-              className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+              className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
             />
           </div>
         </div>
       )}
 
       {/* Payment Method + Tax Toggle + Quick Cash */}
-      <div className="space-y-2.5 pt-2 border-t border-emerald-100 dark:border-slate-800">
+      <div className="space-y-2.5 pt-2 border-t border-orange-100 dark:border-slate-800">
         <div className="grid grid-cols-3 gap-1.5">
           {[
             { id: 'نقداً', label: 'كاش' },
@@ -520,7 +576,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               onClick={() => setPaymentMethod(pm.id)}
               className={`py-2 rounded-xl text-xs font-extrabold border flex items-center justify-center gap-1 ${
                 paymentMethod === pm.id
-                  ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                  ? 'bg-orange-50 dark:bg-orange-950 border-[#FF6A00] text-orange-900 dark:text-orange-300'
                   : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
               }`}
             >
@@ -530,30 +586,32 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           ))}
         </div>
 
-        {/* Service & VAT toggle */}
-        <button
-          type="button"
-          onClick={() => setApplyTaxAndService((v) => !v)}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-50/50 dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 text-xs font-bold"
-        >
-          <span>رسوم خدمة 12% + ضريبة 14%</span>
-          <span
-            className={`px-2 py-0.5 rounded-lg text-[11px] font-extrabold ${
-              applyTaxAndService
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-            }`}
+        {/* Optional Fees Toggle (OFF by default; disabled when admin turns off global fees) */}
+        {!forceZeroFeesGlobally && (
+          <button
+            type="button"
+            onClick={() => setApplyTaxAndService((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-orange-50/50 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 text-xs font-bold"
           >
-            {applyTaxAndService ? 'مفعل' : 'معفى'}
-          </span>
-        </button>
+            <span>رسوم الخدمة والضريبة (اختياري)</span>
+            <span
+              className={`px-2 py-0.5 rounded-lg text-[11px] font-extrabold ${
+                applyTaxAndService
+                  ? 'bg-[#FF6A00] text-white'
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {applyTaxAndService ? 'مفعل' : 'بدون رسوم (0)'}
+            </span>
+          </button>
+        )}
 
         {/* Cash Tendered */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[11px] font-bold">
             <span>المدفوع من العميل</span>
             {changeDue > 0 && (
-              <span className="text-emerald-700 dark:text-emerald-400 font-extrabold tabular-nums">
+              <span className="text-[#FF6A00] dark:text-orange-400 font-extrabold tabular-nums">
                 الباقي للعميل: {formatCompactMoney(changeDue, shop.country)}
               </span>
             )}
@@ -566,8 +624,8 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 onClick={() => setPaidAmount(String(amt))}
                 className={`py-1.5 rounded-xl text-[11px] font-extrabold border tabular-nums ${
                   Number(paidAmount) === amt
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-white dark:bg-slate-800 border-emerald-200 dark:border-slate-700'
+                    ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
+                    : 'bg-white dark:bg-slate-800 border-orange-200 dark:border-slate-700'
                 }`}
               >
                 {i === 0 && amt === totals.total && totals.total > 0 ? 'بالضبط' : amt}
@@ -578,16 +636,16 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               value={paidAmount}
               onChange={(e) => setPaidAmount(e.target.value)}
               placeholder="مبلغ"
-              className="col-span-1 px-1.5 py-1.5 rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] font-bold text-center tabular-nums"
+              className="col-span-1 px-1.5 py-1.5 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] font-bold text-center tabular-nums"
             />
           </div>
         </div>
       </div>
 
       {/* Totals Breakdown */}
-      <div className="bg-emerald-50/70 dark:bg-slate-800 rounded-2xl p-3 space-y-1 text-xs font-bold">
+      <div className="bg-orange-50/70 dark:bg-slate-800 rounded-2xl p-3 space-y-1 text-xs font-bold">
         <div className="flex justify-between">
-          <span>المجموع</span>
+          <span>سعر الأكل</span>
           <span className="tabular-nums">{formatCompactMoney(totals.subtotal, shop.country)}</span>
         </div>
         {totals.discount > 0 && (
@@ -596,21 +654,35 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             <span className="tabular-nums">-{formatCompactMoney(totals.discount, shop.country)}</span>
           </div>
         )}
-        {applyTaxAndService && (
-          <>
-            <div className="flex justify-between text-slate-600 dark:text-slate-300">
-              <span>الخدمة 12%</span>
-              <span className="tabular-nums">{totals.serviceFee.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-slate-600 dark:text-slate-300">
-              <span>الضريبة 14%</span>
-              <span className="tabular-nums">{totals.vat.toFixed(2)}</span>
-            </div>
-          </>
+        {orderType === 'delivery' && (
+          <div className="flex justify-between text-slate-700 dark:text-slate-300">
+            <span>التوصيل</span>
+            <span className="tabular-nums">
+              {totals.freeDeliveryApplied ? 'مجاناً' : formatCompactMoney(totals.deliveryFee, shop.country)}
+            </span>
+          </div>
         )}
-        <div className="flex justify-between text-base font-extrabold pt-1.5 border-t border-emerald-200 dark:border-slate-700">
+        {totals.serviceFee > 0 && (
+          <div className="flex justify-between text-slate-600 dark:text-slate-300">
+            <span>الخدمة ({totals.serviceFeePct}%)</span>
+            <span className="tabular-nums">{totals.serviceFee.toFixed(2)}</span>
+          </div>
+        )}
+        {totals.vat > 0 && (
+          <div className="flex justify-between text-slate-600 dark:text-slate-300">
+            <span>الضريبة ({totals.vatPct}%)</span>
+            <span className="tabular-nums">{totals.vat.toFixed(2)}</span>
+          </div>
+        )}
+        {totals.packagingFee > 0 && (
+          <div className="flex justify-between text-slate-600 dark:text-slate-300">
+            <span>التغليف</span>
+            <span className="tabular-nums">{totals.packagingFee.toFixed(2)}</span>
+          </div>
+        )}
+        <div className="flex justify-between text-base font-extrabold pt-1.5 border-t border-orange-200 dark:border-slate-700">
           <span>الإجمالي</span>
-          <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
+          <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
             {formatCompactMoney(totals.total, shop.country)}
           </span>
         </div>
@@ -622,7 +694,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           type="button"
           disabled={saving || cartItems.length === 0}
           onClick={() => void submitCashierOrder('completed', true)}
-          className="col-span-2 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 tabular-nums"
+          className="col-span-2 py-3 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] disabled:opacity-40 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 tabular-nums"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
           <span>دفع وطباعة ({totals.total})</span>
@@ -640,7 +712,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           type="button"
           disabled={cartItems.length === 0 && !lastReceiptOrder}
           onClick={handlePrintActiveOrLast}
-          className="py-3 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 disabled:opacity-40 font-bold text-xs inline-flex items-center justify-center gap-1"
+          className="py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 disabled:opacity-40 font-bold text-xs inline-flex items-center justify-center gap-1"
         >
           <Printer className="w-3.5 h-3.5" />
           إيصال
@@ -650,14 +722,14 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   );
 
   return (
-    <div dir="rtl" className="min-h-screen bg-emerald-50/30 dark:bg-slate-950 pb-24 lg:pb-6">
+    <div dir="rtl" className="min-h-screen bg-orange-50/30 dark:bg-slate-950 pb-24 lg:pb-6">
       {/* Top POS Bar */}
-      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-emerald-100 dark:border-slate-800 px-4 h-14 flex items-center justify-between gap-2 no-print">
+      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 h-14 flex items-center justify-between gap-2 no-print">
         <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
             onClick={onBackDashboard}
-            className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0"
+            className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center shrink-0"
             aria-label="رجوع"
           >
             <ArrowRight className="w-5 h-5" />
@@ -668,7 +740,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           <span
             className={`hidden sm:inline-flex px-2.5 py-0.5 rounded-xl text-[11px] font-extrabold tabular-nums ${
               shop.isOpen
-                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                ? 'bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-300'
                 : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
             }`}
           >
@@ -692,12 +764,12 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           <button
             type="button"
             onClick={() => setMobileCartOpen(true)}
-            className="lg:hidden w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center relative"
+            className="lg:hidden w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center relative"
             aria-label="السلة"
           >
             <ShoppingCart className="w-4 h-4" />
             {totalCount > 0 && (
-              <span className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+              <span className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-[#FF6A00] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
                 {totalCount}
               </span>
             )}
@@ -708,8 +780,8 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             onClick={() => setViewMode('list')}
             className={`w-9 h-9 rounded-xl flex items-center justify-center ${
               viewMode === 'list'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300'
+                ? 'bg-[#FF6A00] text-white'
+                : 'bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300'
             }`}
             aria-label="عرض القائمة"
           >
@@ -720,8 +792,8 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             onClick={() => setViewMode('grid')}
             className={`w-9 h-9 rounded-xl flex items-center justify-center ${
               viewMode === 'grid'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300'
+                ? 'bg-[#FF6A00] text-white'
+                : 'bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300'
             }`}
             aria-label="عرض الشبكة"
           >
@@ -731,7 +803,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       </header>
 
       {toastMsg && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-emerald-700 text-white px-5 py-2.5 rounded-2xl text-sm font-bold shadow-lg no-print">
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#FF6A00] text-white px-5 py-2.5 rounded-2xl text-sm font-bold shadow-lg no-print">
           {toastMsg}
         </div>
       )}
@@ -750,9 +822,9 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleBarcodeOrEnter}
               placeholder="ابحث بالاسم أو امسح الباركود واضغط Enter للإضافة الفورية..."
-              className="w-full pr-11 pl-10 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full pr-11 pl-10 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
             />
-            <Barcode className="w-4 h-4 text-emerald-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Barcode className="w-4 h-4 text-[#FF6A00] absolute left-3.5 top-1/2 -translate-y-1/2" />
           </div>
 
           {/* Categories Strip */}
@@ -764,8 +836,8 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 onClick={() => setSelectedCategory(cat)}
                 className={`px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap shrink-0 border transition-colors ${
                   selectedCategory === cat
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-emerald-100 dark:border-slate-800'
+                    ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-orange-100 dark:border-slate-800'
                 }`}
               >
                 {cat}
@@ -775,8 +847,8 @@ export const CashierPage: React.FC<CashierPageProps> = ({
 
           {/* Product Grid / List */}
           {filteredProducts.length === 0 ? (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 border border-emerald-100 dark:border-slate-800 text-center space-y-2">
-              <Utensils className="w-10 h-10 text-emerald-300 mx-auto" />
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 border border-orange-100 dark:border-slate-800 text-center space-y-2">
+              <Utensils className="w-10 h-10 text-orange-300 mx-auto" />
               <p className="text-base font-bold text-slate-600 dark:text-slate-300">
                 لا توجد أصناف مطابقة للبحث
               </p>
@@ -801,8 +873,8 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                       isUnavailable
                         ? 'opacity-50 border-slate-200 dark:border-slate-800'
                         : qty > 0
-                          ? 'border-emerald-500 shadow-xs'
-                          : 'border-emerald-100 dark:border-slate-800 hover:border-emerald-400'
+                          ? 'border-[#FF6A00] shadow-xs'
+                          : 'border-orange-100 dark:border-slate-800 hover:border-orange-400'
                     } ${
                       viewMode === 'grid'
                         ? 'min-h-[215px] flex flex-col justify-between'
@@ -813,7 +885,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                       <div
                         className={`${
                           viewMode === 'grid' ? 'h-28 w-full' : 'w-14 h-14 shrink-0'
-                        } rounded-2xl bg-emerald-50/70 dark:bg-slate-800 flex items-center justify-center overflow-hidden relative`}
+                        } rounded-2xl bg-orange-50/70 dark:bg-slate-800 flex items-center justify-center overflow-hidden relative`}
                       >
                         {product.imageUrl && !brokenImages[product.id] ? (
                           <img
@@ -826,10 +898,10 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <Utensils className="w-7 h-7 text-emerald-300" />
+                          <Utensils className="w-7 h-7 text-orange-300" />
                         )}
                         {qty > 0 && (
-                          <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold tabular-nums shadow">
+                          <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full bg-[#FF6A00] text-white text-[10px] font-extrabold tabular-nums shadow">
                             {qty}
                           </span>
                         )}
@@ -847,7 +919,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                             {options.slice(0, 2).map((opt) => (
                               <span
                                 key={opt.raw}
-                                className="px-1.5 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-[10px] font-extrabold tabular-nums"
+                                className="px-1.5 py-0.5 rounded-lg bg-orange-50 dark:bg-orange-950/60 text-orange-900 dark:text-orange-200 text-[10px] font-extrabold tabular-nums"
                               >
                                 {opt.label}
                                 {opt.hasExplicitPrice ? ` · ${opt.price}` : ''}
@@ -862,7 +934,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                       className="flex items-center justify-between gap-2 pt-2"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <span className="text-xs sm:text-sm font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      <span className="text-xs sm:text-sm font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
                         {formatCompactMoney(product.price, shop.country)}
                       </span>
                       {qty === 0 || options.length > 0 ? (
@@ -872,19 +944,19 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                           onClick={() => handleProductTap(product)}
                           className={
                             options.length > 0
-                              ? 'px-2.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-[11px] font-extrabold inline-flex items-center gap-1 tabular-nums'
-                              : 'w-8 h-8 rounded-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white flex items-center justify-center'
+                              ? 'px-2.5 py-1.5 rounded-full bg-[#FF6A00] hover:bg-[#E55E00] disabled:opacity-40 text-white text-[11px] font-extrabold inline-flex items-center gap-1 tabular-nums'
+                              : 'w-8 h-8 rounded-full bg-[#FF6A00] hover:bg-[#E55E00] disabled:opacity-40 text-white flex items-center justify-center'
                           }
                         >
                           <Plus className="w-4 h-4" />
                           {options.length > 0 && <span>{qty > 0 ? `(${qty})` : 'خيارات'}</span>}
                         </button>
                       ) : (
-                        <div className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950 rounded-full px-1.5 py-0.5 border border-emerald-200 dark:border-emerald-800">
+                        <div className="inline-flex items-center gap-1 bg-orange-50 dark:bg-orange-950 rounded-full px-1.5 py-0.5 border border-orange-200 dark:border-orange-800">
                           <button
                             type="button"
                             onClick={() => addItemWithOption(product)}
-                            className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center"
+                            className="w-6 h-6 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
                           >
                             <Plus className="w-3 h-3" />
                           </button>
@@ -894,7 +966,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                           <button
                             type="button"
                             onClick={() => decItem(product.id)}
-                            className="w-6 h-6 rounded-full bg-white dark:bg-slate-800 text-emerald-700 flex items-center justify-center"
+                            className="w-6 h-6 rounded-full bg-white dark:bg-slate-800 text-[#FF6A00] flex items-center justify-center"
                           >
                             <Minus className="w-3 h-3" />
                           </button>
@@ -909,10 +981,10 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         </div>
 
         {/* Desktop Persistent POS Register Ticket Panel */}
-        <aside className="hidden lg:block lg:col-span-5 xl:col-span-4 sticky top-[72px] bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800 shadow-sm space-y-3">
-          <div className="flex items-center justify-between pb-2.5 border-b border-emerald-100 dark:border-slate-800">
+        <aside className="hidden lg:block lg:col-span-5 xl:col-span-4 sticky top-[72px] bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-sm space-y-3">
+          <div className="flex items-center justify-between pb-2.5 border-b border-orange-100 dark:border-slate-800">
             <div className="flex items-center gap-2 font-extrabold text-base">
-              <Receipt className="w-4 h-4 text-emerald-600" />
+              <Receipt className="w-4 h-4 text-[#FF6A00]" />
               <span>فاتورة الكاشير الحالية</span>
             </div>
             {cartItems.length > 0 && (
@@ -934,7 +1006,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         <button
           type="button"
           onClick={() => setMobileCartOpen(true)}
-          className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-base shadow-lg flex items-center justify-between tabular-nums"
+          className="w-full py-3.5 px-6 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-base shadow-lg flex items-center justify-between tabular-nums"
         >
           {totalCount === 0 ? (
             <>
@@ -954,7 +1026,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       {mobileCartOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex items-end justify-center bg-slate-900/40 backdrop-blur-xs no-print">
           <div className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-t-3xl p-5 max-h-[92vh] overflow-y-auto shadow-2xl space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-emerald-100 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-2 border-b border-orange-100 dark:border-slate-800">
               <h2 className="text-lg font-extrabold">إغلاق السلة والدفع</h2>
               <div className="flex items-center gap-2">
                 {cartItems.length > 0 && (
@@ -969,7 +1041,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setMobileCartOpen(false)}
-                  className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                  className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -988,16 +1060,16 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-5 max-h-[85vh] flex flex-col justify-between border border-emerald-100 dark:border-slate-800 shadow-2xl space-y-4"
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-5 max-h-[85vh] flex flex-col justify-between border border-orange-100 dark:border-slate-800 shadow-2xl space-y-4"
           >
-            <div className="flex items-center justify-between pb-2 border-b border-emerald-100 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-2 border-b border-orange-100 dark:border-slate-800">
               <h3 className="font-extrabold text-base">
                 الطلبات المعلقة والواردة ({heldAndActiveOrders.length})
               </h3>
               <button
                 type="button"
                 onClick={() => setOrdersQueueOpen(false)}
-                className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1011,7 +1083,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 heldAndActiveOrders.map((ord) => (
                   <div
                     key={ord.id}
-                    className="rounded-2xl bg-emerald-50/50 dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 p-3.5 space-y-2"
+                    className="rounded-2xl bg-orange-50/50 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 p-3.5 space-y-2"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div>
@@ -1027,7 +1099,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                           {ord.tableLabel ? ` · ${ord.tableLabel}` : ''}
                         </div>
                       </div>
-                      <span className="font-extrabold text-sm text-emerald-700 dark:text-emerald-400 tabular-nums">
+                      <span className="font-extrabold text-sm text-[#FF6A00] dark:text-orange-400 tabular-nums">
                         {formatCompactMoney(ord.total, shop.country)}
                       </span>
                     </div>
@@ -1043,15 +1115,25 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                           setLastReceiptOrder(ord);
                           setTimeout(() => window.print(), 100);
                         }}
-                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 text-xs font-bold inline-flex items-center gap-1"
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-xs font-bold inline-flex items-center gap-1"
                       >
                         <Printer className="w-3.5 h-3.5" />
                         طباعة
                       </button>
                       <button
                         type="button"
-                        onClick={() => void updateOrderStatus(shop.id, ord.id, 'completed')}
-                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1"
+                        onClick={async () => {
+                          if (shop.id.startsWith('shop-')) {
+                            try {
+                              await updateOrderStatus(shop.id, ord.id, 'completed');
+                            } catch {
+                              // ignore if local/demo
+                            }
+                          }
+                          onOrderStatusChange?.(ord.id, 'completed');
+                          showToast(`تم إتمام الطلب #${ord.orderNumber}`);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E55E00] text-white text-xs font-extrabold inline-flex items-center gap-1"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         إتمام الطلب
@@ -1068,13 +1150,13 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       {/* Table Picker Modal */}
       {tablePickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs no-print">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-5 space-y-4 border border-emerald-100 dark:border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-5 space-y-4 border border-orange-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
               <h3 className="font-extrabold text-base">اختر الطاولة</h3>
               <button
                 type="button"
                 onClick={() => setTablePickerOpen(false)}
-                className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1089,12 +1171,12 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                   value={selectedTable}
                   onChange={(e) => setSelectedTable(e.target.value)}
                   placeholder="مثال: طاولة 5"
-                  className="w-full px-3 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 text-sm font-semibold"
+                  className="w-full px-3 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 text-sm font-semibold"
                 />
                 <button
                   type="button"
                   onClick={() => setTablePickerOpen(false)}
-                  className="w-full py-2.5 rounded-2xl bg-emerald-600 text-white font-bold text-sm"
+                  className="w-full py-2.5 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
                 >
                   حفظ
                 </button>
@@ -1109,7 +1191,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                       setSelectedTable(t.label);
                       setTablePickerOpen(false);
                     }}
-                    className="py-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-sm"
+                    className="py-3 rounded-2xl bg-orange-50 hover:bg-orange-100 text-orange-900 font-bold text-sm"
                   >
                     {t.label}
                   </button>
@@ -1128,7 +1210,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-5 space-y-4 border border-emerald-100 dark:border-slate-800 shadow-2xl"
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-5 space-y-4 border border-orange-100 dark:border-slate-800 shadow-2xl"
           >
             <div className="flex items-center justify-between">
               <div className="min-w-0">
@@ -1142,7 +1224,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               <button
                 type="button"
                 onClick={() => setOptionPickerProduct(null)}
-                className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center shrink-0"
+                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1156,10 +1238,10 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                     addItemWithOption(optionPickerProduct, opt);
                     setOptionPickerProduct(null);
                   }}
-                  className="w-full py-3 px-4 rounded-2xl bg-emerald-50/70 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-emerald-200 dark:border-slate-700 flex items-center justify-between text-sm font-extrabold"
+                  className="w-full py-3 px-4 rounded-2xl bg-orange-50/70 hover:bg-orange-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-orange-200 dark:border-slate-700 flex items-center justify-between text-sm font-extrabold"
                 >
                   <span>{opt.label}</span>
-                  <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
+                  <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
                     {formatMoney(opt.price, shop.country)}
                   </span>
                 </button>
@@ -1190,7 +1272,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             </div>
             <div className="pt-2 space-y-1 text-xs">
               <div className="flex justify-between">
-                <span>المجموع</span>
+                <span>سعر الأكل</span>
                 <span>{lastReceiptOrder.subtotal}</span>
               </div>
               {lastReceiptOrder.discount ? (
@@ -1199,16 +1281,28 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                   <span>-{lastReceiptOrder.discount}</span>
                 </div>
               ) : null}
+              {(lastReceiptOrder.deliveryFee ?? 0) > 0 && (
+                <div className="flex justify-between">
+                  <span>التوصيل</span>
+                  <span>{Number(lastReceiptOrder.deliveryFee).toFixed(2)}</span>
+                </div>
+              )}
               {lastReceiptOrder.serviceFee > 0 && (
                 <div className="flex justify-between">
-                  <span>الخدمة 12%</span>
+                  <span>الخدمة</span>
                   <span>{lastReceiptOrder.serviceFee.toFixed(2)}</span>
                 </div>
               )}
               {lastReceiptOrder.vat > 0 && (
                 <div className="flex justify-between">
-                  <span>ضريبة 14%</span>
+                  <span>الضريبة</span>
                   <span>{lastReceiptOrder.vat.toFixed(2)}</span>
+                </div>
+              )}
+              {(lastReceiptOrder.packagingFee ?? 0) > 0 && (
+                <div className="flex justify-between">
+                  <span>التغليف</span>
+                  <span>{Number(lastReceiptOrder.packagingFee).toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-slate-300">
@@ -1232,7 +1326,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             </div>
             <div className="pt-2 space-y-1 text-xs">
               <div className="flex justify-between">
-                <span>المجموع</span>
+                <span>سعر الأكل</span>
                 <span>{totals.subtotal}</span>
               </div>
               {totals.discount > 0 && (
@@ -1241,17 +1335,29 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                   <span>-{totals.discount}</span>
                 </div>
               )}
-              {applyTaxAndService && (
-                <>
-                  <div className="flex justify-between">
-                    <span>رسوم الخدمة 12%</span>
-                    <span>{totals.serviceFee.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>ضريبة 14%</span>
-                    <span>{totals.vat.toFixed(2)}</span>
-                  </div>
-                </>
+              {orderType === 'delivery' && (
+                <div className="flex justify-between">
+                  <span>التوصيل</span>
+                  <span>{totals.freeDeliveryApplied ? 'مجاناً' : totals.deliveryFee.toFixed(2)}</span>
+                </div>
+              )}
+              {totals.serviceFee > 0 && (
+                <div className="flex justify-between">
+                  <span>رسوم الخدمة ({totals.serviceFeePct}%)</span>
+                  <span>{totals.serviceFee.toFixed(2)}</span>
+                </div>
+              )}
+              {totals.vat > 0 && (
+                <div className="flex justify-between">
+                  <span>الضريبة ({totals.vatPct}%)</span>
+                  <span>{totals.vat.toFixed(2)}</span>
+                </div>
+              )}
+              {totals.packagingFee > 0 && (
+                <div className="flex justify-between">
+                  <span>التغليف</span>
+                  <span>{totals.packagingFee.toFixed(2)}</span>
+                </div>
               )}
               <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-slate-300">
                 <span>الإجمالي</span>

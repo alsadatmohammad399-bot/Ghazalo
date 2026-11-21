@@ -1,13 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import {
   ArrowRight,
   Ban,
-  CalendarPlus,
+  Check,
   CheckCircle2,
   Clock,
   Copy,
-  CreditCard,
   ExternalLink,
   Eye,
   EyeOff,
@@ -16,11 +15,15 @@ import {
   Loader2,
   Lock,
   LogOut,
+  MessageCircle,
   Search,
+  Send,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
   Store,
   Unlock,
+  X,
 } from 'lucide-react';
 import { GhazaloLogo } from '../components/BrandLogo';
 import { PWAInstallButton } from '../components/PWAInstallButton';
@@ -30,30 +33,74 @@ import {
   approveAndActivateShop,
   backfillAllShopsMissingPhotos,
   extendTrialShop,
-  getAdminCustomPin,
+  getAllStoreCredentials,
   saveAdminCustomPin,
+  savePlatformConfig,
   subscribeToAllShops,
   suspendShop,
+  updateShop,
 } from '../services/firestoreService';
-import { getShopAccessState } from '../utils/calculations';
-import { ADMIN_EMAIL, ADMIN_PORTAL_KEY, type Shop } from '../types';
+import { formatArabicDate, getShopAccessState } from '../utils/calculations';
+import {
+  LS_KEYS,
+  getLocalRestaurants,
+  getPlatformSettingsLocal,
+  saveLocalRestaurants,
+  savePlatformSettingsLocal,
+  shopToDemoRecord,
+  upsertLocalRestaurant,
+} from '../utils/storeRegistry';
+import {
+  ADMIN_EMAIL,
+  ADMIN_PORTAL_KEY,
+  SUBSCRIPTION_PRICING,
+  normalizeStoreSlug,
+  type DemoRestaurantRecord,
+  type PlatformSettings,
+  type Shop,
+  type StoreCredentialRecord,
+  type SubscriptionStatus,
+} from '../types';
 
 interface AdminPageProps {
   onBack: () => void;
   onPreviewShop?: (shop: Shop) => void;
+  onPlatformConfigChange?: (settings: PlatformSettings) => void;
 }
 
-const PIN_SESSION_KEY = 'ghazalo_admin_unlocked_v1';
+type AdminFilterId = 'all' | 'trial' | 'monthly' | 'yearly' | 'expired' | 'suspended';
 
-export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) => {
+interface UnifiedRestaurantRow {
+  shopId: string;
+  storeSlug: string;
+  nameAr: string;
+  email: string;
+  phone: string;
+  password: string;
+  resetCode?: string;
+  resetCodeExpiresAt?: number;
+  subscriptionDateFormatted: string;
+  daysLeft: number;
+  statusCategory: Exclude<AdminFilterId, 'all'>;
+  statusLabel: string;
+  deliveryFee: number;
+  shop: Shop;
+  fromFirestore: boolean;
+}
+
+export const AdminPage: React.FC<AdminPageProps> = ({
+  onBack,
+  onPreviewShop,
+  onPlatformConfigChange,
+}) => {
   const [user, setUser] = useState<User | null>(auth.currentUser);
   const [authLoading, setAuthLoading] = useState(true);
 
-  const [pinUnlocked, setPinUnlocked] = useState<boolean>(() => {
+  const [adminToken, setAdminToken] = useState<string>(() => {
     try {
-      return sessionStorage.getItem(PIN_SESSION_KEY) === '1';
+      return localStorage.getItem(LS_KEYS.ADMIN_TOKEN) || '';
     } catch {
-      return false;
+      return '';
     }
   });
   const [pinInput, setPinInput] = useState('');
@@ -61,25 +108,53 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
   const [pinError, setPinError] = useState('');
   const [verifyingPin, setVerifyingPin] = useState(false);
 
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [loadingShops, setLoadingShops] = useState(true);
+  const [firestoreShops, setFirestoreShops] = useState<Shop[]>([]);
+  const [firestoreCreds, setFirestoreCreds] = useState<StoreCredentialRecord[]>([]);
+  const [serverCodes, setServerCodes] = useState<
+    Record<string, { resetCode?: string; resetCodeExpiresAt?: number; email?: string; phone?: string }>
+  >({});
+  const [localRestaurants, setLocalRestaurants] = useState<DemoRestaurantRecord[]>(() =>
+    getLocalRestaurants()
+  );
+  const [loadingShops, setLoadingShops] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<
-    'all' | 'payment_requests' | 'needs_approval' | 'trial' | 'active' | 'suspended'
-  >('all');
-  const [selectedDaysByShop, setSelectedDaysByShop] = useState<Record<string, number>>({});
-  const [linkCopied, setLinkCopied] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
 
-  // Change PIN modal state
+  // Filters & Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<AdminFilterId>('all');
+
+  // Global Zero-Fees Toggle
+  const [forceZeroFeesGlobally, setForceZeroFeesGlobally] = useState<boolean>(
+    () => getPlatformSettingsLocal().forceZeroFeesGlobally
+  );
+  const [savingGlobalFeeToggle, setSavingGlobalFeeToggle] = useState(false);
+
+  // Per-row interactive states
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  const [deliveryEdits, setDeliveryEdits] = useState<Record<string, string>>({});
+  const [copiedSlugId, setCopiedSlugId] = useState<string | null>(null);
+  const [expandedPlanRowId, setExpandedPlanRowId] = useState<string | null>(null);
+
+  // Change Restaurant Password Modal
+  const [passwordModalRow, setPasswordModalRow] = useState<UnifiedRestaurantRow | null>(null);
+  const [newStorePassInput, setNewStorePassInput] = useState('');
+  const [savingStorePass, setSavingStorePass] = useState(false);
+
+  // Change Admin PIN modal state
   const [changePinOpen, setChangePinOpen] = useState(false);
   const [newPinInput, setNewPinInput] = useState('');
   const [savingPin, setSavingPin] = useState(false);
   const [pinSavedMsg, setPinSavedMsg] = useState('');
 
-  // Batch dish photo backfill across all shops
+  // Private link copy & photo backfill
+  const [linkCopied, setLinkCopied] = useState(false);
   const [backfillBusy, setBackfillBusy] = useState(false);
-  const [backfillMsg, setBackfillMsg] = useState('');
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 3000);
+  };
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -93,74 +168,106 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
     Boolean(user?.emailVerified) &&
     user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
+  const refreshServerAdminData = useCallback(async (tokenToUse: string) => {
+    if (!tokenToUse) return;
+    try {
+      const [cfgRes, codesRes] = await Promise.all([
+        fetch('/api/platform-config'),
+        fetch('/api/admin/store-codes', {
+          headers: { Authorization: `Bearer ${tokenToUse}` },
+        }),
+      ]);
+      if (cfgRes.ok) {
+        const cfg = (await cfgRes.json()) as { forceZeroFeesGlobally?: boolean };
+        const val = Boolean(cfg.forceZeroFeesGlobally);
+        setForceZeroFeesGlobally(val);
+        savePlatformSettingsLocal({ forceZeroFeesGlobally: val });
+      }
+      if (codesRes.status === 401) {
+        localStorage.removeItem(LS_KEYS.ADMIN_TOKEN);
+        setAdminToken('');
+        return;
+      }
+      if (codesRes.ok) {
+        const data = (await codesRes.json()) as {
+          stores?: Array<{
+            shopId: string;
+            storeSlug: string;
+            email?: string;
+            phone?: string;
+            resetCode?: string;
+            resetCodeExpiresAt?: number;
+          }>;
+        };
+        const map: Record<
+          string,
+          { resetCode?: string; resetCodeExpiresAt?: number; email?: string; phone?: string }
+        > = {};
+        for (const s of data.stores || []) {
+          const entry = {
+            resetCode: s.resetCode,
+            resetCodeExpiresAt: s.resetCodeExpiresAt,
+            email: s.email,
+            phone: s.phone,
+          };
+          if (s.shopId) map[s.shopId] = entry;
+          if (s.storeSlug) map[s.storeSlug] = entry;
+        }
+        setServerCodes(map);
+      }
+    } catch {
+      // keep local state seamlessly
+    }
+  }, []);
+
   useEffect(() => {
-    if (!pinUnlocked || !isAdminEmail) return;
+    if (!adminToken) return;
+    setLocalRestaurants(getLocalRestaurants());
+    void refreshServerAdminData(adminToken);
+  }, [adminToken, refreshServerAdminData]);
+
+  useEffect(() => {
+    if (!adminToken || !isAdminEmail) return;
     setLoadingShops(true);
     const unsub = subscribeToAllShops((list) => {
-      const sorted = [...list].sort((a, b) => {
-        const aAccess = getShopAccessState(a);
-        const bAccess = getShopAccessState(b);
-        if (aAccess.isActive !== bAccess.isActive) return aAccess.isActive ? 1 : -1;
-        return (b.trialEndsAt || 0) - (a.trialEndsAt || 0);
-      });
-      setShops(sorted);
+      setFirestoreShops(list);
       setLoadingShops(false);
     });
+    void getAllStoreCredentials().then(setFirestoreCreds);
     return () => unsub();
-  }, [pinUnlocked, isAdminEmail]);
-
-  const handleGoogleAdminLogin = async () => {
-    setPinError('');
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (err: unknown) {
-      setPinError(err instanceof Error ? err.message : 'تعذر تسجيل الدخول بحساب الإدارة');
-    }
-  };
+  }, [adminToken, isAdminEmail]);
 
   const handleVerifyPin = async (e: React.FormEvent) => {
     e.preventDefault();
     setPinError('');
-    if (!isAdminEmail) {
-      setPinError('يرجى تسجيل الدخول بحساب Gmail المخصص لمالك المنصة أولاً.');
-      return;
-    }
     const candidate = pinInput.trim();
     if (!candidate) {
-      setPinError('يرجى إدخال الرقم السري.');
+      setPinError('يرجى إدخال الرقم السري للإدارة.');
       return;
     }
 
     setVerifyingPin(true);
     try {
-      const customPin = await getAdminCustomPin();
-      if (customPin) {
-        if (candidate === customPin) {
-          sessionStorage.setItem(PIN_SESSION_KEY, '1');
-          setPinUnlocked(true);
-          setPinInput('');
-          return;
-        }
-        setPinError('الرقم السري غير صحيح.');
-        return;
-      }
-
       const res = await fetch('/api/admin/verify-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin: candidate }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
+      const data = (await res.json()) as { ok?: boolean; adminToken?: string; error?: string };
+      if (!res.ok || !data.ok || !data.adminToken) {
         setPinError(data.error || 'الرقم السري غير صحيح.');
         return;
       }
 
-      sessionStorage.setItem(PIN_SESSION_KEY, '1');
-      setPinUnlocked(true);
+      try {
+        localStorage.setItem(LS_KEYS.ADMIN_TOKEN, data.adminToken);
+      } catch {
+        // ignore storage quota
+      }
+      setAdminToken(data.adminToken);
       setPinInput('');
     } catch {
-      setPinError('تعذر التحقق من الرقم السري.');
+      setPinError('تعذر الاتصال بخادم الإدارة.');
     } finally {
       setVerifyingPin(false);
     }
@@ -168,72 +275,454 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
 
   const handleLock = () => {
     try {
-      sessionStorage.removeItem(PIN_SESSION_KEY);
+      localStorage.removeItem(LS_KEYS.ADMIN_TOKEN);
     } catch {
       // ignore
     }
-    setPinUnlocked(false);
+    setAdminToken('');
+  };
+
+  const handleGoogleAdminLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch {
+      showToast('تعذر ربط حساب Google');
+    }
   };
 
   const handleSaveNewPin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPinInput.trim().length < 4) return;
+    const clean = newPinInput.trim();
+    if (clean.length < 4) return;
     setSavingPin(true);
     try {
-      await saveAdminCustomPin(newPinInput.trim());
+      const res = await fetch('/api/admin/update-pin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ newPin: clean }),
+      });
+      if (!res.ok) {
+        showToast('تعذر تحديث الرقم السري على الخادم');
+        return;
+      }
+      if (isAdminEmail) {
+        try {
+          await saveAdminCustomPin(clean);
+        } catch {
+          // non-blocking
+        }
+      }
       setPinSavedMsg('تم تحديث الرقم السري بنجاح');
       setNewPinInput('');
       setTimeout(() => {
         setPinSavedMsg('');
         setChangePinOpen(false);
-      }, 1500);
+      }, 1400);
     } finally {
       setSavingPin(false);
     }
   };
 
-  const handleApproveAndActivate = async (shopId: string, days: number) => {
-    setBusyId(shopId);
-    try {
-      await approveAndActivateShop(shopId, days);
-    } finally {
-      setBusyId(null);
-    }
-  };
+  const handleToggleGlobalZeroFees = async () => {
+    const nextVal = !forceZeroFeesGlobally;
+    setSavingGlobalFeeToggle(true);
+    setForceZeroFeesGlobally(nextVal);
+    savePlatformSettingsLocal({ forceZeroFeesGlobally: nextVal });
+    onPlatformConfigChange?.({ forceZeroFeesGlobally: nextVal });
 
-  const handleExtendTrial = async (shopId: string) => {
-    setBusyId(shopId);
     try {
-      await extendTrialShop(shopId, 7);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleSuspend = async (shopId: string) => {
-    setBusyId(shopId);
-    try {
-      await suspendShop(shopId);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleBackfillAllPhotos = async () => {
-    if (shops.length === 0) return;
-    setBackfillBusy(true);
-    setBackfillMsg('');
-    try {
-      const updated = await backfillAllShopsMissingPhotos(shops.map((s) => s.id));
-      setBackfillMsg(
-        updated > 0
-          ? `تم إضافة الصور الحقيقية لعدد ${updated} صنف عبر جميع المتاجر بنجاح.`
-          : 'جميع الأصناف عبر كل المطاعم تمتلك صوراً بالفعل.'
+      await fetch('/api/admin/global-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ forceZeroFeesGlobally: nextVal }),
+      });
+      if (isAdminEmail) {
+        await savePlatformConfig(nextVal);
+      }
+      showToast(
+        nextVal
+          ? 'تم تفعيل الإلغاء الشامل لكل الرسوم والضرايب لجميع المطاعم'
+          : 'تم إعادة السماح بإعدادات الرسوم الاختيارية للمطاعم'
       );
     } catch {
-      setBackfillMsg('تعذر تحديث صور بعض الأصناف، يرجى المحاولة مرة أخرى.');
+      showToast('تم حفظ الإعداد محلياً بنجاح');
     } finally {
-      setBackfillBusy(false);
+      setSavingGlobalFeeToggle(false);
+    }
+  };
+
+  // Merge Firestore + Store Credentials + Server Codes + LocalStorage "restaurants"
+  const rows = useMemo<UnifiedRestaurantRow[]>(() => {
+    const credByShop: Record<string, StoreCredentialRecord> = {};
+    for (const c of firestoreCreds) {
+      if (c.shopId) credByShop[c.shopId] = c;
+      if (c.storeSlug) credByShop[normalizeStoreSlug(c.storeSlug)] = c;
+    }
+
+    const localByKey: Record<string, DemoRestaurantRecord> = {};
+    for (const r of localRestaurants) {
+      if (r.shopId) localByKey[r.shopId] = r;
+      if (r.storeSlug) localByKey[normalizeStoreSlug(r.storeSlug)] = r;
+    }
+
+    const mergedMap = new Map<string, UnifiedRestaurantRow>();
+
+    const buildRow = (
+      shop: Shop,
+      fromFirestore: boolean,
+      localMatch?: DemoRestaurantRecord
+    ): UnifiedRestaurantRow => {
+      const slug =
+        normalizeStoreSlug(shop.storeSlug || '') ||
+        normalizeStoreSlug(localMatch?.storeSlug || '') ||
+        normalizeStoreSlug(shop.nameEn || '') ||
+        normalizeStoreSlug(shop.id) ||
+        shop.id;
+      const cred = credByShop[shop.id] || credByShop[slug];
+      const srv = serverCodes[shop.id] || serverCodes[slug];
+
+      const access = getShopAccessState(shop);
+      let statusCategory: UnifiedRestaurantRow['statusCategory'] = 'trial';
+      let statusLabel = 'تجريبي';
+
+      if (access.reason === 'suspended') {
+        statusCategory = 'suspended';
+        statusLabel = 'متوقف';
+      } else if (!access.isActive) {
+        statusCategory = 'expired';
+        statusLabel = 'منتهي';
+      } else if (access.reason === 'yearly') {
+        statusCategory = 'yearly';
+        statusLabel = 'مفعل سنوي';
+      } else if (access.reason === 'monthly' || access.reason === 'active') {
+        statusCategory = 'monthly';
+        statusLabel = 'مفعل شهري';
+      } else {
+        statusCategory = 'trial';
+        statusLabel = 'تجريبي';
+      }
+
+      const expDate =
+        statusCategory === 'monthly' || statusCategory === 'yearly'
+          ? shop.subscriptionExpiresAt || localMatch?.subscriptionEndDate
+          : shop.trialEndsAt || localMatch?.trialEndDate;
+
+      return {
+        shopId: shop.id,
+        storeSlug: slug,
+        nameAr: shop.nameAr || localMatch?.nameAr || slug,
+        email: cred?.email || srv?.email || localMatch?.email || '',
+        phone: shop.whatsapp || cred?.phone || srv?.phone || localMatch?.phone || '',
+        password: localMatch?.password || '',
+        resetCode: srv?.resetCode || localMatch?.resetCode,
+        resetCodeExpiresAt: srv?.resetCodeExpiresAt || localMatch?.resetCodeExpiresAt,
+        subscriptionDateFormatted: expDate ? formatArabicDate(expDate) : '-',
+        daysLeft: access.daysLeft,
+        statusCategory,
+        statusLabel,
+        deliveryFee: Number(shop.deliveryFee ?? localMatch?.deliveryFee ?? 0),
+        shop: { ...shop, storeSlug: slug },
+        fromFirestore,
+      };
+    };
+
+    for (const s of firestoreShops) {
+      const slug = normalizeStoreSlug(s.storeSlug || s.id);
+      const lm = localByKey[s.id] || (slug ? localByKey[slug] : undefined);
+      const row = buildRow(s, true, lm);
+      mergedMap.set(row.storeSlug || row.shopId, row);
+    }
+
+    for (const lr of localRestaurants) {
+      const slug = normalizeStoreSlug(lr.storeSlug || lr.shopId);
+      const key = slug || lr.shopId;
+      if (!mergedMap.has(key) && !mergedMap.has(lr.shopId)) {
+        const mergedShop: Shop = {
+          ...lr.shop,
+          id: lr.shopId,
+          storeSlug: lr.storeSlug,
+          nameAr: lr.nameAr || lr.shop?.nameAr || lr.storeSlug,
+          subscriptionStatus: lr.status || lr.shop?.subscriptionStatus || 'trial',
+          trialEndsAt: lr.trialEndDate || lr.shop?.trialEndsAt,
+          subscriptionExpiresAt: lr.subscriptionEndDate || lr.shop?.subscriptionExpiresAt,
+          deliveryFee: lr.deliveryFee ?? lr.shop?.deliveryFee ?? 0,
+        };
+        mergedMap.set(key, buildRow(mergedShop, false, lr));
+      }
+    }
+
+    return Array.from(mergedMap.values()).sort((a, b) => {
+      if (a.statusCategory === 'expired' && b.statusCategory !== 'expired') return -1;
+      if (b.statusCategory === 'expired' && a.statusCategory !== 'expired') return 1;
+      return a.nameAr.localeCompare(b.nameAr, 'ar');
+    });
+  }, [firestoreShops, firestoreCreds, serverCodes, localRestaurants]);
+
+  const stats = useMemo(() => {
+    const counts = {
+      all: rows.length,
+      trial: 0,
+      monthly: 0,
+      yearly: 0,
+      expired: 0,
+      suspended: 0,
+    };
+    for (const r of rows) {
+      counts[r.statusCategory] += 1;
+    }
+    return counts;
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return rows.filter((r) => {
+      const matchesTab = statusFilter === 'all' || r.statusCategory === statusFilter;
+      const matchesSearch =
+        !q ||
+        r.nameAr.toLowerCase().includes(q) ||
+        r.storeSlug.toLowerCase().includes(q) ||
+        r.email.toLowerCase().includes(q) ||
+        r.phone.toLowerCase().includes(q);
+      return matchesTab && matchesSearch;
+    });
+  }, [rows, searchQuery, statusFilter]);
+
+  const updateLocalRowShop = (
+    row: UnifiedRestaurantRow,
+    shopUpdates: Partial<Shop>,
+    extraDemo?: Partial<DemoRestaurantRecord>
+  ) => {
+    const mergedShop: Shop = { ...row.shop, ...shopUpdates };
+    const nextList = upsertLocalRestaurant(
+      shopToDemoRecord(mergedShop, {
+        email: row.email,
+        phone: row.phone,
+        password: row.password || undefined,
+        resetCode: row.resetCode,
+        resetCodeExpiresAt: row.resetCodeExpiresAt,
+        status: mergedShop.subscriptionStatus as SubscriptionStatus,
+        trialEndDate: mergedShop.trialEndsAt,
+        subscriptionEndDate: mergedShop.subscriptionExpiresAt,
+        ...extraDemo,
+      })
+    );
+    setLocalRestaurants([...nextList]);
+  };
+
+  const handleSubscriptionAction = async (
+    row: UnifiedRestaurantRow,
+    action: 'trial' | 'monthly' | 'yearly' | 'suspend'
+  ) => {
+    setBusyId(row.shopId);
+    const now = Date.now();
+    try {
+      if (action === 'trial') {
+        const trialEndsAt = now + 7 * 24 * 60 * 60 * 1000;
+        if (row.fromFirestore && isAdminEmail) {
+          await extendTrialShop(row.shopId, 7);
+        }
+        updateLocalRowShop(
+          row,
+          {
+            subscriptionStatus: 'trial',
+            approvedByAdmin: true,
+            trialEndsAt,
+            plan: 'تجريبي مجاني - 7 أيام',
+          },
+          { status: 'trial', trialEndDate: trialEndsAt }
+        );
+        showToast(`تم تفعيل التجربة المجانية (7 أيام) لـ ${row.nameAr}`);
+      } else if (action === 'monthly') {
+        const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
+        if (row.fromFirestore && isAdminEmail) {
+          await approveAndActivateShop(row.shopId, 30);
+        }
+        updateLocalRowShop(
+          row,
+          {
+            subscriptionStatus: 'monthly',
+            approvedByAdmin: true,
+            approvedAt: now,
+            subscriptionExpiresAt: expiresAt,
+            plan: 'التفعيل الشهري - 30 يوم',
+          },
+          { status: 'monthly', subscriptionEndDate: expiresAt }
+        );
+        showToast(`تم التفعيل الشهري (30 يوم) لـ ${row.nameAr}`);
+      } else if (action === 'yearly') {
+        const expiresAt = now + 365 * 24 * 60 * 60 * 1000;
+        if (row.fromFirestore && isAdminEmail) {
+          await approveAndActivateShop(row.shopId, 365);
+        }
+        updateLocalRowShop(
+          row,
+          {
+            subscriptionStatus: 'yearly',
+            approvedByAdmin: true,
+            approvedAt: now,
+            subscriptionExpiresAt: expiresAt,
+            plan: 'التفعيل السنوي - 365 يوم',
+          },
+          { status: 'yearly', subscriptionEndDate: expiresAt }
+        );
+        showToast(`تم التفعيل السنوي (365 يوم) لـ ${row.nameAr}`);
+      } else {
+        if (row.fromFirestore && isAdminEmail) {
+          await suspendShop(row.shopId);
+        }
+        updateLocalRowShop(
+          row,
+          {
+            subscriptionStatus: 'suspended',
+            approvedByAdmin: false,
+          },
+          { status: 'suspended' }
+        );
+        showToast(`تم إيقاف متجر ${row.nameAr}`);
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleSaveDeliveryPrice = async (row: UnifiedRestaurantRow) => {
+    const raw = deliveryEdits[row.shopId];
+    const nextFee = Math.max(0, Number(raw !== undefined ? raw : row.deliveryFee) || 0);
+    setBusyId(row.shopId);
+    try {
+      if (row.fromFirestore && isAdminEmail) {
+        await updateShop(row.shopId, {
+          deliveryFee: nextFee,
+          freeDelivery: nextFee === 0,
+        });
+      }
+      updateLocalRowShop(row, {
+        deliveryFee: nextFee,
+        freeDelivery: nextFee === 0,
+      });
+      showToast(`تم حفظ سعر التوصيل (${nextFee} جنيه) لـ ${row.nameAr}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleGenerateResetCode = async (row: UnifiedRestaurantRow) => {
+    setBusyId(row.shopId);
+    try {
+      let generatedCode = String(Math.floor(100000 + Math.random() * 900000));
+      let expiresAt = Date.now() + 30 * 60 * 1000;
+
+      try {
+        const res = await fetch('/api/admin/generate-code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${adminToken}`,
+          },
+          body: JSON.stringify({
+            shopId: row.shopId,
+            storeSlug: row.storeSlug,
+            nameAr: row.nameAr,
+            email: row.email,
+            phone: row.phone,
+          }),
+        });
+        const data = (await res.json()) as { ok?: boolean; code?: string; expiresAt?: number };
+        if (res.ok && data.ok && data.code) {
+          generatedCode = data.code;
+          if (data.expiresAt) expiresAt = data.expiresAt;
+        }
+      } catch {
+        // fallback to client generated code saved to localStorage
+      }
+
+      setServerCodes((prev) => ({
+        ...prev,
+        [row.shopId]: { ...prev[row.shopId], resetCode: generatedCode, resetCodeExpiresAt: expiresAt },
+        [row.storeSlug]: { ...prev[row.storeSlug], resetCode: generatedCode, resetCodeExpiresAt: expiresAt },
+      }));
+
+      updateLocalRowShop(row, {}, {
+        resetCode: generatedCode,
+        resetCodeExpiresAt: expiresAt,
+      });
+
+      try {
+        await navigator.clipboard.writeText(generatedCode);
+      } catch {
+        // ignore clipboard restriction
+      }
+      showToast(`كود الاستعادة لـ ${row.nameAr}: ${generatedCode} (تم النسخ)`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleSaveStorePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordModalRow) return;
+    const cleanPass = newStorePassInput.trim();
+    if (cleanPass.length < 4) {
+      showToast('كلمة السر الجديدة يجب أن تكون 4 أحرف على الأقل');
+      return;
+    }
+
+    setSavingStorePass(true);
+    try {
+      try {
+        await fetch('/api/admin/store-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${adminToken}`,
+          },
+          body: JSON.stringify({
+            shopId: passwordModalRow.shopId,
+            storeSlug: passwordModalRow.storeSlug,
+            nameAr: passwordModalRow.nameAr,
+            email: passwordModalRow.email,
+            phone: passwordModalRow.phone,
+            newPassword: cleanPass,
+          }),
+        });
+      } catch {
+        // non-blocking
+      }
+
+      updateLocalRowShop(passwordModalRow, {}, { password: cleanPass, resetCode: undefined });
+      // Also force save in localRestaurants array cleanly
+      const updated = getLocalRestaurants().map((r) =>
+        r.shopId === passwordModalRow.shopId ||
+        normalizeStoreSlug(r.storeSlug) === passwordModalRow.storeSlug
+          ? { ...r, password: cleanPass, resetCode: undefined }
+          : r
+      );
+      saveLocalRestaurants(updated);
+      setLocalRestaurants(updated);
+
+      showToast(`تم تغيير كلمة السر لمتجر ${passwordModalRow.nameAr} بنجاح — يمكنه الدخول فوراً!`);
+      setPasswordModalRow(null);
+      setNewStorePassInput('');
+    } finally {
+      setSavingStorePass(false);
+    }
+  };
+
+  const handleCopyMenuLink = async (row: UnifiedRestaurantRow) => {
+    const link = `https://${row.storeSlug}.ghazalo.com/menu`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedSlugId(row.shopId);
+      setTimeout(() => setCopiedSlugId(null), 2000);
+      showToast(`تم نسخ رابط المنيو: ${link}`);
+    } catch {
+      showToast(link);
     }
   };
 
@@ -245,181 +734,112 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2500);
     } catch {
-      // ignore clipboard restriction
+      // ignore
     }
   };
 
-  const stats = useMemo(() => {
-    let active = 0;
-    let trial = 0;
-    let needsApproval = 0;
-    let paymentRequests = 0;
-    for (const s of shops) {
-      const access = getShopAccessState(s);
-      if (s.requestedPlan) paymentRequests += 1;
-      if (!access.isActive) needsApproval += 1;
-      else if (access.reason === 'active') active += 1;
-      else trial += 1;
+  const handleBackfillAllPhotos = async () => {
+    if (firestoreShops.length === 0) return;
+    setBackfillBusy(true);
+    try {
+      const updated = await backfillAllShopsMissingPhotos(firestoreShops.map((s) => s.id));
+      showToast(
+        updated > 0
+          ? `تم إضافة الصور الحقيقية لـ ${updated} صنف بنجاح.`
+          : 'كل الأصناف تمتلك صوراً بالفعل.'
+      );
+    } catch {
+      showToast('تعذر تعبئة الصور حالياً.');
+    } finally {
+      setBackfillBusy(false);
     }
-    return { total: shops.length, active, trial, needsApproval, paymentRequests };
-  }, [shops]);
-
-  const filteredShops = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return shops.filter((s) => {
-      const access = getShopAccessState(s);
-      const matchFilter =
-        statusFilter === 'all' ||
-        (statusFilter === 'payment_requests' && Boolean(s.requestedPlan)) ||
-        (statusFilter === 'needs_approval' && !access.isActive) ||
-        (statusFilter === 'trial' && access.isActive && access.reason === 'trial') ||
-        (statusFilter === 'active' && access.isActive && access.reason === 'active') ||
-        (statusFilter === 'suspended' && access.reason === 'suspended');
-
-      const matchQuery =
-        !q ||
-        s.nameAr.toLowerCase().includes(q) ||
-        (s.nameEn || '').toLowerCase().includes(q) ||
-        (s.city || '').toLowerCase().includes(q) ||
-        (s.country || '').toLowerCase().includes(q) ||
-        (s.whatsapp || '').toLowerCase().includes(q) ||
-        (s.paymentNote || '').toLowerCase().includes(q);
-
-      return matchFilter && matchQuery;
-    });
-  }, [shops, searchQuery, statusFilter]);
+  };
 
   if (authLoading) {
-    return <PlatformLoader subtitle="جاري تحميل لوحة الإدارة..." />;
+    return <PlatformLoader subtitle="جاري تحميل بوابة الأدمن..." />;
   }
 
-  // Secret PIN & Admin Identity Gate
-  if (!pinUnlocked || !isAdminEmail) {
+  // Admin-Only Login Gate
+  if (!adminToken) {
     return (
-      <div dir="rtl" className="min-h-screen bg-emerald-50/40 dark:bg-slate-950 flex flex-col">
-        <header className="bg-white dark:bg-slate-900 border-b border-emerald-100 dark:border-slate-800 px-4 sm:px-6 h-14 flex items-center justify-between">
+      <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 flex flex-col">
+        <header className="bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 sm:px-6 h-14 flex items-center justify-between">
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-700 dark:text-emerald-400"
+            className="inline-flex items-center gap-1.5 text-sm font-extrabold text-[#FF6A00]"
           >
             <ArrowRight className="w-4 h-4" />
-            العودة
+            العودة للموقع
           </button>
           <span className="font-extrabold text-sm text-slate-700 dark:text-slate-200">
-            بوابة الإدارة الخاصة
+            ghazalo.com/admin
           </span>
-          <div className="w-14" />
+          <div className="w-16" />
         </header>
 
         <main className="flex-1 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-emerald-100 dark:border-slate-800 shadow-sm space-y-6">
-            <div className="text-center space-y-2">
-              <div className="flex justify-center mb-1">
-                <GhazaloLogo compact />
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-100 dark:border-slate-800 shadow-[0_14px_45px_rgba(255,106,0,0.08)] space-y-6">
+            <div className="text-center space-y-2.5">
+              <div className="flex justify-center">
+                <GhazaloLogo stacked />
               </div>
-              <div className="w-14 h-14 rounded-3xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 mx-auto flex items-center justify-center">
-                <Lock className="w-7 h-7" />
+              <div className="w-14 h-14 rounded-3xl bg-orange-50 dark:bg-orange-950/50 text-[#FF6A00] mx-auto flex items-center justify-center">
+                <ShieldCheck className="w-7 h-7" />
               </div>
               <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
-                لوحة تحكم إدارة Ghazalo
+                دخول لوحة تحكم الأدمن
               </h1>
               <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
-                مخصصة لمالك المنصة للموافقة على المطاعم وتفعيل الاشتراكات بعد الـ 7 أيام التجريبية
+                مخصصة لإدارة غزالة فقط — إدارة المطاعم والاشتراكات وكلمات السر والرسوم
               </p>
             </div>
 
             {pinError && (
-              <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3.5 text-xs font-bold text-amber-800 dark:text-amber-200">
+              <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3.5 text-xs font-extrabold text-amber-800 dark:text-amber-200">
                 {pinError}
               </div>
             )}
 
-            {!isAdminEmail ? (
-              <div className="rounded-2xl bg-emerald-50/70 dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 p-4 space-y-3 text-center">
-                {user ? (
-                  <>
-                    <div className="text-xs font-extrabold text-amber-800 dark:text-amber-200">
-                      حساب ({user.email}) غير مصرح له بالدخول. هذه الصفحة محمية ومخصصة لمالك المنصة فقط.
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleGoogleAdminLogin()}
-                        className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition-colors"
-                      >
-                        الدخول بحساب المالك
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void signOut(auth)}
-                        className="w-full py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-200 inline-flex items-center justify-center gap-1"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        تسجيل الخروج
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                      تحقق مزدوج: سجّل الدخول بحساب Gmail المعتمد لمالك المنصة أولاً للمتابعة.
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleGoogleAdminLogin()}
-                      className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm transition-colors"
-                    >
-                      تسجيل الدخول بحساب المالك (Google)
-                    </button>
-                  </>
-                )}
+            <form onSubmit={(e) => void handleVerifyPin(e)} className="space-y-4">
+              <div>
+                <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
+                  الرقم السري للأدمن (PIN)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPin ? 'text' : 'password'}
+                    dir="ltr"
+                    required
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                    placeholder="••••••"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center text-lg font-extrabold tracking-widest focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPin((v) => !v)}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#FF6A00]"
+                    aria-label="إظهار أو إخفاء الرقم"
+                  >
+                    {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
-            ) : !pinUnlocked ? (
-              <form onSubmit={handleVerifyPin} className="space-y-4">
-                <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 p-2.5 text-center text-xs font-extrabold text-emerald-800 dark:text-emerald-200 flex items-center justify-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>تم التحقق من حساب المالك: {user?.email}</span>
-                </div>
-                <div>
-                  <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
-                    الرقم السري للإدارة
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPin ? 'text' : 'password'}
-                      inputMode="numeric"
-                      dir="ltr"
-                      required
-                      value={pinInput}
-                      onChange={(e) => setPinInput(e.target.value)}
-                      placeholder="••••••"
-                      className="w-full px-4 py-3.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center text-lg font-extrabold tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPin((v) => !v)}
-                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
 
-                <button
-                  type="submit"
-                  disabled={verifyingPin}
-                  className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
-                >
-                  {verifyingPin ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Unlock className="w-4 h-4" />
-                  )}
-                  <span>فتح لوحة الإدارة</span>
-                </button>
-              </form>
-            ) : null}
+              <button
+                type="submit"
+                disabled={verifyingPin}
+                className="w-full py-4 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-[0_10px_28px_rgba(255,106,0,0.28)] transition-all"
+              >
+                {verifyingPin ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Unlock className="w-4 h-4" />
+                )}
+                <span>فتح لوحة الأدمن</span>
+              </button>
+            </form>
           </div>
         </main>
       </div>
@@ -427,177 +847,186 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-emerald-50/30 dark:bg-slate-950 pb-14">
-      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-emerald-100 dark:border-slate-800 px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+    <div dir="rtl" className="min-h-screen bg-[#FFFBF7] dark:bg-slate-950 pb-16">
+      {/* Admin Top Header */}
+      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-700 dark:text-emerald-400"
+            className="inline-flex items-center gap-1.5 text-sm font-extrabold text-[#FF6A00]"
           >
             <ArrowRight className="w-4 h-4" />
             العودة
           </button>
-          <div className="flex items-center gap-2 font-extrabold text-base sm:text-lg">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" />
-            <span>إدارة المطاعم والاشتراكات</span>
+          <div className="flex items-center gap-2 font-extrabold text-sm sm:text-lg truncate">
+            <ShieldCheck className="w-5 h-5 text-[#FF6A00] shrink-0" />
+            <span className="truncate">لوحة تحكم الأدمن · غزالة</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <PWAInstallButton variant="compact" label="تثبيت التطبيق" />
-          <button
-            type="button"
-            onClick={() => void handleCopyAdminLink()}
-            className="px-3 py-2 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-bold text-xs inline-flex items-center gap-1.5"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">
-              {linkCopied ? 'تم نسخ رابطك الخاص' : 'نسخ رابط الإدارة السري'}
-            </span>
-          </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {!isAdminEmail && (
+            <button
+              type="button"
+              onClick={() => void handleGoogleAdminLogin()}
+              className="hidden md:inline-flex px-3 py-2 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] border border-orange-200 dark:border-slate-700 font-bold text-xs items-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              مزامنة Firebase السحابية
+            </button>
+          )}
+          {user && isAdminEmail && (
+            <button
+              type="button"
+              onClick={() => void signOut(auth)}
+              className="hidden sm:inline-flex px-3 py-2 rounded-full bg-orange-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs items-center gap-1"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              فصل Google
+            </button>
+          )}
+          <PWAInstallButton variant="compact" label="التطبيق" />
           <button
             type="button"
             onClick={() => setChangePinOpen(true)}
-            className="px-3 py-2 rounded-full glass-btn text-emerald-800 dark:text-emerald-300 font-bold text-xs inline-flex items-center gap-1.5"
+            className="px-3 py-2 rounded-full bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-[#FF6A00] font-bold text-xs inline-flex items-center gap-1.5"
           >
             <KeyRound className="w-4 h-4" />
-            <span className="hidden sm:inline">تغيير الرقم السري</span>
+            <span className="hidden sm:inline">تغيير PIN</span>
           </button>
           <button
             type="button"
             onClick={handleLock}
-            className="px-3 py-2 rounded-full glass-btn-amber font-bold text-xs inline-flex items-center gap-1.5"
+            className="px-3 py-2 rounded-full bg-slate-900 dark:bg-slate-800 text-white font-bold text-xs inline-flex items-center gap-1.5"
           >
-            <Lock className="w-4 h-4" />
-            <span>قفل</span>
+            <Lock className="w-3.5 h-3.5" />
+            <span>خروج</span>
           </button>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
-        {/* Private Admin URL + Bulk Photo Sync */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-0.5 min-w-0">
-              <div className="text-xs font-extrabold text-emerald-800 dark:text-emerald-300">
-                رابط الإدارة السري الخاص بك (غير ظاهر لأي زائر أو مطعم في الموقع)
-              </div>
-              <div className="text-xs font-mono text-slate-500 truncate" dir="ltr">
-                {privateAdminUrl}
-              </div>
+      {toastMsg && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl text-xs sm:text-sm font-extrabold shadow-xl border border-orange-500/40">
+          {toastMsg}
+        </div>
+      )}
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
+        {/* Global Control Toggle: الغاء كل الرسوم والضرايب لكل المطاعم */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border-2 border-[#FF6A00]/30 shadow-xs flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-1 max-w-2xl">
+            <div className="flex items-center gap-2 text-base font-extrabold text-slate-900 dark:text-white">
+              <span className="w-3 h-3 rounded-full bg-[#FF6A00]" />
+              <span>الغاء كل الرسوم والضرايب لكل المطاعم</span>
             </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              عند تفعيل هذا الخيار يتم إجبار رسوم الخدمة والضريبة (VAT) ورسوم التغليف على 0 في جميع المطاعم تلقائياً، ليصبح الحساب (سعر الأكل + التوصيل فقط).
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={savingGlobalFeeToggle}
+            onClick={() => void handleToggleGlobalZeroFees()}
+            className={`px-6 py-3 rounded-2xl font-extrabold text-sm transition-all inline-flex items-center gap-2 shadow-xs ${
+              forceZeroFeesGlobally
+                ? 'bg-[#FF6A00] text-white'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
+            }`}
+          >
+            {savingGlobalFeeToggle && <Loader2 className="w-4 h-4 animate-spin" />}
+            <span>{forceZeroFeesGlobally ? 'مفعل — كل الرسوم 0 لكل المطاعم' : 'اضغط للتفعيل (إلغاء كل الرسوم)'}</span>
+          </button>
+        </div>
+
+        {/* Private Link + Quick Tools */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-0.5 min-w-0">
+            <div className="text-xs font-extrabold text-[#FF6A00]">
+              رابط لوحة الأدمن الخاص
+            </div>
+            <div className="text-xs font-mono text-slate-500 truncate" dir="ltr">
+              {privateAdminUrl}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdminEmail && firestoreShops.length > 0 && (
               <button
                 type="button"
-                disabled={backfillBusy || shops.length === 0}
+                disabled={backfillBusy}
                 onClick={() => void handleBackfillAllPhotos()}
-                className="px-4 py-2 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 text-xs font-extrabold inline-flex items-center gap-1.5 disabled:opacity-50"
+                className="px-4 py-2 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] border border-orange-200 dark:border-slate-700 text-xs font-extrabold inline-flex items-center gap-1.5"
               >
                 {backfillBusy ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <ImagePlus className="w-3.5 h-3.5" />
                 )}
-                <span>تعبئة صور حقيقية للأصناف الناقصة</span>
+                <span>تعبئة صور الأصناف الناقصة</span>
               </button>
-              <button
-                type="button"
-                onClick={() => void handleCopyAdminLink()}
-                className="px-4 py-2 rounded-full glass-btn-primary text-xs font-extrabold"
-              >
-                {linkCopied ? 'تم النسخ!' : 'نسخ الرابط الخاص'}
-              </button>
-            </div>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleCopyAdminLink()}
+              className="px-4 py-2 rounded-full bg-[#FF6A00] text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>{linkCopied ? 'تم النسخ!' : 'نسخ رابط الإدارة'}</span>
+            </button>
           </div>
-          {backfillMsg && (
-            <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
-              {backfillMsg}
-            </div>
-          )}
-        </div>
-
-        {/* Google Play & App Store Package Export Readiness */}
-        <div className="bg-emerald-50/70 dark:bg-emerald-950/30 rounded-3xl p-4 border border-emerald-200 dark:border-emerald-800 flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-0.5 max-w-2xl">
-            <div className="text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
-              تجهيز حزمة متجر Google Play (APK / AAB) ومتجر App Store
-            </div>
-            <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 leading-relaxed">
-              منصتك الآن متوافقة 100% مع متطلبات تحويل تطبيقات الويب لمتجر بلاي (Manifest + أيقونات + صور + Service Worker). يمكنك استخدام رابط موقعك المنشور مباشرة على أداة PWABuilder لاستخراج ملف APK/AAB جاهز للرفع على حسابك في Google Play Console.
-            </p>
-          </div>
-          <a
-            href="https://www.pwabuilder.com/"
-            target="_blank"
-            rel="noreferrer"
-            className="px-4 py-2 rounded-full glass-btn-primary text-xs font-extrabold inline-flex items-center gap-1.5 shrink-0"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            <span>إنشاء ملف APK / Google Play</span>
-          </a>
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800">
-            <div className="text-xs font-bold text-slate-500">إجمالي المطاعم</div>
-            <div className="text-2xl font-extrabold mt-1 tabular-nums">{stats.total}</div>
-          </div>
-          <div className="bg-amber-50 dark:bg-amber-950/30 rounded-3xl p-4 border border-amber-200 dark:border-amber-800">
-            <div className="text-xs font-bold text-amber-800 dark:text-amber-300">
-              متوقف / بانتظار الموافقة
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {[
+            { label: 'إجمالي المطاعم', count: stats.all, tone: 'bg-white dark:bg-slate-900 border-orange-100' },
+            { label: 'تجريبي', count: stats.trial, tone: 'bg-sky-50 dark:bg-sky-950/30 border-sky-200' },
+            { label: 'مفعل شهري', count: stats.monthly, tone: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200' },
+            { label: 'مفعل سنوي', count: stats.yearly, tone: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200' },
+            { label: 'منتهي', count: stats.expired, tone: 'bg-rose-50 dark:bg-rose-950/30 border-rose-200' },
+            { label: 'متوقف', count: stats.suspended, tone: 'bg-slate-100 dark:bg-slate-800 border-slate-300' },
+          ].map((k) => (
+            <div key={k.label} className={`rounded-3xl p-4 border dark:border-slate-800 ${k.tone}`}>
+              <div className="text-xs font-bold text-slate-600 dark:text-slate-300">{k.label}</div>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1 tabular-nums">
+                {k.count}
+              </div>
             </div>
-            <div className="text-2xl font-extrabold text-amber-900 dark:text-amber-200 mt-1 tabular-nums">
-              {stats.needsApproval}
-            </div>
-          </div>
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800">
-            <div className="text-xs font-bold text-slate-500">فترة تجريبية (7 أيام)</div>
-            <div className="text-2xl font-extrabold text-sky-700 dark:text-sky-400 mt-1 tabular-nums">
-              {stats.trial}
-            </div>
-          </div>
-          <div className="bg-emerald-50/70 dark:bg-emerald-950/30 rounded-3xl p-4 border border-emerald-200 dark:border-emerald-800">
-            <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-              مفعل (600ج شهري / 3000ج سنوي)
-            </div>
-            <div className="text-2xl font-extrabold text-emerald-700 dark:text-emerald-400 mt-1 tabular-nums">
-              {stats.active}
-            </div>
-          </div>
+          ))}
         </div>
 
-        {/* Search + Filter Tabs */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800 space-y-3">
+        {/* Search + Status Filters */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 space-y-3">
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث باسم المطعم، المدينة، الدولة، الواتساب، أو مرجع التحويل"
-              className="w-full pr-10 pl-4 py-3 rounded-2xl border border-emerald-100 dark:border-slate-700 bg-emerald-50/20 dark:bg-slate-800 text-sm font-semibold"
+              placeholder="ابحث باسم المطعم، رابط المتجر، الإيميل، أو رقم الموبايل..."
+              className="w-full pr-10 pl-4 py-3 rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/20 dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
             />
           </div>
 
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-            {[
-              { id: 'all', label: `الكل (${shops.length})` },
-              { id: 'payment_requests', label: `طلبات دفع (${stats.paymentRequests})` },
-              { id: 'needs_approval', label: `يحتاج موافقة / متوقف (${stats.needsApproval})` },
-              { id: 'trial', label: `تجريبي نشط (${stats.trial})` },
-              { id: 'active', label: `مفعل (${stats.active})` },
-              { id: 'suspended', label: 'موقوف يدوياً' },
-            ].map((tab) => (
+            {(
+              [
+                { id: 'all', label: `الكل (${stats.all})` },
+                { id: 'trial', label: `تجريبي (${stats.trial})` },
+                { id: 'monthly', label: `مفعل شهري (${stats.monthly})` },
+                { id: 'yearly', label: `مفعل سنوي (${stats.yearly})` },
+                { id: 'expired', label: `منتهي (${stats.expired})` },
+                { id: 'suspended', label: `متوقف (${stats.suspended})` },
+              ] as const
+            ).map((tab) => (
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setStatusFilter(tab.id as typeof statusFilter)}
+                onClick={() => setStatusFilter(tab.id)}
                 className={`px-4 py-2 rounded-full text-xs font-extrabold whitespace-nowrap border transition-colors ${
                   statusFilter === tab.id
-                    ? 'glass-btn-primary'
-                    : 'glass-btn text-slate-700 dark:text-slate-200'
+                    ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-[#FF6A00]'
                 }`}
               >
                 {tab.label}
@@ -606,187 +1035,409 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
           </div>
         </div>
 
-        {/* Shops List */}
-        {loadingShops ? (
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 text-center">
-            <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mx-auto" />
-          </div>
-        ) : filteredShops.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 text-center space-y-2 border border-emerald-100 dark:border-slate-800">
-            <Store className="w-10 h-10 text-emerald-300 mx-auto" />
-            <div className="font-bold text-slate-500">لا توجد مطاعم مطابقة لهذا التصنيف.</div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {filteredShops.map((s) => {
-              const access = getShopAccessState(s);
-              const isBusy = busyId === s.id;
+        {/* All Restaurants Table */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-orange-100 dark:border-slate-800 shadow-xs overflow-hidden">
+          {loadingShops && rows.length === 0 ? (
+            <div className="p-10 text-center">
+              <Loader2 className="w-8 h-8 animate-spin text-[#FF6A00] mx-auto" />
+            </div>
+          ) : filteredRows.length === 0 ? (
+            <div className="p-10 text-center space-y-2">
+              <Store className="w-10 h-10 text-orange-300 mx-auto" />
+              <div className="font-bold text-slate-500">لا توجد مطاعم مطابقة للبحث أو التصنيف.</div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-right border-collapse min-w-[1180px]">
+                <thead>
+                  <tr className="bg-orange-50/70 dark:bg-slate-800 border-b border-orange-100 dark:border-slate-700 text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                    <th className="py-3.5 px-3">اسم المطعم</th>
+                    <th className="py-3.5 px-3">رابط المتجر</th>
+                    <th className="py-3.5 px-3">الايميل</th>
+                    <th className="py-3.5 px-3">رقم الموبايل</th>
+                    <th className="py-3.5 px-3">كلمة السر الحالية</th>
+                    <th className="py-3.5 px-3">تاريخ الاشتراك</th>
+                    <th className="py-3.5 px-3">باقي كام يوم</th>
+                    <th className="py-3.5 px-3">حالة الاشتراك</th>
+                    <th className="py-3.5 px-3">سعر التوصيل</th>
+                    <th className="py-3.5 px-3">اجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-orange-100/70 dark:divide-slate-800 text-xs">
+                  {filteredRows.map((row) => {
+                    const isBusy = busyId === row.shopId;
+                    const showPass = Boolean(revealedPasswords[row.shopId]);
+                    const deliveryVal =
+                      deliveryEdits[row.shopId] !== undefined
+                        ? deliveryEdits[row.shopId]
+                        : String(row.deliveryFee);
+                    const isPlansExpanded = expandedPlanRowId === row.shopId;
 
-              return (
-                <div
-                  key={s.id}
-                  className={`bg-white dark:bg-slate-900 rounded-3xl p-5 border space-y-4 ${
-                    !access.isActive
-                      ? 'border-amber-300 dark:border-amber-800'
-                      : 'border-emerald-100 dark:border-slate-800'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-extrabold text-lg truncate">{s.nameAr}</h3>
-                        {s.nameEn && (
-                          <span className="text-xs font-bold text-slate-400" dir="ltr">
-                            ({s.nameEn})
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        {[s.country, s.city, s.plan ? `باقة: ${s.plan}` : '']
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </div>
-                      {s.whatsapp && (
-                        <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400" dir="ltr">
-                          {s.whatsapp}
-                        </div>
-                      )}
-                    </div>
+                    return (
+                      <React.Fragment key={row.shopId}>
+                        <tr className="hover:bg-orange-50/30 dark:hover:bg-slate-800/40 align-top">
+                          <td className="py-3.5 px-3 font-extrabold text-slate-900 dark:text-white">
+                            <div>{row.nameAr}</div>
+                            {row.resetCode && (
+                              <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-[11px] font-extrabold tabular-nums">
+                                كود الاستعادة: {row.resetCode}
+                              </div>
+                            )}
+                          </td>
 
-                    <div className="shrink-0 text-left">
-                      {access.reason === 'active' ? (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-xs font-extrabold">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          مفعل ({access.daysLeft} يوم)
-                        </span>
-                      ) : access.reason === 'trial' ? (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 text-xs font-extrabold">
-                          <Clock className="w-3.5 h-3.5" />
-                          تجريبي ({access.daysLeft} يوم)
-                        </span>
-                      ) : access.reason === 'suspended' ? (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 text-xs font-extrabold">
-                          <Ban className="w-3.5 h-3.5" />
-                          موقوف من الإدارة
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 text-xs font-extrabold">
-                          <ShieldAlert className="w-3.5 h-3.5" />
-                          انتهت التجربة - متوقف
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                          <td className="py-3.5 px-3" dir="ltr">
+                            <span className="font-mono text-[11px] font-bold text-[#FF6A00]">
+                              {row.storeSlug}.ghazalo.com
+                            </span>
+                          </td>
 
-                  {/* Payment Confirmation Request Box */}
-                  {(s.requestedPlan || s.paymentNote) && (
-                    <div className="rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-3 space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
-                        <CreditCard className="w-4 h-4" />
-                        <span>
-                          {s.requestedPlan === 'yearly_3000' || s.requestedPlan === 'yearly_6000'
-                            ? 'طلب تفعيل الباقة السنوية (3,000 ج)'
-                            : 'طلب تفعيل الباقة الشهرية (600 ج)'}
-                        </span>
-                      </div>
-                      {s.paymentNote && (
-                        <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          بيان التحويل: {s.paymentNote}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                          <td className="py-3.5 px-3 font-semibold text-slate-600 dark:text-slate-300" dir="ltr">
+                            {row.email || '—'}
+                          </td>
 
-                  {/* Admin Controls */}
-                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-emerald-50 dark:border-slate-800">
-                    <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-slate-800 p-1 border border-emerald-200 dark:border-slate-700">
-                      <select
-                        value={selectedDaysByShop[s.id] ?? 30}
-                        onChange={(e) =>
-                          setSelectedDaysByShop((prev) => ({
-                            ...prev,
-                            [s.id]: Number(e.target.value),
-                          }))
-                        }
-                        aria-label="مدة التفعيل"
-                        className="bg-transparent px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none"
-                      >
-                        <option value={30}>شهري (30 يوم - 600 ج)</option>
-                        <option value={365}>سنوي (365 يوم - 3,000 ج)</option>
-                      </select>
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() => void handleApproveAndActivate(s.id, selectedDaysByShop[s.id] ?? 30)}
-                        className="px-3.5 py-1.5 rounded-full glass-btn-primary font-extrabold text-xs inline-flex items-center gap-1.5"
-                      >
-                        {isBusy ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                        )}
-                        تفعيل
-                      </button>
-                    </div>
+                          <td className="py-3.5 px-3 font-bold tabular-nums text-slate-700 dark:text-slate-200" dir="ltr">
+                            {row.phone || '—'}
+                          </td>
 
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => void handleApproveAndActivate(s.id, 365)}
-                      className="px-3 py-2 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-bold text-xs inline-flex items-center gap-1"
-                    >
-                      <CalendarPlus className="w-3.5 h-3.5" />
-                      سنوي (3,000 ج)
-                    </button>
+                          {/* Password column + eye button */}
+                          <td className="py-3.5 px-3">
+                            <div className="inline-flex items-center gap-1.5">
+                              <span dir="ltr" className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                {showPass
+                                  ? row.password || 'مشفرة بالخادم'
+                                  : '••••••'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRevealedPasswords((prev) => ({
+                                    ...prev,
+                                    [row.shopId]: !prev[row.shopId],
+                                  }))
+                                }
+                                title="اظهار كلمة السر"
+                                className="p-1.5 rounded-lg bg-orange-50 dark:bg-slate-800 text-[#FF6A00] hover:bg-orange-100"
+                              >
+                                {showPass ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
 
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => void handleExtendTrial(s.id)}
-                      className="px-3 py-2 rounded-full glass-btn font-bold text-xs inline-flex items-center gap-1"
-                    >
-                      <Clock className="w-3.5 h-3.5 text-sky-600" />
-                      تجربة 7 أيام
-                    </button>
+                          <td className="py-3.5 px-3 font-semibold text-slate-600 dark:text-slate-300">
+                            {row.subscriptionDateFormatted}
+                          </td>
 
-                    {access.isActive && (
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        onClick={() => void handleSuspend(s.id)}
-                        className="px-3 py-2 rounded-2xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 font-bold text-xs inline-flex items-center gap-1"
-                      >
-                        <Ban className="w-3.5 h-3.5" />
-                        إيقاف الحساب
-                      </button>
-                    )}
+                          <td className="py-3.5 px-3 font-extrabold tabular-nums">
+                            <span
+                              className={
+                                row.daysLeft <= 1
+                                  ? 'text-rose-600 dark:text-rose-400'
+                                  : 'text-slate-900 dark:text-white'
+                              }
+                            >
+                              {row.daysLeft} يوم
+                            </span>
+                          </td>
 
-                    {onPreviewShop && (
-                      <button
-                        type="button"
-                        onClick={() => onPreviewShop(s)}
-                        className="px-3 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs inline-flex items-center gap-1 mr-auto"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        المنيو
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                          <td className="py-3.5 px-3">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold whitespace-nowrap ${
+                                row.statusCategory === 'monthly' || row.statusCategory === 'yearly'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : row.statusCategory === 'trial'
+                                    ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
+                                    : row.statusCategory === 'expired'
+                                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                      : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              {row.statusCategory === 'expired' && <ShieldAlert className="w-3 h-3" />}
+                              {row.statusCategory === 'trial' && <Clock className="w-3 h-3" />}
+                              {(row.statusCategory === 'monthly' || row.statusCategory === 'yearly') && (
+                                <CheckCircle2 className="w-3 h-3" />
+                              )}
+                              {row.statusCategory === 'suspended' && <Ban className="w-3 h-3" />}
+                              {row.statusLabel}
+                            </span>
+                          </td>
+
+                          {/* Editable Delivery Fee per Restaurant */}
+                          <td className="py-3.5 px-3">
+                            <div className="inline-flex items-center gap-1">
+                              <input
+                                type="number"
+                                min={0}
+                                value={deliveryVal}
+                                onChange={(e) =>
+                                  setDeliveryEdits((prev) => ({
+                                    ...prev,
+                                    [row.shopId]: e.target.value,
+                                  }))
+                                }
+                                className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-extrabold tabular-nums"
+                              />
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => void handleSaveDeliveryPrice(row)}
+                                className="p-1.5 rounded-xl bg-[#FF6A00] text-white hover:bg-[#e85f00]"
+                                title="حفظ سعر التوصيل"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+
+                          {/* Per-Restaurant Admin Actions */}
+                          <td className="py-3.5 px-3">
+                            <div className="flex flex-wrap items-center gap-1.5 max-w-[300px]">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRevealedPasswords((prev) => ({
+                                    ...prev,
+                                    [row.shopId]: !prev[row.shopId],
+                                  }))
+                                }
+                                className="px-2.5 py-1.5 rounded-xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] font-bold inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                اظهار كلمة السر
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPasswordModalRow(row);
+                                  setNewStorePassInput('');
+                                }}
+                                className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold inline-flex items-center gap-1"
+                              >
+                                <KeyRound className="w-3 h-3 text-[#FF6A00]" />
+                                تغيير كلمة السر
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => void handleGenerateResetCode(row)}
+                                className="px-2.5 py-1.5 rounded-xl bg-amber-100 text-amber-900 font-bold inline-flex items-center gap-1"
+                              >
+                                <Send className="w-3 h-3" />
+                                ارسال كود استعادة
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => void handleCopyMenuLink(row)}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold inline-flex items-center gap-1"
+                              >
+                                <Copy className="w-3 h-3" />
+                                {copiedSlugId === row.shopId ? 'تم النسخ!' : 'نسخ اللينك'}
+                              </button>
+
+                              {onPreviewShop && (
+                                <button
+                                  type="button"
+                                  onClick={() => onPreviewShop(row.shop)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 dark:bg-slate-700 text-white font-bold inline-flex items-center gap-1"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  فتح المنيو
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedPlanRowId((prev) =>
+                                    prev === row.shopId ? null : row.shopId
+                                  )
+                                }
+                                className="px-2.5 py-1.5 rounded-xl bg-[#FF6A00] text-white font-extrabold inline-flex items-center gap-1"
+                              >
+                                {isPlansExpanded ? 'إخفاء الباقات' : 'إدارة الاشتراك (3 باقات)'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* 3 Clear Subscription Cards Row per Restaurant */}
+                        <tr className="bg-orange-50/25 dark:bg-slate-900/60">
+                          <td colSpan={10} className="px-4 py-3">
+                            <div
+                              className={`grid grid-cols-1 sm:grid-cols-4 gap-3 items-stretch ${
+                                isPlansExpanded ? '' : 'max-h-[400px]'
+                              }`}
+                            >
+                              {/* Card 1: Trial 7 days */}
+                              <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-sky-200 dark:border-slate-700 flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="font-extrabold text-xs text-slate-900 dark:text-white">
+                                    تجريبي مجاني - 7 أيام
+                                  </div>
+                                  <div className="text-xs font-extrabold text-sky-700 dark:text-sky-400 tabular-nums">
+                                    السعر: 0 جنيه
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleSubscriptionAction(row, 'trial')}
+                                  className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-extrabold text-xs shrink-0"
+                                >
+                                  بدأ التجربة
+                                </button>
+                              </div>
+
+                              {/* Card 2: Monthly 30 days */}
+                              <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-orange-200 dark:border-slate-700 flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="font-extrabold text-xs text-slate-900 dark:text-white">
+                                    التفعيل الشهري - 30 يوم
+                                  </div>
+                                  <div className="text-xs font-extrabold text-[#FF6A00] tabular-nums">
+                                    {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleSubscriptionAction(row, 'monthly')}
+                                  className="px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-xs shrink-0"
+                                >
+                                  تفعيل شهري
+                                </button>
+                              </div>
+
+                              {/* Card 3: Yearly 365 days */}
+                              <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border-2 border-[#FF6A00]/60 dark:border-orange-800 flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="font-extrabold text-xs text-slate-900 dark:text-white">
+                                    التفعيل السنوي - 365 يوم
+                                  </div>
+                                  <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                    {SUBSCRIPTION_PRICING.YEARLY_EGP.toLocaleString('en-US')} جنيه
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleSubscriptionAction(row, 'yearly')}
+                                  className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-[#FF6A00] text-white font-extrabold text-xs shrink-0 transition-colors"
+                                >
+                                  تفعيل سنوي
+                                </button>
+                              </div>
+
+                              {/* Suspend + WhatsApp reset code quick send */}
+                              <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
+                                {row.resetCode && row.phone ? (
+                                  <a
+                                    href={`https://wa.me/${row.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                                      `مرحباً ${row.nameAr}، كود استعادة كلمة سر متجرك على غزالة هو: ${row.resetCode}`
+                                    )}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="px-3 py-2 rounded-xl bg-emerald-600 text-white font-extrabold text-xs inline-flex items-center gap-1"
+                                  >
+                                    <MessageCircle className="w-3.5 h-3.5" />
+                                    واتساب بالكود
+                                  </a>
+                                ) : (
+                                  <span className="text-[11px] font-bold text-slate-500">
+                                    إجراءات الحساب
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleSubscriptionAction(row, 'suspend')}
+                                  className="px-3 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-extrabold text-xs inline-flex items-center gap-1"
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                  إيقاف
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </main>
+
+      {/* Change Restaurant Password Modal */}
+      {passwordModalRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <form
+            onSubmit={(e) => void handleSaveStorePassword(e)}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold">
+                تغيير كلمة سر {passwordModalRow.nameAr}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPasswordModalRow(null)}
+                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs font-semibold text-slate-500">
+              أدخل كلمة السر الجديدة — سيتمكن المطعم من تسجيل الدخول بها فوراً على{' '}
+              <span dir="ltr" className="font-bold text-[#FF6A00]">
+                {passwordModalRow.storeSlug}.ghazalo.com
+              </span>
+            </p>
+            <input
+              type="text"
+              required
+              minLength={4}
+              value={newStorePassInput}
+              onChange={(e) => setNewStorePassInput(e.target.value)}
+              placeholder="كلمة السر الجديدة"
+              className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+            />
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={savingStorePass}
+                className="flex-1 py-3 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-sm"
+              >
+                {savingStorePass ? 'جاري الحفظ...' : 'حفظ كلمة السر'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPasswordModalRow(null)}
+                className="px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 font-bold text-sm"
+              >
+                إلغاء
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Change Admin PIN Modal */}
       {changePinOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
           <form
-            onSubmit={handleSaveNewPin}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 space-y-4 border border-emerald-100 dark:border-slate-800 shadow-xl"
+            onSubmit={(e) => void handleSaveNewPin(e)}
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-2xl"
           >
-            <h3 className="text-lg font-extrabold">تغيير الرقم السري للإدارة</h3>
+            <h3 className="text-lg font-extrabold">تغيير الرقم السري للأدمن</h3>
             <p className="text-xs font-semibold text-slate-500">
               أدخل الرقم السري الجديد (4 أرقام أو أحرف على الأقل).
             </p>
@@ -799,7 +1450,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
               value={newPinInput}
               onChange={(e) => setNewPinInput(e.target.value)}
               placeholder="الرقم السري الجديد"
-              className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center text-base font-extrabold"
+              className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center text-base font-extrabold"
             />
             {pinSavedMsg && (
               <div className="text-xs font-extrabold text-emerald-700 text-center">
@@ -810,7 +1461,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBack, onPreviewShop }) =
               <button
                 type="submit"
                 disabled={savingPin}
-                className="flex-1 py-3 rounded-2xl bg-emerald-600 text-white font-extrabold text-sm"
+                className="flex-1 py-3 rounded-2xl bg-[#FF6A00] text-white font-extrabold text-sm"
               >
                 {savingPin ? 'جاري الحفظ...' : 'حفظ الرقم الجديد'}
               </button>

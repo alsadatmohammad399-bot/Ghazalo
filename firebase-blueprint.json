@@ -60,6 +60,10 @@
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
+        "storeSlug": {
+          "type": "string",
+          "maxLength": 64
+        },
         "nameAr": {
           "type": "string",
           "minLength": 1,
@@ -137,11 +141,11 @@
         },
         "menuTemplate": {
           "type": "string",
-          "enum": ["classic", "luxury", "magazine", "compact"]
+          "enum": ["classic", "modern", "minimal", "compact", "luxury", "magazine"]
         },
         "requestedPlan": {
           "type": "string",
-          "enum": ["", "monthly_600", "yearly_6000"]
+          "enum": ["", "monthly_600", "yearly_3000", "yearly_6000"]
         },
         "paymentNote": {
           "type": "string",
@@ -152,7 +156,7 @@
         },
         "subscriptionStatus": {
           "type": "string",
-          "enum": ["trial", "active", "expired", "suspended"]
+          "enum": ["trial", "monthly", "yearly", "active", "expired", "suspended"]
         },
         "approvedByAdmin": {
           "type": "boolean"
@@ -168,6 +172,37 @@
           "type": "number"
         },
         "subscriptionExpiresAt": {
+          "type": "number"
+        },
+        "deliveryFee": {
+          "type": "number"
+        },
+        "freeDelivery": {
+          "type": "boolean"
+        },
+        "freeDeliveryMinOrder": {
+          "type": "number"
+        },
+        "deliveryTime": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "enableServiceFee": {
+          "type": "boolean"
+        },
+        "serviceFeePct": {
+          "type": "number"
+        },
+        "enableVat": {
+          "type": "boolean"
+        },
+        "vatPct": {
+          "type": "number"
+        },
+        "enablePackagingFee": {
+          "type": "boolean"
+        },
+        "packagingFee": {
           "type": "number"
         },
         "createdAt": {
@@ -404,6 +439,12 @@
         "discount": {
           "type": "number"
         },
+        "deliveryFee": {
+          "type": "number"
+        },
+        "packagingFee": {
+          "type": "number"
+        },
         "serviceFee": {
           "type": "number"
         },
@@ -462,6 +503,60 @@
         }
       },
       "required": ["adminPin", "updatedAt"]
+    },
+    "PlatformConfig": {
+      "title": "PlatformConfig",
+      "description": "Global admin toggle configuration for platform-wide zero fees.",
+      "type": "object",
+      "properties": {
+        "forceZeroFeesGlobally": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["forceZeroFeesGlobally", "updatedAt"]
+    },
+    "StoreCredential": {
+      "title": "StoreCredential",
+      "description": "Private owner and admin directory record linking shopId and storeSlug with contact info.",
+      "type": "object",
+      "properties": {
+        "shopId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "storeSlug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "nameAr": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["shopId", "storeSlug", "ownerId", "updatedAt"]
     }
   },
   "firestore": {
@@ -485,9 +580,13 @@
       "schema": { "$ref": "#/entities/Order" },
       "description": "Orders placed via storefront or POS cashier."
     },
+    "/store_credentials/{shopId}": {
+      "schema": { "$ref": "#/entities/StoreCredential" },
+      "description": "Private store contact and slug index accessible strictly to owner or admin."
+    },
     "/app_settings/{settingId}": {
       "schema": { "$ref": "#/entities/AdminSettings" },
-      "description": "Admin security configuration document."
+      "description": "Admin security configuration and platform config documents."
     }
   }
 }

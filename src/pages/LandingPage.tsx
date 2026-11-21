@@ -42,13 +42,13 @@ const FEATURE_CARDS = [
     title: 'الطلب من الطاولة',
     desc: 'العميل يمسح رمز QR على الطاولة ويطلب مباشرة دون انتظار الويتر.',
     icon: QrCode,
-    bg: 'bg-emerald-50 dark:bg-emerald-950/40',
-    iconBg: 'bg-emerald-600 text-white',
-    border: 'border-emerald-100 dark:border-emerald-900/60',
+    bg: 'bg-orange-50 dark:bg-orange-950/40',
+    iconBg: 'bg-[#FF6A00] text-white',
+    border: 'border-orange-100 dark:border-orange-900/60',
   },
   {
     title: 'كاشير لا يتوقف',
-    desc: 'نقطة بيع سريعة تدعم الصالة والتيك أواي والدليفري وحساب الضريبة والخدمة بدقة.',
+    desc: 'نقطة بيع سريعة تدعم الصالة والتيك أواي والدليفري وحساب الطلب بدقة.',
     icon: Monitor,
     bg: 'bg-amber-50 dark:bg-amber-950/30',
     iconBg: 'bg-amber-500 text-white',
@@ -58,9 +58,9 @@ const FEATURE_CARDS = [
     title: 'مخزون يخصم تلقائياً',
     desc: 'راقب الكميات المتاحة وأوقف الأصناف المنتهية بضغطة زر لحظياً.',
     icon: Boxes,
-    bg: 'bg-teal-50 dark:bg-teal-950/30',
-    iconBg: 'bg-teal-600 text-white',
-    border: 'border-teal-100 dark:border-teal-900/50',
+    bg: 'bg-slate-50 dark:bg-slate-900/60',
+    iconBg: 'bg-slate-900 text-white',
+    border: 'border-slate-200 dark:border-slate-800',
   },
   {
     title: 'الربح والخسارة',
@@ -74,17 +74,17 @@ const FEATURE_CARDS = [
     title: 'صلاحيات ونقدية',
     desc: 'فصل كامل بين كاشير الصالة وطلبات المنيو مع تسجيل المبالغ المدفوعة.',
     icon: ShieldCheck,
-    bg: 'bg-lime-50 dark:bg-lime-950/30',
-    iconBg: 'bg-lime-600 text-white',
-    border: 'border-lime-100 dark:border-lime-900/50',
+    bg: 'bg-orange-50/70 dark:bg-orange-950/30',
+    iconBg: 'bg-[#E55E00] text-white',
+    border: 'border-orange-100 dark:border-orange-900/50',
   },
   {
     title: 'عملاء يعودون',
     desc: 'قائمة سريعة وتجربة طلب سلسة تشجع عملاءك على تكرار الطلب بدون عمولة.',
     icon: Users,
-    bg: 'bg-emerald-50/70 dark:bg-emerald-950/30',
-    iconBg: 'bg-emerald-700 text-white',
-    border: 'border-emerald-100 dark:border-emerald-900/50',
+    bg: 'bg-amber-50/70 dark:bg-amber-950/30',
+    iconBg: 'bg-orange-600 text-white',
+    border: 'border-orange-100 dark:border-orange-900/50',
   },
 ];
 
@@ -181,7 +181,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100">
       {/* Top Bar */}
-      <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-emerald-100/80 dark:border-slate-800">
+      <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-orange-100/80 dark:border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           <button
             type="button"
@@ -192,16 +192,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </button>
 
           <nav className="hidden lg:flex items-center gap-6 text-sm font-bold text-slate-600 dark:text-slate-300">
-            <a href="#demos" className="hover:text-emerald-600 transition-colors whitespace-nowrap">
+            <a href="#demos" className="hover:text-[#FF6A00] transition-colors whitespace-nowrap">
               نماذج المنيو
             </a>
-            <a href="#features" className="hover:text-emerald-600 transition-colors whitespace-nowrap">
+            <a href="#features" className="hover:text-[#FF6A00] transition-colors whitespace-nowrap">
               المزايا
             </a>
-            <a href="#pricing" className="hover:text-emerald-600 transition-colors whitespace-nowrap">
+            <a href="#pricing" className="hover:text-[#FF6A00] transition-colors whitespace-nowrap">
               الأسعار
             </a>
-            <a href="#faq" className="hover:text-emerald-600 transition-colors whitespace-nowrap">
+            <a href="#faq" className="hover:text-[#FF6A00] transition-colors whitespace-nowrap">
               الأسئلة الشائعة
             </a>
           </nav>
@@ -222,7 +222,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('login'))}
-              className="px-3.5 h-9 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-extrabold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+              className="px-3.5 h-9 rounded-full glass-btn text-[#FF6A00] dark:text-orange-200 font-extrabold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
             >
               <User className="w-3.5 h-3.5" />
               <span>{isAuthenticated ? 'لوحة التحكم' : 'تسجيل الدخول'}</span>
@@ -231,7 +231,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               type="button"
               onClick={onToggleDarkMode}
               aria-label="تبديل المظهر"
-              className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors"
+              className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors"
             >
               {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
@@ -239,7 +239,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               type="button"
               onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('login'))}
               aria-label="حسابي"
-              className="hidden sm:flex w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-slate-700 items-center justify-center transition-colors"
+              className="hidden sm:flex w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-slate-700 items-center justify-center transition-colors"
             >
               <User className="w-5 h-5" />
             </button>
@@ -247,7 +247,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               type="button"
               onClick={() => setDrawerOpen(true)}
               aria-label="القائمة"
-              className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors"
+              className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors"
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -255,7 +255,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
 
         {/* Sticky 2-button bar directly below header with glassmorphic styling */}
-        <div className="bg-emerald-50/80 dark:bg-slate-900/90 border-t border-emerald-100/80 dark:border-slate-800 py-2 px-4">
+        <div className="bg-orange-50/70 dark:bg-slate-900/90 border-t border-orange-100/80 dark:border-slate-800 py-2 px-4">
           <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
             <button
               type="button"
@@ -267,7 +267,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('signup'))}
-              className="flex-1 sm:flex-none sm:px-7 h-10 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-bold text-sm whitespace-nowrap"
+              className="flex-1 sm:flex-none sm:px-7 h-10 rounded-full glass-btn text-[#FF6A00] dark:text-orange-200 font-bold text-sm whitespace-nowrap"
             >
               {isAuthenticated ? 'لوحة التحكم' : 'جرّب 7 أيام مجاناً'}
             </button>
@@ -276,7 +276,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </header>
 
       {/* Hero Section */}
-      <section className="bg-gradient-to-b from-emerald-50/60 via-white to-white dark:from-slate-900 dark:via-slate-950 dark:to-slate-950 py-10 sm:py-16">
+      <section className="bg-gradient-to-b from-orange-50/50 via-white to-white dark:from-slate-900 dark:via-slate-950 dark:to-slate-950 py-10 sm:py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           <div className="lg:col-span-6 space-y-5 text-center lg:text-right">
             <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white leading-tight [text-wrap:balance]">
@@ -295,7 +295,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </button>
               <a
                 href="#demos"
-                className="px-6 py-3.5 rounded-full glass-btn text-emerald-700 dark:text-emerald-300 font-bold text-base whitespace-nowrap"
+                className="px-6 py-3.5 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 font-bold text-base whitespace-nowrap"
               >
                 شاهد منيو تجريبي
               </a>
@@ -303,7 +303,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           <div className="lg:col-span-6">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-2.5 border border-emerald-100 dark:border-slate-800 shadow-sm">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-2.5 border border-orange-100 dark:border-slate-800 shadow-sm">
               <img
                 src="/src/assets/images/hero_qr_merchant_1795080804619.jpg"
                 alt="صاحب مطعم يحمل هاتفاً يعرض المنيو الإلكتروني وبجانبه رمز QR"
@@ -318,16 +318,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Section 2: Proof Numbers */}
       <section className="py-6 sm:py-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-emerald-50/70 dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-emerald-100 dark:border-slate-800 text-center">
-            <div className="text-3xl sm:text-4xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+          <div className="bg-orange-50/70 dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-100 dark:border-slate-800 text-center">
+            <div className="text-3xl sm:text-4xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
               7,500+
             </div>
             <p className="mt-1.5 text-base font-bold text-slate-700 dark:text-slate-200">
               طلب في آخر 30 يوم
             </p>
           </div>
-          <div className="bg-emerald-50/70 dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-emerald-100 dark:border-slate-800 text-center">
-            <div className="text-3xl sm:text-4xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+          <div className="bg-orange-50/70 dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-100 dark:border-slate-800 text-center">
+            <div className="text-3xl sm:text-4xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
               150,000+
             </div>
             <p className="mt-1.5 text-base font-bold text-slate-700 dark:text-slate-200">
@@ -338,7 +338,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* Section 3: 8 Project Types + Demo Menus */}
-      <section id="demos" className="py-12 sm:py-16 bg-emerald-50/40 dark:bg-slate-900/40">
+      <section id="demos" className="py-12 sm:py-16 bg-orange-50/30 dark:bg-slate-900/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8">
           <div className="text-center max-w-2xl mx-auto space-y-2">
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white [text-wrap:balance]">
@@ -353,10 +353,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {DEMO_PROJECTS.map((demo) => (
               <div
                 key={demo.id}
-                className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-4 hover:border-emerald-300 transition-colors"
+                className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-4 hover:border-[#FF6A00] transition-colors"
               >
                 <div className="space-y-3">
-                  <div className="overflow-hidden rounded-2xl bg-emerald-50 dark:bg-slate-800">
+                  <div className="overflow-hidden rounded-2xl bg-orange-50 dark:bg-slate-800">
                     <img
                       src={demo.image}
                       alt={demo.title}
@@ -376,7 +376,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <button
                   type="button"
                   onClick={() => onOpenDemoMenu(demo)}
-                  className="w-full py-2.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition-colors whitespace-nowrap"
+                  className="w-full py-2.5 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-bold text-sm transition-colors whitespace-nowrap"
                 >
                   افتح المنيو التجريبي
                 </button>
@@ -420,22 +420,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* Section 5: Pricing */}
-      <section id="pricing" className="py-12 sm:py-16 bg-emerald-50/40 dark:bg-slate-900/40">
+      <section id="pricing" className="py-12 sm:py-16 bg-orange-50/30 dark:bg-slate-900/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8">
           <div className="text-center space-y-4">
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
               خطط أسعار تناسب حجم مشروعك
             </h2>
 
-            {/* Toggle شهري / سنوي وفّر 20% */}
-            <div className="inline-flex items-center gap-1 p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-emerald-200 dark:border-slate-700">
+            {/* Toggle شهري / سنوي */}
+            <div className="inline-flex items-center gap-1 p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-orange-200 dark:border-slate-700">
               <button
                 type="button"
                 onClick={() => setAnnualBilling(false)}
                 className={`px-5 py-2 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${
                   !annualBilling
-                    ? 'bg-emerald-600 text-white'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-emerald-700'
+                    ? 'bg-[#FF6A00] text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]'
                 }`}
               >
                 شهري
@@ -445,8 +445,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={() => setAnnualBilling(true)}
                 className={`px-5 py-2 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${
                   annualBilling
-                    ? 'bg-emerald-600 text-white'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-emerald-700'
+                    ? 'bg-[#FF6A00] text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]'
                 }`}
               >
                 سنوي (وفّر 4200 جنيه)
@@ -475,8 +475,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   key={plan.id}
                   className={`rounded-3xl p-6 flex flex-col justify-between gap-6 border transition-transform ${
                     plan.highlighted
-                      ? 'bg-[#0F291E] text-white border-emerald-700 shadow-lg'
-                      : 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-emerald-100 dark:border-slate-800 shadow-xs'
+                      ? 'bg-slate-900 text-white border-[#FF6A00] shadow-lg'
+                      : 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-orange-100 dark:border-slate-800 shadow-xs'
                   }`}
                 >
                   <div className="space-y-4">
@@ -484,12 +484,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       <div className="flex items-center justify-between gap-2">
                         <h3 className="text-xl font-extrabold">{plan.name}</h3>
                         {plan.highlighted && (
-                          <span className="text-xs font-bold text-emerald-300">الأكثر طلباً</span>
+                          <span className="text-xs font-bold text-[#FF6A00]">الأكثر طلباً</span>
                         )}
                       </div>
                       <p
                         className={`text-xs font-medium ${
-                          plan.highlighted ? 'text-emerald-100/80' : 'text-slate-500 dark:text-slate-400'
+                          plan.highlighted ? 'text-slate-300' : 'text-slate-500 dark:text-slate-400'
                         }`}
                       >
                         {plan.subtitle}
@@ -502,7 +502,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       </span>
                       <span
                         className={`text-xs font-semibold ${
-                          plan.highlighted ? 'text-emerald-200' : 'text-slate-500 dark:text-slate-400'
+                          plan.highlighted ? 'text-orange-300' : 'text-slate-500 dark:text-slate-400'
                         }`}
                       >
                         {periodText}
@@ -514,7 +514,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         <li key={feat} className="flex items-start gap-2">
                           <Check
                             className={`w-4 h-4 mt-1 shrink-0 ${
-                              plan.highlighted ? 'text-emerald-400' : 'text-emerald-600'
+                              plan.highlighted ? 'text-[#FF6A00]' : 'text-[#FF6A00]'
                             }`}
                           />
                           <span>{feat}</span>
@@ -529,7 +529,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       onClick={() => onNavigateAuth('signup')}
                       className={`w-full py-3 px-4 rounded-full font-bold text-sm transition-colors whitespace-nowrap ${
                         plan.highlighted
-                          ? 'bg-emerald-500 hover:bg-emerald-400 text-[#0F291E] shadow-md'
+                          ? 'bg-[#FF6A00] hover:bg-[#E55E00] text-white shadow-md'
                           : 'glass-btn-primary'
                       }`}
                     >
@@ -541,7 +541,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       className={`w-full py-3 px-4 rounded-full font-bold text-sm border transition-colors whitespace-nowrap ${
                         plan.highlighted
                           ? 'bg-white/10 hover:bg-white/20 text-white border-white/20 backdrop-blur-md'
-                          : 'glass-btn text-emerald-700 dark:text-emerald-300'
+                          : 'glass-btn text-[#FF6A00] dark:text-orange-300'
                       }`}
                     >
                       شاهد المنيو بهذه الباقة
@@ -567,7 +567,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               return (
                 <div
                   key={item.q}
-                  className="bg-white dark:bg-slate-900 rounded-3xl border border-emerald-100 dark:border-slate-800 overflow-hidden"
+                  className="bg-white dark:bg-slate-900 rounded-3xl border border-orange-100 dark:border-slate-800 overflow-hidden"
                 >
                   <button
                     type="button"
@@ -576,7 +576,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   >
                     <span>{item.q}</span>
                     <ChevronDown
-                      className={`w-5 h-5 text-emerald-600 shrink-0 transition-transform ${
+                      className={`w-5 h-5 text-[#FF6A00] shrink-0 transition-transform ${
                         isOpen ? 'rotate-180' : ''
                       }`}
                     />
@@ -600,9 +600,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* Last Section: Big Green CTA Card */}
+      {/* Last Section: Big Orange CTA Card */}
       <section className="py-8 sm:py-14 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto bg-emerald-600 rounded-3xl p-8 sm:p-12 text-center text-white space-y-5 shadow-md">
+        <div className="max-w-5xl mx-auto bg-[#FF6A00] rounded-3xl p-8 sm:p-12 text-center text-white space-y-5 shadow-md">
           <h2 className="text-2xl sm:text-4xl font-extrabold [text-wrap:balance]">
             صوّر المنيو الآن، وابدأ اليوم
           </h2>
@@ -610,19 +610,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('signup'))}
-              className="px-8 py-4 rounded-2xl bg-[#0F291E] hover:bg-[#173d2d] text-white font-extrabold text-base shadow-sm transition-colors whitespace-nowrap"
+              className="px-8 py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-base shadow-sm transition-colors whitespace-nowrap"
             >
               ابدأ تجربة 7 أيام مجاناً بكل المزايا
             </button>
           </div>
-          <p className="text-sm font-semibold text-emerald-50">
+          <p className="text-sm font-semibold text-orange-50">
             بدون بطاقة، بدون خصم تلقائي، بياناتك محفوظة
           </p>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-emerald-50/60 dark:bg-slate-900 border-t border-emerald-100 dark:border-slate-800 py-12 px-4 sm:px-6">
+      <footer className="bg-orange-50/40 dark:bg-slate-900 border-t border-orange-100 dark:border-slate-800 py-12 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
           <div className="space-y-3">
             <GhazaloLogo />
@@ -633,30 +633,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="space-y-2.5 text-sm font-bold">
             <div className="text-slate-900 dark:text-white mb-3">المنتج</div>
-            <a href="#features" className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600">
+            <a href="#features" className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]">
               المزايا
             </a>
             <button
               type="button"
               onClick={() => onNavigateAuth('signup')}
-              className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600"
+              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
             >
               رفع المنيو بالذكاء الاصطناعي
             </button>
-            <a href="#pricing" className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600">
+            <a href="#pricing" className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]">
               الأسعار
             </a>
-            <a href="#demos" className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600">
+            <a href="#demos" className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]">
               نماذج المنيو
             </a>
             <button
               type="button"
               onClick={() => setQrToolOpen(true)}
-              className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600"
+              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
             >
               أداة QR
             </button>
-            <a href="#faq" className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600">
+            <a href="#faq" className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]">
               الأسئلة الشائعة
             </a>
           </div>
@@ -666,21 +666,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={() => setLegalModal('privacy')}
-              className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600"
+              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
             >
               سياسة الخصوصية
             </button>
             <button
               type="button"
               onClick={() => setLegalModal('terms')}
-              className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600"
+              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
             >
               شروط الاستخدام
             </button>
             <button
               type="button"
               onClick={() => setLegalModal('refund')}
-              className="block text-slate-600 dark:text-slate-300 hover:text-emerald-600"
+              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
             >
               سياسة الاسترجاع
             </button>
@@ -691,32 +691,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={() => setContactModalOpen(true)}
-              className="block text-emerald-700 dark:text-emerald-400 hover:underline"
+              className="block text-[#FF6A00] dark:text-orange-400 hover:underline"
             >
               تواصل معنا مباشرة
             </button>
             <a
               href="mailto:mohamed.ghazal.s203@gmail.com"
-              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-emerald-600"
+              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
             >
-              <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
+              <Mail className="w-4 h-4 text-[#FF6A00] shrink-0" />
               <span dir="ltr">mohamed.ghazal.s203@gmail.com</span>
             </a>
             <a
               href="https://wa.me/201015861991"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-emerald-600"
+              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
             >
-              <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <MessageCircle className="w-4 h-4 text-[#FF6A00] shrink-0" />
               <span>واتساب: 01015861991</span>
             </a>
             <a
               href="tel:+201015861991"
-              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-emerald-600 tabular-nums"
+              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-[#FF6A00] tabular-nums"
               dir="ltr"
             >
-              <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
+              <Phone className="w-4 h-4 text-[#FF6A00] shrink-0" />
               <span>01015861991</span>
             </a>
           </div>
@@ -734,7 +734,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                  className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -743,21 +743,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <a
                   href="#demos"
                   onClick={() => setDrawerOpen(false)}
-                  className="block px-4 py-3 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800"
+                  className="block px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800"
                 >
                   نماذج المنيو التجريبية
                 </a>
                 <a
                   href="#features"
                   onClick={() => setDrawerOpen(false)}
-                  className="block px-4 py-3 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800"
+                  className="block px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800"
                 >
                   المزايا والكاشير
                 </a>
                 <a
                   href="#pricing"
                   onClick={() => setDrawerOpen(false)}
-                  className="block px-4 py-3 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800"
+                  className="block px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800"
                 >
                   الأسعار والباقات
                 </a>
@@ -767,7 +767,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     setDrawerOpen(false);
                     setQrToolOpen(true);
                   }}
-                  className="w-full text-right px-4 py-3 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800"
+                  className="w-full text-right px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800"
                 >
                   أداة QR المجانية
                 </button>
@@ -781,7 +781,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   setDrawerOpen(false);
                   onNavigateAuth('signup');
                 }}
-                className="w-full py-3 rounded-2xl bg-emerald-600 text-white font-bold text-sm"
+                className="w-full py-3 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
               >
                 جرّب 7 أيام مجاناً
               </button>
@@ -791,7 +791,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   setDrawerOpen(false);
                   onNavigateAuth('login');
                 }}
-                className="w-full py-3 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-bold text-sm"
+                className="w-full py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm"
               >
                 تسجيل الدخول
               </button>
@@ -803,13 +803,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Contact Modal */}
       {contactModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-5 border border-emerald-100 dark:border-slate-800 shadow-xl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-5 border border-orange-100 dark:border-slate-800 shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-extrabold">تواصل معنا</h3>
               <button
                 type="button"
                 onClick={() => setContactModalOpen(false)}
-                className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -822,23 +822,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 href="https://wa.me/201015861991"
                 target="_blank"
                 rel="noreferrer"
-                className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center justify-center gap-2"
+                className="w-full py-3.5 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-bold text-sm flex items-center justify-center gap-2"
               >
                 <MessageCircle className="w-5 h-5" />
                 <span>تواصل واتساب: 01015861991</span>
               </a>
               <a
                 href="mailto:mohamed.ghazal.s203@gmail.com"
-                className="w-full py-3.5 px-4 rounded-2xl bg-emerald-50 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-slate-700 text-emerald-800 dark:text-emerald-200 font-bold text-sm flex items-center justify-center gap-2"
+                className="w-full py-3.5 px-4 rounded-2xl bg-orange-50 dark:bg-slate-800 hover:bg-orange-100 dark:hover:bg-slate-700 text-[#FF6A00] dark:text-orange-200 font-bold text-sm flex items-center justify-center gap-2"
               >
                 <Mail className="w-5 h-5" />
                 <span dir="ltr">mohamed.ghazal.s203@gmail.com</span>
               </a>
               <a
                 href="tel:+201015861991"
-                className="w-full py-3 px-4 rounded-2xl border border-emerald-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 tabular-nums"
+                className="w-full py-3 px-4 rounded-2xl border border-orange-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 tabular-nums"
               >
-                <Phone className="w-4 h-4 text-emerald-600" />
+                <Phone className="w-4 h-4 text-[#FF6A00]" />
                 <span>اتصال مباشر: 01015861991</span>
               </a>
             </div>
@@ -849,13 +849,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Free QR Tool Modal */}
       {qrToolOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-5 border border-emerald-100 dark:border-slate-800 shadow-xl text-center">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-5 border border-orange-100 dark:border-slate-800 shadow-xl text-center">
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-extrabold">أداة إنشاء رمز QR</h3>
               <button
                 type="button"
                 onClick={() => setQrToolOpen(false)}
-                className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -865,7 +865,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               dir="ltr"
               value={qrToolUrl}
               onChange={(e) => setQrToolUrl(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-emerald-50/30 dark:bg-slate-800 text-sm font-semibold"
+              className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-orange-50/30 dark:bg-slate-800 text-sm font-semibold"
               placeholder="https://..."
             />
             <div className="flex justify-center">
@@ -875,21 +875,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={() => void downloadQrPng(qrToolUrl)}
-                className="py-2.5 rounded-2xl bg-emerald-600 text-white font-bold text-sm"
+                className="py-2.5 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
               >
                 PNG
               </button>
               <button
                 type="button"
                 onClick={() => void downloadQrSvg(qrToolUrl)}
-                className="py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-bold text-sm"
+                className="py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm"
               >
                 SVG
               </button>
               <button
                 type="button"
                 onClick={() => void downloadQrPdf(qrToolUrl, 'Ghazalo QR')}
-                className="py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-bold text-sm"
+                className="py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm"
               >
                 PDF
               </button>
@@ -901,7 +901,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Legal Modal */}
       {legalModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 space-y-4 border border-emerald-100 dark:border-slate-800 shadow-xl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-extrabold">
                 {legalModal === 'privacy'
@@ -913,7 +913,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={() => setLegalModal(null)}
-                className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -928,7 +928,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={() => setLegalModal(null)}
-              className="w-full py-3 rounded-2xl bg-emerald-600 text-white font-bold text-sm"
+              className="w-full py-3 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
             >
               فهمت
             </button>

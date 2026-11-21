@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
+import { auth } from '../firebase';
 import {
   addProduct,
   addProductsBatch,
@@ -42,16 +43,26 @@ import {
   updateProduct,
   updateShop,
 } from '../services/firestoreService';
-import { formatMoney, getShopThemeHex } from '../utils/calculations';
+import {
+  formatMoney,
+  getShopAccessState,
+  getShopThemeHex,
+} from '../utils/calculations';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
 import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { getCategoryCulinaryRank, sortProductsCulinary } from '../utils/menuSorting';
 import { getProductOptions, parseVariantsInput } from '../utils/productVariants';
 import {
-  ADMIN_EMAIL,
+  deriveShopSlug,
+  findLocalRestaurantBySlugOrShopId,
+  shopToDemoRecord,
+  upsertLocalRestaurant,
+} from '../utils/storeRegistry';
+import {
   SUBSCRIPTION_PRICING,
   SUPPORT_CONTACT,
+  normalizeMenuTemplateId,
   type ExtractedMenuItem,
   type MenuTemplateId,
   type Order,
@@ -66,8 +77,11 @@ interface DashboardPageProps {
   userName: string;
   userEmail: string;
   isAdminUser?: boolean;
+  forceZeroFeesGlobally?: boolean;
   darkMode: boolean;
   onSetThemeMode: (mode: 'light' | 'dark' | 'system') => void;
+  onShopUpdated?: (updated: Shop) => void;
+  onProductsUpdated?: (products: Product[]) => void;
   onOpenStorefront: () => void;
   onOpenCashier: () => void;
   onOpenOrders: () => void;
@@ -83,8 +97,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   userName,
   userEmail,
   isAdminUser = false,
+  forceZeroFeesGlobally = false,
   darkMode,
   onSetThemeMode,
+  onShopUpdated,
+  onProductsUpdated,
   onOpenStorefront,
   onOpenCashier,
   onOpenOrders,
@@ -132,14 +149,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
 
-  // Settings (Design, Template, Brand Logo & Cover Background) form state
+  // Settings (Design, Template, Brand Logo, Cover, Delivery & Optional Fees) form state
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const [editNameAr, setEditNameAr] = useState(shop.nameAr);
   const [editWhatsapp, setEditWhatsapp] = useState(shop.whatsapp || '');
   const [editAddress, setEditAddress] = useState(shop.address || '');
-  const [editTemplate, setEditTemplate] = useState<MenuTemplateId>(shop.menuTemplate || 'classic');
-  const [editThemeColor, setEditThemeColor] = useState(shop.themeColor || 'أخضر');
+  const [editTemplate, setEditTemplate] = useState<MenuTemplateId>(
+    normalizeMenuTemplateId(shop.menuTemplate)
+  );
+  const [editThemeColor, setEditThemeColor] = useState(shop.themeColor || 'برتقالي');
   const [editLogoUrl, setEditLogoUrl] = useState(shop.logoUrl || '');
   const [editShowLogoOnItems, setEditShowLogoOnItems] = useState(
     shop.showLogoOnItems !== undefined ? shop.showLogoOnItems : true
@@ -147,6 +166,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [logoError, setLogoError] = useState('');
   const [editCoverImage, setEditCoverImage] = useState(shop.coverImage || '');
   const [coverError, setCoverError] = useState('');
+
+  // Delivery & Optional Fees (All OFF by default)
+  const [editDeliveryFee, setEditDeliveryFee] = useState(String(shop.deliveryFee ?? 0));
+  const [editFreeDelivery, setEditFreeDelivery] = useState(Boolean(shop.freeDelivery));
+  const [editFreeDeliveryMinOrder, setEditFreeDeliveryMinOrder] = useState(
+    shop.freeDeliveryMinOrder ? String(shop.freeDeliveryMinOrder) : ''
+  );
+  const [editDeliveryTime, setEditDeliveryTime] = useState(shop.deliveryTime || '30-45 دقيقة');
+  const [editEnableServiceFee, setEditEnableServiceFee] = useState(Boolean(shop.enableServiceFee));
+  const [editServiceFeePct, setEditServiceFeePct] = useState(
+    shop.serviceFeePct ? String(shop.serviceFeePct) : '0'
+  );
+  const [editEnableVat, setEditEnableVat] = useState(Boolean(shop.enableVat));
+  const [editVatPct, setEditVatPct] = useState(shop.vatPct ? String(shop.vatPct) : '0');
+  const [editEnablePackagingFee, setEditEnablePackagingFee] = useState(
+    Boolean(shop.enablePackagingFee)
+  );
+  const [editPackagingFee, setEditPackagingFee] = useState(
+    shop.packagingFee ? String(shop.packagingFee) : '0'
+  );
+  const [deliverySavedToast, setDeliverySavedToast] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
 
   useEffect(() => {
@@ -154,26 +194,79 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setEditNameAr(shop.nameAr);
     setEditWhatsapp(shop.whatsapp || '');
     setEditAddress(shop.address || '');
-    setEditTemplate(shop.menuTemplate || 'classic');
-    setEditThemeColor(shop.themeColor || 'أخضر');
+    setEditTemplate(normalizeMenuTemplateId(shop.menuTemplate));
+    setEditThemeColor(shop.themeColor || 'برتقالي');
     setEditLogoUrl(shop.logoUrl || '');
     setEditShowLogoOnItems(shop.showLogoOnItems !== undefined ? shop.showLogoOnItems : true);
     setEditCoverImage(shop.coverImage || '');
+    setEditDeliveryFee(String(shop.deliveryFee ?? 0));
+    setEditFreeDelivery(Boolean(shop.freeDelivery));
+    setEditFreeDeliveryMinOrder(
+      shop.freeDeliveryMinOrder ? String(shop.freeDeliveryMinOrder) : ''
+    );
+    setEditDeliveryTime(shop.deliveryTime || '30-45 دقيقة');
+    setEditEnableServiceFee(Boolean(shop.enableServiceFee));
+    setEditServiceFeePct(shop.serviceFeePct ? String(shop.serviceFeePct) : '0');
+    setEditEnableVat(Boolean(shop.enableVat));
+    setEditVatPct(shop.vatPct ? String(shop.vatPct) : '0');
+    setEditEnablePackagingFee(Boolean(shop.enablePackagingFee));
+    setEditPackagingFee(shop.packagingFee ? String(shop.packagingFee) : '0');
+    setDeliverySavedToast('');
     setLogoError('');
     setCoverError('');
   }, [settingsModalOpen, shop]);
 
-  const menuUrl = `${window.location.origin}/?shop=${shop.id}`;
+  const storeSlug = useMemo(() => deriveShopSlug(shop), [shop]);
+  const brandedMenuUrl = `https://${storeSlug}.ghazalo.com/menu`;
+  const menuUrl = `${window.location.origin}/?shop=${storeSlug || shop.id}`;
+  const shopAccess = useMemo(() => getShopAccessState(shop), [shop]);
+  const isPaidSubscription =
+    shopAccess.reason === 'monthly' ||
+    shopAccess.reason === 'yearly' ||
+    shopAccess.reason === 'active';
+  const daysRemaining = shopAccess.daysLeft;
 
-  const daysRemaining = useMemo(() => {
-    const target =
-      shop.subscriptionStatus === 'active'
-        ? shop.subscriptionExpiresAt
-        : shop.trialEndsAt;
-    if (!target) return 7;
-    const diff = Math.ceil((target - Date.now()) / (24 * 60 * 60 * 1000));
-    return Math.max(0, diff);
-  }, [shop.subscriptionStatus, shop.subscriptionExpiresAt, shop.trialEndsAt]);
+  const canUseFirestore = Boolean(
+    auth.currentUser && auth.currentUser.uid === shop.ownerId
+  );
+
+  const persistShopLocal = (updates: Partial<Shop>): Shop => {
+    const updatedShop: Shop = { ...shop, ...updates };
+    const existing = findLocalRestaurantBySlugOrShopId(shop.id) || findLocalRestaurantBySlugOrShopId(storeSlug);
+    upsertLocalRestaurant(
+      shopToDemoRecord(
+        updatedShop,
+        {
+          email: existing?.email || userEmail,
+          phone: existing?.phone || updatedShop.whatsapp || '',
+          password: existing?.password,
+          resetCode: existing?.resetCode,
+          resetCodeExpiresAt: existing?.resetCodeExpiresAt,
+        },
+        products
+      )
+    );
+    onShopUpdated?.(updatedShop);
+    return updatedShop;
+  };
+
+  const persistProductsLocal = (nextProducts: Product[]) => {
+    const existing = findLocalRestaurantBySlugOrShopId(shop.id) || findLocalRestaurantBySlugOrShopId(storeSlug);
+    upsertLocalRestaurant(
+      shopToDemoRecord(
+        shop,
+        {
+          email: existing?.email || userEmail,
+          phone: existing?.phone || shop.whatsapp || '',
+          password: existing?.password,
+          resetCode: existing?.resetCode,
+          resetCodeExpiresAt: existing?.resetCodeExpiresAt,
+        },
+        nextProducts
+      )
+    );
+    onProductsUpdated?.(nextProducts);
+  };
 
   const activeProductsCount = useMemo(
     () => products.filter((p) => p.available !== false).length,
@@ -213,7 +306,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   );
 
   const handleToggleOpen = async () => {
-    await updateShop(shop.id, { isOpen: !shop.isOpen });
+    const nextOpen = !shop.isOpen;
+    persistShopLocal({ isOpen: nextOpen });
+    if (canUseFirestore) {
+      try {
+        await updateShop(shop.id, { isOpen: nextOpen });
+      } catch {
+        // local state updated
+      }
+    }
   };
 
   const handleAddProduct = async (e: React.FormEvent) => {
@@ -233,7 +334,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             ? Math.min(...explicitPrices)
             : 0;
 
-      await addProduct(shop.id, shop.ownerId, {
+      const payload = {
         name: prodName.trim(),
         category: prodCategory.trim(),
         price: basePrice,
@@ -241,7 +342,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         variants: variantsList,
         barcode: prodBarcode.trim(),
         imageUrl: resolveDishPhotoClient(prodName.trim(), prodCategory.trim()),
-      });
+      };
+      const localItem: Product = {
+        id: `prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        shopId: shop.id,
+        shopOwnerId: shop.ownerId,
+        available: true,
+        ...payload,
+      };
+      persistProductsLocal([localItem, ...products]);
+      if (canUseFirestore) {
+        try {
+          await addProduct(shop.id, shop.ownerId, payload);
+        } catch {
+          // persisted locally
+        }
+      }
       setProdName('');
       setProdPrice('');
       setProdDesc('');
@@ -283,12 +399,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             ? Math.min(...explicitPrices)
             : 0;
 
-      await updateProduct(shop.id, productId, {
+      const updates = {
         name: editProdName.trim(),
         price: resolvedPrice,
         description: editProdDesc.trim(),
         variants: variantsList,
-      });
+      };
+      persistProductsLocal(
+        products.map((p) => (p.id === productId ? { ...p, ...updates } : p))
+      );
+      if (canUseFirestore) {
+        try {
+          await updateProduct(shop.id, productId, updates);
+        } catch {
+          // updated locally
+        }
+      }
       setEditingProdId(null);
     } finally {
       setSavingProdEdit(false);
@@ -302,7 +428,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     const orig = Math.max(sale, Number(offerOriginalPrice) || Math.round(sale * 1.25));
     setAddingOffer(true);
     try {
-      await addProduct(shop.id, shop.ownerId, {
+      const payload = {
         name: offerName.trim(),
         category: offerCategory.trim() || 'عروض خاصة',
         price: sale,
@@ -310,7 +436,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         isOffer: true,
         offerLabel: offerLabel.trim() || 'عرض خاص',
         imageUrl: resolveDishPhotoClient(offerName.trim(), offerCategory.trim() || 'عروض خاصة'),
-      });
+      };
+      const localOffer: Product = {
+        id: `prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        shopId: shop.id,
+        shopOwnerId: shop.ownerId,
+        available: true,
+        ...payload,
+      };
+      persistProductsLocal([localOffer, ...products]);
+      if (canUseFirestore) {
+        try {
+          await addProduct(shop.id, shop.ownerId, payload);
+        } catch {
+          // persisted locally
+        }
+      }
       setOfferName('');
       setOfferOriginalPrice('');
       setOfferSalePrice('');
@@ -324,7 +465,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setAiBusy(true);
     setAiMessage('');
     try {
-      const updatedCount = await backfillShopMissingPhotos(shop.id);
+      let updatedCount = 0;
+      const updatedLocal = products.map((p) => {
+        if (!p.imageUrl || !p.imageUrl.trim()) {
+          updatedCount += 1;
+          return { ...p, imageUrl: resolveDishPhotoClient(p.name, p.category) };
+        }
+        return p;
+      });
+      if (updatedCount > 0) {
+        persistProductsLocal(updatedLocal);
+      }
+      if (canUseFirestore) {
+        try {
+          const fsCount = await backfillShopMissingPhotos(shop.id);
+          updatedCount = Math.max(updatedCount, fsCount);
+        } catch {
+          // local fallback succeeded
+        }
+      }
       setAiMessage(
         updatedCount > 0
           ? `تمت إضافة صور حقيقية لـ ${updatedCount} صنف بنجاح.`
@@ -339,7 +498,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   const handleToggleProductOffer = async (product: Product) => {
     const enabling = !product.isOffer;
-    await updateProduct(shop.id, product.id, {
+    const updates = {
       isOffer: enabling,
       originalPrice: enabling
         ? product.originalPrice && product.originalPrice > product.price
@@ -347,7 +506,42 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           : Math.round((product.price || 100) * 1.2)
         : 0,
       offerLabel: enabling ? product.offerLabel || 'عرض خاص' : '',
-    });
+    };
+    persistProductsLocal(
+      products.map((p) => (p.id === product.id ? { ...p, ...updates } : p))
+    );
+    if (canUseFirestore) {
+      try {
+        await updateProduct(shop.id, product.id, updates);
+      } catch {
+        // updated locally
+      }
+    }
+  };
+
+  const handleToggleAvailability = async (product: Product) => {
+    const nextAvail = !product.available;
+    persistProductsLocal(
+      products.map((p) => (p.id === product.id ? { ...p, available: nextAvail } : p))
+    );
+    if (canUseFirestore) {
+      try {
+        await updateProduct(shop.id, product.id, { available: nextAvail });
+      } catch {
+        // updated locally
+      }
+    }
+  };
+
+  const handleDeleteProductItem = async (productId: string) => {
+    persistProductsLocal(products.filter((p) => p.id !== productId));
+    if (canUseFirestore) {
+      try {
+        await deleteProduct(shop.id, productId);
+      } catch {
+        // deleted locally
+      }
+    }
   };
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -460,7 +654,30 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       const data = (await res.json()) as { items?: ExtractedMenuItem[]; error?: string };
       if (!res.ok) throw new Error(data.error || 'تعذر قراءة المنيو');
       if (data.items && data.items.length > 0) {
-        await addProductsBatch(shop.id, shop.ownerId, data.items);
+        const addedLocal: Product[] = data.items.map((item, idx) => ({
+          id: `prod-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+          shopId: shop.id,
+          shopOwnerId: shop.ownerId,
+          name: item.name,
+          category: item.category || 'أصناف متنوعة',
+          price: Number(item.price) || 0,
+          description: item.description || '',
+          variants: item.variants || [],
+          imageUrl: item.imageUrl || resolveDishPhotoClient(item.name, item.category || ''),
+          available: true,
+          sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : idx,
+          isOffer: Boolean(item.isOffer),
+          originalPrice: item.originalPrice,
+          offerLabel: item.offerLabel,
+        }));
+        persistProductsLocal([...addedLocal, ...products]);
+        if (canUseFirestore) {
+          try {
+            await addProductsBatch(shop.id, shop.ownerId, data.items);
+          } catch {
+            // persisted locally
+          }
+        }
         setAiMessage(
           `تم استخراج ${data.items.length} صنف من ${selectedFiles.length} ملف بالذكاء الاصطناعي بنجاح`
         );
@@ -474,20 +691,66 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     }
   };
 
+  const buildSettingsUpdates = (): Partial<Shop> => {
+    const parsedDeliveryFee = editFreeDelivery
+      ? 0
+      : Math.max(0, Number(editDeliveryFee) || 0);
+    return {
+      nameAr: editNameAr.trim() || shop.nameAr,
+      whatsapp: editWhatsapp.trim(),
+      address: editAddress.trim(),
+      menuTemplate: editTemplate,
+      themeColor: editThemeColor,
+      logoUrl: editLogoUrl,
+      showLogoOnItems: Boolean(editLogoUrl && editShowLogoOnItems),
+      coverImage: editCoverImage,
+      deliveryFee: parsedDeliveryFee,
+      freeDelivery: Boolean(editFreeDelivery),
+      freeDeliveryMinOrder: Math.max(0, Number(editFreeDeliveryMinOrder) || 0),
+      deliveryTime: editDeliveryTime.trim() || '30-45 دقيقة',
+      enableServiceFee: Boolean(editEnableServiceFee),
+      serviceFeePct: editEnableServiceFee
+        ? Math.max(0, Math.min(100, Number(editServiceFeePct) || 0))
+        : 0,
+      enableVat: Boolean(editEnableVat),
+      vatPct: editEnableVat ? Math.max(0, Math.min(100, Number(editVatPct) || 0)) : 0,
+      enablePackagingFee: Boolean(editEnablePackagingFee),
+      packagingFee: editEnablePackagingFee ? Math.max(0, Number(editPackagingFee) || 0) : 0,
+    };
+  };
+
+  const handleSaveDeliveryOnly = async () => {
+    setSavingSettings(true);
+    try {
+      const updates = buildSettingsUpdates();
+      persistShopLocal(updates);
+      if (canUseFirestore) {
+        try {
+          await updateShop(shop.id, updates);
+        } catch {
+          // saved locally
+        }
+      }
+      setDeliverySavedToast('تم حفظ اعدادات التوصيل بنجاح');
+      setTimeout(() => setDeliverySavedToast(''), 3000);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingSettings(true);
     try {
-      await updateShop(shop.id, {
-        nameAr: editNameAr.trim() || shop.nameAr,
-        whatsapp: editWhatsapp.trim(),
-        address: editAddress.trim(),
-        menuTemplate: editTemplate,
-        themeColor: editThemeColor,
-        logoUrl: editLogoUrl,
-        showLogoOnItems: Boolean(editLogoUrl && editShowLogoOnItems),
-        coverImage: editCoverImage,
-      });
+      const updates = buildSettingsUpdates();
+      persistShopLocal(updates);
+      if (canUseFirestore) {
+        try {
+          await updateShop(shop.id, updates);
+        } catch {
+          // saved locally
+        }
+      }
       setSettingsModalOpen(false);
     } finally {
       setSavingSettings(false);
@@ -495,21 +758,71 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   };
 
   return (
-    <div dir="rtl" className="min-h-screen bg-emerald-50/30 dark:bg-slate-950 pb-20">
-      {/* Top Yellow Trial / Subscription Banner */}
-      <div className="bg-amber-300 text-slate-900 px-4 py-2 text-center text-xs sm:text-sm font-extrabold tabular-nums">
-        {shop.subscriptionStatus === 'active'
-          ? `اشتراك مفعل - باقي ${daysRemaining} يوم`
-          : `تجربة مجانية - باقي ${daysRemaining} أيام`}
+    <div dir="rtl" className="min-h-screen bg-slate-50/50 dark:bg-slate-950 pb-20">
+      {/* Top Ghazalo Subscription / 7-Day Trial Banner */}
+      <div className="bg-gradient-to-l from-[#FF6A00] via-orange-500 to-amber-500 text-white px-4 py-2.5 shadow-xs">
+        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2.5 text-xs sm:text-sm font-extrabold">
+          <div className="flex items-center gap-2 tabular-nums">
+            <Sparkles className="w-4 h-4 shrink-0" />
+            {isPaidSubscription ? (
+              <span>
+                مفعل حتى تاريخ {shopAccess.expirationDateFormatted} (متبقي {daysRemaining} يوم)
+              </span>
+            ) : (
+              <span>متبقي لك {daysRemaining} ايام من التجربة المجانية</span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSubscriptionModalOpen(true)}
+              className="px-3 py-1 rounded-full bg-white text-[#FF6A00] hover:bg-orange-50 text-xs font-extrabold transition-colors"
+            >
+              تفعيل شهري
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubscriptionModalOpen(true)}
+              className="px-3 py-1 rounded-full bg-slate-900 text-white hover:bg-slate-800 text-xs font-extrabold transition-colors"
+            >
+              تفعيل سنوي
+            </button>
+            <a
+              href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
+                `مرحباً غزالة، أرغب في تفعيل اشتراك مطعم ${shop.nameAr} (${storeSlug})`
+              )}`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-extrabold inline-flex items-center gap-1 transition-colors"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              تواصل للتفعيل
+            </a>
+          </div>
+        </div>
       </div>
 
+      {/* 1-Day Expiration Urgent Alert */}
+      {shopAccess.isExpiringSoon && (
+        <div className="bg-amber-100 dark:bg-amber-950/60 border-b border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200 px-4 py-2 text-center text-xs sm:text-sm font-extrabold flex flex-wrap items-center justify-center gap-2">
+          <span>باقي يوم واحد، فعل دلوقتي عشان المنيو ميوقفش</span>
+          <button
+            type="button"
+            onClick={() => setSubscriptionModalOpen(true)}
+            className="px-3 py-1 rounded-full bg-[#FF6A00] text-white text-xs font-extrabold"
+          >
+            فعل الاشتراك الآن
+          </button>
+        </div>
+      )}
+
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-emerald-100 dark:border-slate-800 px-4 sm:px-6 h-14 flex items-center justify-between">
+      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 sm:px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center"
+            className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-400 flex items-center justify-center"
             aria-label="القائمة"
           >
             <Menu className="w-5 h-5" />
@@ -524,7 +837,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             onClick={() => void handleToggleOpen()}
             className={`px-4 py-1.5 rounded-2xl text-xs font-extrabold transition-colors ${
               shop.isOpen
-                ? 'bg-emerald-600 text-white'
+                ? 'bg-[#FF6A00] text-white'
                 : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
             }`}
           >
@@ -534,25 +847,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <button
             type="button"
             onClick={() => setBellOpen((prev) => !prev)}
-            className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center relative"
+            className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-400 flex items-center justify-center relative"
             aria-label="الإشعارات"
           >
             <Bell className="w-5 h-5" />
-            <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-extrabold flex items-center justify-center tabular-nums">
+            <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-[#FF6A00] text-white text-[11px] font-extrabold flex items-center justify-center tabular-nums">
               {Math.max(1, newOrders.length)}
             </span>
           </button>
 
           {bellOpen && (
-            <div className="absolute left-0 top-12 w-72 bg-white dark:bg-slate-900 rounded-3xl p-4 border border-emerald-100 dark:border-slate-800 shadow-xl z-40 space-y-2">
+            <div className="absolute left-0 top-12 w-72 bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-xl z-40 space-y-2">
               <div className="flex items-center justify-between font-extrabold text-sm">
                 <span>الإشعارات</span>
                 <button type="button" onClick={() => setBellOpen(false)}>
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="rounded-2xl bg-emerald-50/70 dark:bg-slate-800 p-3 text-xs font-bold text-slate-700 dark:text-slate-200">
-                مرحباً بك في Ghazalo! باقتك التجريبية مفعلة لمدة 7 أيام.
+              <div className="rounded-2xl bg-orange-50/70 dark:bg-slate-800 p-3 text-xs font-bold text-slate-700 dark:text-slate-200">
+                مرحباً بك في غزالة Ghazalo! متجرك جاهز لاستقبال الطلبات بدون أي عمولة.
               </div>
               {newOrders.slice(0, 3).map((ord) => (
                 <div
@@ -573,18 +886,33 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
         {/* Welcome */}
-        <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
-            أهلاً بيك في {shop.nameAr}
-          </h1>
-          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-            تابع المبيعات والطلبات من مكان واحد
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
+              أهلاً بيك في {shop.nameAr}
+            </h1>
+            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+              تابع المبيعات والطلبات من مكان واحد
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSettingsModalOpen(true)}
+            className="px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-xs font-extrabold text-[#FF6A00] hover:bg-orange-50 inline-flex items-center gap-1.5"
+          >
+            <Settings className="w-4 h-4" />
+            <span>اعدادات التوصيل والقالب</span>
+          </button>
         </div>
 
         {/* QR Card */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-emerald-100 dark:border-slate-800 shadow-xs">
-          <h2 className="text-base font-extrabold mb-4">رمز QR للمنيو</h2>
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-orange-100 dark:border-slate-800 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <h2 className="text-base font-extrabold">رمز QR ورابط المنيو المباشر</h2>
+            <span dir="ltr" className="text-xs font-extrabold text-[#FF6A00] bg-orange-50 dark:bg-slate-800 px-3 py-1 rounded-full">
+              {brandedMenuUrl}
+            </span>
+          </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="shrink-0">
               <QrCodeImage value={menuUrl} size={150} />
@@ -593,30 +921,30 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <button
                 type="button"
                 onClick={() => void downloadQrPng(menuUrl, `${shop.nameAr}-qr.png`)}
-                className="py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm transition-colors"
+                className="py-3 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm transition-colors"
               >
-                تحميل
+                تحميل QR
               </button>
               <button
                 type="button"
                 onClick={onOpenStorefront}
-                className="py-3 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-emerald-50 border border-emerald-200 dark:border-slate-700 font-extrabold text-sm transition-colors"
+                className="py-3 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50 border border-orange-200 dark:border-slate-700 font-extrabold text-sm transition-colors"
               >
                 عرض المنيو
               </button>
               <button
                 type="button"
                 onClick={onOpenShareQr}
-                className="py-3 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-emerald-50 border border-emerald-200 dark:border-slate-700 font-extrabold text-sm transition-colors"
+                className="py-3 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50 border border-orange-200 dark:border-slate-700 font-extrabold text-sm transition-colors"
               >
                 رموز الطاولات
               </button>
               <button
                 type="button"
                 onClick={onOpenCashier}
-                className="py-3 px-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-900 font-extrabold text-sm transition-colors"
+                className="py-3 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm transition-colors"
               >
-                الكاشير
+                الكاشير POS
               </button>
             </div>
           </div>
@@ -624,23 +952,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 shadow-xs space-y-1">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1">
             <div className="text-xs font-bold text-slate-500 dark:text-slate-400">طلبات اليوم</div>
             <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
               {orders.length}
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 shadow-xs space-y-1">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1">
             <div className="text-xs font-bold text-slate-500 dark:text-slate-400">مبيعات اليوم</div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+            <div className="text-2xl sm:text-3xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
               {formatMoney(todaySales, shop.country, 0)}
             </div>
           </div>
 
           <div
             onClick={() => setProductsModalOpen(true)}
-            className="col-span-2 lg:col-span-1 cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 shadow-xs space-y-1 hover:border-emerald-300 transition-colors"
+            className="col-span-2 lg:col-span-1 cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1 hover:border-orange-300 transition-colors"
           >
             <div className="text-xs font-bold text-slate-500 dark:text-slate-400">الأصناف النشطة</div>
             <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
@@ -650,13 +978,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
 
         {/* Chart: الأصناف حسب التصنيف */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-emerald-100 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-orange-100 dark:border-slate-800 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-extrabold">الأصناف حسب التصنيف</h2>
             <button
               type="button"
               onClick={() => setProductsModalOpen(true)}
-              className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 hover:underline"
+              className="text-xs font-extrabold text-[#FF6A00] dark:text-orange-400 hover:underline"
             >
               إدارة الأصناف
             </button>
@@ -670,7 +998,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <button
                 type="button"
                 onClick={() => setProductsModalOpen(true)}
-                className="px-5 py-2.5 rounded-2xl bg-emerald-600 text-white font-bold text-xs"
+                className="px-5 py-2.5 rounded-2xl bg-[#FF6A00] text-white font-bold text-xs"
               >
                 إضافة أصناف الآن
               </button>
@@ -683,14 +1011,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <div key={cat.name} className="space-y-1">
                     <div className="flex items-center justify-between text-xs font-extrabold">
                       <span>{cat.name}</span>
-                      <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
+                      <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
                         {cat.count}
                       </span>
                     </div>
-                    <div className="w-full h-3 rounded-full bg-emerald-50 dark:bg-slate-800 overflow-hidden">
+                    <div className="w-full h-3 rounded-full bg-orange-50 dark:bg-slate-800 overflow-hidden">
                       <div
                         style={{ width: `${widthPct}%` }}
-                        className="h-full rounded-full bg-emerald-600"
+                        className="h-full rounded-full bg-[#FF6A00]"
                       />
                     </div>
                   </div>
@@ -707,9 +1035,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <button
               type="button"
               onClick={onOpenCashier}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 text-right hover:border-amber-400 transition-colors space-y-1.5"
+              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-right hover:border-orange-300 transition-colors space-y-1.5"
             >
-              <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-900 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center">
                 <Monitor className="w-5 h-5" />
               </div>
               <div className="font-extrabold text-base">الكاشير</div>
@@ -719,9 +1047,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <button
               type="button"
               onClick={onOpenOrders}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 text-right hover:border-emerald-300 transition-colors space-y-1.5"
+              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-right hover:border-orange-300 transition-colors space-y-1.5"
             >
-              <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
                 <ShoppingBag className="w-5 h-5" />
               </div>
               <div className="font-extrabold text-base">الطلبات</div>
@@ -731,9 +1059,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <button
               type="button"
               onClick={() => setProductsModalOpen(true)}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 text-right hover:border-emerald-300 transition-colors space-y-1.5"
+              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-right hover:border-orange-300 transition-colors space-y-1.5"
             >
-              <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
                 <Boxes className="w-5 h-5" />
               </div>
               <div className="font-extrabold text-base">الأصناف والمنيو</div>
@@ -743,15 +1071,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <button
               type="button"
               onClick={() => setOffersModalOpen(true)}
-              className="bg-emerald-50/80 dark:bg-emerald-950/30 rounded-3xl p-5 border border-emerald-200 dark:border-emerald-800 text-right hover:border-emerald-400 transition-colors space-y-1.5"
+              className="bg-orange-50/80 dark:bg-orange-950/30 rounded-3xl p-5 border border-orange-200 dark:border-orange-800 text-right hover:border-[#FF6A00] transition-colors space-y-1.5"
             >
               <div className="w-10 h-10 rounded-2xl glass-btn-primary flex items-center justify-center">
                 <Tag className="w-5 h-5" />
               </div>
-              <div className="font-extrabold text-base text-emerald-900 dark:text-emerald-200">
+              <div className="font-extrabold text-base text-orange-950 dark:text-orange-200">
                 قائمة العروض ({offerProducts.length})
               </div>
-              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+              <div className="text-xs font-semibold text-[#FF6A00] dark:text-orange-300">
                 إضافة وإدارة الخصومات
               </div>
             </button>
@@ -759,13 +1087,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <button
               type="button"
               onClick={() => setSettingsModalOpen(true)}
-              className="col-span-2 lg:col-span-1 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 text-right hover:border-emerald-300 transition-colors space-y-1.5"
+              className="col-span-2 lg:col-span-1 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-right hover:border-orange-300 transition-colors space-y-1.5"
             >
-              <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
                 <Palette className="w-5 h-5" />
               </div>
-              <div className="font-extrabold text-base">القوالب واللوجو</div>
-              <div className="text-xs font-semibold text-slate-500">شكل المنيو والشعار</div>
+              <div className="font-extrabold text-base">القوالب والتوصيل</div>
+              <div className="text-xs font-semibold text-slate-500">الشكل وسعر التوصيل</div>
             </button>
           </div>
         </div>
@@ -775,7 +1103,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
         {/* Needs Attention + Recent Orders */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 space-y-3">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 space-y-3">
             <h2 className="text-base font-extrabold">يحتاج انتباهك</h2>
             {newOrders.length === 0 ? (
               <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
@@ -797,7 +1125,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             )}
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-emerald-100 dark:border-slate-800 space-y-3">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 space-y-3">
             <h2 className="text-base font-extrabold">آخر الطلبات</h2>
             {orders.length === 0 ? (
               <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
@@ -809,12 +1137,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <div
                     key={ord.id}
                     onClick={onOpenOrders}
-                    className="cursor-pointer rounded-2xl bg-emerald-50/50 dark:bg-slate-800 p-3 flex items-center justify-between text-xs font-bold"
+                    className="cursor-pointer rounded-2xl bg-orange-50/50 dark:bg-slate-800 p-3 flex items-center justify-between text-xs font-bold"
                   >
                     <span>
                       #{ord.orderNumber} - {ord.customerName || 'عميل'}
                     </span>
-                    <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
+                    <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
                       {formatMoney(ord.total, shop.country)}
                     </span>
                   </div>
@@ -825,13 +1153,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
       </main>
 
-      {/* Floating Green WhatsApp Button Bottom Left */}
+      {/* Floating WhatsApp Support Button Bottom Left */}
       <a
         href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}`}
         target="_blank"
         rel="noreferrer"
         aria-label="دعم واتساب"
-        className="fixed bottom-5 left-5 z-30 w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg flex items-center justify-center transition-transform hover:scale-105"
+        className="fixed bottom-5 left-5 z-30 w-14 h-14 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white shadow-lg flex items-center justify-center transition-transform hover:scale-105"
       >
         <MessageCircle className="w-7 h-7" />
       </a>
@@ -842,12 +1170,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setDrawerOpen(false)} />
           <div className="relative z-10 w-80 max-w-[85vw] bg-white dark:bg-slate-900 h-full p-5 flex flex-col justify-between overflow-y-auto shadow-2xl">
             <div className="space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-emerald-100 dark:border-slate-800">
+              <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
                 <span className="font-extrabold text-lg">{shop.nameAr}</span>
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                  className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -860,9 +1188,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setProductsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
                 >
-                  <Utensils className="w-4 h-4 text-emerald-600" />
+                  <Utensils className="w-4 h-4 text-[#FF6A00]" />
                   المنيو والأصناف
                 </button>
                 <button
@@ -871,15 +1199,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setOffersModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
                 >
-                  <Tag className="w-4 h-4 text-emerald-600" />
+                  <Tag className="w-4 h-4 text-[#FF6A00]" />
                   قائمة العروض ({offerProducts.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-right"
                 >
                   <Home className="w-4 h-4" />
                   الرئيسية
@@ -887,9 +1215,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
                 >
-                  <LayoutGrid className="w-4 h-4 text-emerald-600" />
+                  <LayoutGrid className="w-4 h-4 text-[#FF6A00]" />
                   نظرة عامة
                 </button>
                 <button
@@ -898,9 +1226,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setBellOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
                 >
-                  <Bell className="w-4 h-4 text-emerald-600" />
+                  <Bell className="w-4 h-4 text-[#FF6A00]" />
                   الإشعارات
                 </button>
                 <button
@@ -909,9 +1237,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     onOpenShareQr();
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
                 >
-                  <Share2 className="w-4 h-4 text-emerald-600" />
+                  <Share2 className="w-4 h-4 text-[#FF6A00]" />
                   مشاركة المنيو
                 </button>
                 <button
@@ -920,9 +1248,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     onOpenOrders();
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
                 >
-                  <ShoppingBag className="w-4 h-4 text-emerald-600" />
+                  <ShoppingBag className="w-4 h-4 text-[#FF6A00]" />
                   الطلبات
                 </button>
                 <button
@@ -931,9 +1259,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setReportsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
                 >
-                  <BarChart3 className="w-4 h-4 text-emerald-600" />
+                  <BarChart3 className="w-4 h-4 text-[#FF6A00]" />
                   التقارير
                 </button>
                 <button
@@ -942,10 +1270,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setSettingsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-emerald-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
                 >
-                  <Settings className="w-4 h-4 text-emerald-600" />
-                  الإعدادات
+                  <Settings className="w-4 h-4 text-[#FF6A00]" />
+                  الإعدادات واعدادات التوصيل
                 </button>
                 {isAdminUser && (
                   <button
@@ -964,8 +1292,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
 
             {/* Bottom Account & Preferences */}
-            <div className="pt-4 mt-4 border-t border-emerald-100 dark:border-slate-800 space-y-3 text-xs font-bold">
-              <div className="bg-emerald-50/70 dark:bg-slate-800 rounded-2xl p-3">
+            <div className="pt-4 mt-4 border-t border-orange-100 dark:border-slate-800 space-y-3 text-xs font-bold">
+              <div className="bg-orange-50/70 dark:bg-slate-800 rounded-2xl p-3">
                 <div className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
                   {userName}
                 </div>
@@ -980,7 +1308,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   setDrawerOpen(false);
                   setSettingsModalOpen(true);
                 }}
-                className="w-full text-right px-2 py-1.5 hover:text-emerald-600"
+                className="w-full text-right px-2 py-1.5 hover:text-[#FF6A00]"
               >
                 الإعدادات
               </button>
@@ -990,7 +1318,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   setDrawerOpen(false);
                   setSubscriptionModalOpen(true);
                 }}
-                className="w-full text-right px-2 py-1.5 hover:text-emerald-600"
+                className="w-full text-right px-2 py-1.5 hover:text-[#FF6A00]"
               >
                 الاشتراك والدفع
               </button>
@@ -1000,21 +1328,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   setDrawerOpen(false);
                   setBellOpen(true);
                 }}
-                className="w-full text-right px-2 py-1.5 hover:text-emerald-600"
+                className="w-full text-right px-2 py-1.5 hover:text-[#FF6A00]"
               >
                 الإشعارات
               </button>
 
               <div className="flex items-center justify-between px-2 py-1">
                 <span>اللغة</span>
-                <div className="inline-flex gap-1 bg-emerald-50 dark:bg-slate-800 p-1 rounded-xl">
+                <div className="inline-flex gap-1 bg-orange-50 dark:bg-slate-800 p-1 rounded-xl">
                   {(['عربي', 'English'] as const).map((l) => (
                     <button
                       key={l}
                       type="button"
                       onClick={() => setUiLang(l)}
                       className={`px-2 py-0.5 rounded-lg text-[11px] ${
-                        uiLang === l ? 'bg-emerald-600 text-white' : ''
+                        uiLang === l ? 'bg-[#FF6A00] text-white' : ''
                       }`}
                     >
                       {l}
@@ -1025,7 +1353,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
               <div className="flex items-center justify-between px-2 py-1">
                 <span>المظهر</span>
-                <div className="inline-flex gap-1 bg-emerald-50 dark:bg-slate-800 p-1 rounded-xl">
+                <div className="inline-flex gap-1 bg-orange-50 dark:bg-slate-800 p-1 rounded-xl">
                   {(['فاتح', 'داكن', 'النظام'] as const).map((m) => (
                     <button
                       key={m}
@@ -1035,7 +1363,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         onSetThemeMode(m === 'فاتح' ? 'light' : m === 'داكن' ? 'dark' : 'system');
                       }}
                       className={`px-2 py-0.5 rounded-lg text-[11px] ${
-                        themePref === m ? 'bg-emerald-600 text-white' : ''
+                        themePref === m ? 'bg-[#FF6A00] text-white' : ''
                       }`}
                     >
                       {m}
@@ -1049,7 +1377,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <button
                 type="button"
                 onClick={onLogout}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-emerald-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-amber-50"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-amber-50"
               >
                 <LogOut className="w-4 h-4" />
                 تسجيل الخروج
@@ -1063,12 +1391,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       {productsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-5 sm:p-6 max-h-[90vh] flex flex-col justify-between shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-emerald-100 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
               <h3 className="text-lg font-extrabold">إدارة الأصناف والأسعار</h3>
               <button
                 type="button"
                 onClick={() => setProductsModalOpen(false)}
-                className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1076,10 +1404,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
             <div className="overflow-y-auto space-y-4 flex-1 pr-1">
               {/* Gemini AI Quick Extract */}
-              <div className="bg-emerald-50/70 dark:bg-emerald-950/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border border-emerald-100 dark:border-emerald-900">
+              <div className="bg-orange-50/70 dark:bg-orange-950/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border border-orange-100 dark:border-orange-900">
                 <div className="space-y-0.5">
                   <div className="font-extrabold text-sm flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-emerald-600" />
+                    <Sparkles className="w-4 h-4 text-[#FF6A00]" />
                     استيراد سريع بالذكاء الاصطناعي
                   </div>
                   <div className="text-xs font-semibold text-slate-500">
@@ -1099,7 +1427,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     type="button"
                     disabled={aiBusy}
                     onClick={() => void handleBackfillShopPhotos()}
-                    className="px-3.5 py-2 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-emerald-800 dark:text-emerald-200 font-bold text-xs inline-flex items-center gap-1.5"
+                    className="px-3.5 py-2 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-[#FF6A00] dark:text-orange-300 font-bold text-xs inline-flex items-center gap-1.5"
                   >
                     <ImagePlus className="w-4 h-4" />
                     تعبئة صور حقيقية للأصناف
@@ -1108,14 +1436,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     type="button"
                     disabled={aiBusy}
                     onClick={() => aiFileRef.current?.click()}
-                    className="px-4 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs inline-flex items-center gap-1.5"
+                    className="px-4 py-2 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-bold text-xs inline-flex items-center gap-1.5"
                   >
                     {aiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                     {aiBusy ? 'جاري الاستخراج...' : 'رفع صور المنيو'}
                   </button>
                 </div>
                 {aiMessage && (
-                  <div className="w-full text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                  <div className="w-full text-xs font-bold text-[#FF6A00] dark:text-orange-300">
                     {aiMessage}
                   </div>
                 )}
@@ -1124,7 +1452,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               {/* Add Product Form */}
               <form
                 onSubmit={handleAddProduct}
-                className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-emerald-100 dark:border-slate-700 space-y-3"
+                className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-orange-100 dark:border-slate-700 space-y-3"
               >
                 <div className="font-extrabold text-sm">إضافة صنف يدوي</div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -1134,7 +1462,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={prodName}
                     onChange={(e) => setProdName(e.target.value)}
                     placeholder="اسم الصنف"
-                    className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
                     type="text"
@@ -1142,7 +1470,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={prodCategory}
                     onChange={(e) => setProdCategory(e.target.value)}
                     placeholder="التصنيف (مثال: مشويات)"
-                    className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
                     type="number"
@@ -1151,7 +1479,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={prodPrice}
                     onChange={(e) => setProdPrice(e.target.value)}
                     placeholder={prodVariants.trim() ? 'السعر الأساسي (تلقائي)' : 'السعر'}
-                    className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                   />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1160,14 +1488,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={prodDesc}
                     onChange={(e) => setProdDesc(e.target.value)}
                     placeholder="وصف أو تفاصيل العرض كما هي في المنيو"
-                    className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
                     type="text"
                     value={prodBarcode}
                     onChange={(e) => setProdBarcode(e.target.value)}
                     placeholder="الباركود (اختياري)"
-                    className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                 </div>
                 <input
@@ -1175,12 +1503,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   value={prodVariants}
                   onChange={(e) => setProdVariants(e.target.value)}
                   placeholder="خيارات وأسعار (اختياري، افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000 أو نص كيلو - 215، كيلو - 420)"
-                  className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                  className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                 />
                 <button
                   type="submit"
                   disabled={addingProd}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs inline-flex items-center gap-1.5"
+                  className="px-5 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-bold text-xs inline-flex items-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
                   {addingProd ? 'جاري الإضافة...' : 'إضافة الصنف'}
@@ -1200,11 +1528,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     return (
                     <div
                       key={p.id}
-                      className="bg-emerald-50/40 dark:bg-slate-800 rounded-2xl p-3 text-xs space-y-2.5"
+                      className="bg-orange-50/40 dark:bg-slate-800 rounded-2xl p-3 text-xs space-y-2.5"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="relative w-11 h-11 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border border-emerald-100 dark:border-slate-700">
+                          <div className="relative w-11 h-11 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border border-orange-100 dark:border-slate-700">
                             {p.imageUrl ? (
                               <img
                                 src={p.imageUrl}
@@ -1213,7 +1541,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                                 className="w-full h-full object-cover"
                               />
                             ) : (
-                              <Utensils className="w-4 h-4 text-emerald-400" />
+                              <Utensils className="w-4 h-4 text-orange-400" />
                             )}
                             {shop.logoUrl && shop.showLogoOnItems && (
                               <img
@@ -1239,7 +1567,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                                 {pOptions.map((opt) => (
                                   <span
                                     key={opt.raw}
-                                    className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 text-emerald-800 dark:text-emerald-300 text-[10px] font-extrabold tabular-nums"
+                                    className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-[#FF6A00] dark:text-orange-300 text-[10px] font-extrabold tabular-nums"
                                   >
                                     {opt.label}
                                     {opt.hasExplicitPrice ? ` · ${opt.price}` : ''}
@@ -1255,8 +1583,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                             onClick={() => startEditProduct(p)}
                             className={`p-1.5 rounded-xl border ${
                               isEditingThis
-                                ? 'bg-emerald-600 text-white border-emerald-600'
-                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-emerald-100 dark:border-slate-700'
+                                ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
+                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-orange-100 dark:border-slate-700'
                             }`}
                             aria-label="تعديل"
                           >
@@ -1268,7 +1596,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                             className={`px-2.5 py-1 rounded-xl font-bold inline-flex items-center gap-1 ${
                               p.isOffer
                                 ? 'bg-amber-400 text-slate-900'
-                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-emerald-100 dark:border-slate-700'
+                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-orange-100 dark:border-slate-700'
                             }`}
                           >
                             <Tag className="w-3 h-3" />
@@ -1276,12 +1604,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              void updateProduct(shop.id, p.id, { available: !p.available })
-                            }
+                            onClick={() => void handleToggleAvailability(p)}
                             className={`px-3 py-1 rounded-xl font-bold ${
                               p.available !== false
-                                ? 'bg-emerald-100 text-emerald-800'
+                                ? 'bg-orange-100 text-[#FF6A00]'
                                 : 'bg-slate-200 text-slate-600'
                             }`}
                           >
@@ -1289,7 +1615,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => void deleteProduct(shop.id, p.id)}
+                            onClick={() => void handleDeleteProductItem(p.id)}
                             className="p-1.5 text-slate-400 hover:text-amber-600"
                             aria-label="حذف"
                           >
@@ -1299,14 +1625,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       </div>
 
                       {isEditingThis && (
-                        <div className="pt-2 border-t border-emerald-200/70 dark:border-slate-700 space-y-2">
+                        <div className="pt-2 border-t border-orange-200/70 dark:border-slate-700 space-y-2">
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             <input
                               type="text"
                               value={editProdName}
                               onChange={(e) => setEditProdName(e.target.value)}
                               placeholder="اسم الصنف"
-                              className="sm:col-span-2 px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                              className="sm:col-span-2 px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                             />
                             <input
                               type="number"
@@ -1314,7 +1640,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               value={editProdPrice}
                               onChange={(e) => setEditProdPrice(e.target.value)}
                               placeholder="السعر"
-                              className="px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                              className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                             />
                           </div>
                           <input
@@ -1322,14 +1648,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                             value={editProdDesc}
                             onChange={(e) => setEditProdDesc(e.target.value)}
                             placeholder="الوصف أو نص العرض"
-                            className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                            className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                           />
                           <input
                             type="text"
                             value={editProdVariants}
                             onChange={(e) => setEditProdVariants(e.target.value)}
                             placeholder="الخيارات والأسعار (افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000)"
-                            className="w-full px-3 py-2 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                            className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                           />
                           <div className="flex items-center justify-end gap-2">
                             <button
@@ -1343,7 +1669,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               type="button"
                               disabled={savingProdEdit}
                               onClick={() => void handleSaveProductEdit(p.id)}
-                              className="px-4 py-1.5 rounded-xl bg-emerald-600 text-white font-bold inline-flex items-center gap-1"
+                              className="px-4 py-1.5 rounded-xl bg-[#FF6A00] text-white font-bold inline-flex items-center gap-1"
                             >
                               <Check className="w-3.5 h-3.5" />
                               {savingProdEdit ? 'جاري الحفظ...' : 'حفظ التعديل'}
@@ -1365,15 +1691,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       {offersModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-5 sm:p-6 max-h-[90vh] flex flex-col justify-between shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-emerald-100 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <Tag className="w-5 h-5 text-emerald-600" />
+                <Tag className="w-5 h-5 text-[#FF6A00]" />
                 <h3 className="text-lg font-extrabold">إدارة قائمة العروض والخصومات</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setOffersModalOpen(false)}
-                className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1383,9 +1709,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               {/* Create Standalone Offer Box */}
               <form
                 onSubmit={handleAddOffer}
-                className="bg-emerald-50/60 dark:bg-slate-800 rounded-2xl p-4 border border-emerald-200 dark:border-slate-700 space-y-3"
+                className="bg-orange-50/60 dark:bg-slate-800 rounded-2xl p-4 border border-orange-200 dark:border-slate-700 space-y-3"
               >
-                <div className="font-extrabold text-sm text-emerald-900 dark:text-emerald-200">
+                <div className="font-extrabold text-sm text-orange-950 dark:text-orange-200">
                   إضافة عرض جديد لقائمة العروض
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1395,14 +1721,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={offerName}
                     onChange={(e) => setOfferName(e.target.value)}
                     placeholder="اسم العرض (مثال: بوكس المشويات العائلي)"
-                    className="px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
                     type="text"
                     value={offerCategory}
                     onChange={(e) => setOfferCategory(e.target.value)}
                     placeholder="القسم (مثال: عروض خاصة)"
-                    className="px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -1413,7 +1739,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={offerOriginalPrice}
                     onChange={(e) => setOfferOriginalPrice(e.target.value)}
                     placeholder="السعر قبل الخصم"
-                    className="px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                   />
                   <input
                     type="number"
@@ -1422,14 +1748,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={offerSalePrice}
                     onChange={(e) => setOfferSalePrice(e.target.value)}
                     placeholder="سعر العرض بعد الخصم"
-                    className="px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                   />
                   <input
                     type="text"
                     value={offerLabel}
                     onChange={(e) => setOfferLabel(e.target.value)}
                     placeholder="شارة (مثال: عرض اليوم)"
-                    className="px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                 </div>
                 <button
@@ -1448,19 +1774,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   العروض النشطة حالياً ({offerProducts.length})
                 </div>
                 {offerProducts.length === 0 ? (
-                  <div className="text-center text-xs font-bold text-slate-500 py-4 bg-white dark:bg-slate-800 rounded-2xl border border-emerald-100 dark:border-slate-700">
+                  <div className="text-center text-xs font-bold text-slate-500 py-4 bg-white dark:bg-slate-800 rounded-2xl border border-orange-100 dark:border-slate-700">
                     لا توجد عروض مفعلة بعد. أضف عرضاً جديداً أو اختر صنفاً من بالأسفل.
                   </div>
                 ) : (
                   offerProducts.map((p) => (
                     <div
                       key={p.id}
-                      className="flex items-center justify-between gap-3 bg-emerald-50/70 dark:bg-slate-800 rounded-2xl p-3 border border-emerald-200 dark:border-slate-700 text-xs"
+                      className="flex items-center justify-between gap-3 bg-orange-50/70 dark:bg-slate-800 rounded-2xl p-3 border border-orange-200 dark:border-slate-700 text-xs"
                     >
                       <div className="space-y-0.5 min-w-0">
                         <div className="font-extrabold truncate">
                           {p.name}{' '}
-                          <span className="text-emerald-700 dark:text-emerald-300">
+                          <span className="text-[#FF6A00] dark:text-orange-300">
                             · {p.offerLabel || 'عرض خاص'}
                           </span>
                         </div>
@@ -1470,7 +1796,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               {formatMoney(p.originalPrice, shop.country, 0)}
                             </span>
                           ) : null}
-                          <span className="text-emerald-700 dark:text-emerald-400 font-extrabold">
+                          <span className="text-[#FF6A00] dark:text-orange-400 font-extrabold">
                             {formatMoney(p.price, shop.country, 0)}
                           </span>
                         </div>
@@ -1499,7 +1825,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       .map((p) => (
                         <div
                           key={p.id}
-                          className="flex items-center justify-between gap-2 bg-white dark:bg-slate-800 rounded-2xl p-2.5 border border-emerald-100 dark:border-slate-700 text-xs"
+                          className="flex items-center justify-between gap-2 bg-white dark:bg-slate-800 rounded-2xl p-2.5 border border-orange-100 dark:border-slate-700 text-xs"
                         >
                           <div className="min-w-0">
                             <div className="font-bold truncate">{p.name}</div>
@@ -1524,30 +1850,204 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
       )}
 
-      {/* Settings, Templates & Brand Logo Modal */}
+      {/* Settings, Delivery, Fees & Design Modal */}
       {settingsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <form
             onSubmit={handleSaveSettings}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 border border-emerald-100 dark:border-slate-800 shadow-xl"
+            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">إعدادات المتجر والقالب واللوجو</h3>
+              <h3 className="text-lg font-extrabold">إعدادات المتجر والتوصيل والقالب</h3>
               <button
                 type="button"
                 onClick={() => setSettingsModalOpen(false)}
-                className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Section 5: اعدادات التوصيل */}
+            <div className="rounded-2xl border-2 border-orange-200 dark:border-orange-900/60 bg-orange-50/40 dark:bg-slate-800/80 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-extrabold text-sm text-[#FF6A00]">اعدادات التوصيل</h4>
+                <button
+                  type="button"
+                  onClick={() => setEditFreeDelivery((v) => !v)}
+                  className={`px-3 py-1 rounded-full text-xs font-extrabold transition-colors ${
+                    editFreeDelivery
+                      ? 'bg-[#FF6A00] text-white'
+                      : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  التوصيل مجاني: {editFreeDelivery ? 'ON' : 'OFF'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold mb-1">سعر التوصيل (جنيه)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    disabled={editFreeDelivery}
+                    value={editFreeDelivery ? '0' : editDeliveryFee}
+                    onChange={(e) => setEditDeliveryFee(e.target.value)}
+                    placeholder="مثال: 20"
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold tabular-nums disabled:opacity-60"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold mb-1">وقت التوصيل المتوقع</label>
+                  <input
+                    type="text"
+                    value={editDeliveryTime}
+                    onChange={(e) => setEditDeliveryTime(e.target.value)}
+                    placeholder="30-45 دقيقة"
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">
+                  الحد الأدنى للطلب للتوصيل المجاني (اختياري)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editFreeDeliveryMinOrder}
+                  onChange={(e) => setEditFreeDeliveryMinOrder(e.target.value)}
+                  placeholder="مثال: 200 (لو الطلب فوق 200 جنيه التوصيل مجاني)"
+                  className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold tabular-nums"
+                />
+              </div>
+
+              <button
+                type="button"
+                disabled={savingSettings}
+                onClick={() => void handleSaveDeliveryOnly()}
+                className="w-full py-2.5 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-xs transition-colors"
+              >
+                {savingSettings ? 'جاري الحفظ...' : 'حفظ اعدادات التوصيل'}
+              </button>
+              {deliverySavedToast && (
+                <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 text-center">
+                  {deliverySavedToast}
+                </div>
+              )}
+            </div>
+
+            {/* Section 5B: Fees & Taxes (All OFF by default) */}
+            <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-extrabold text-sm">الرسوم والضرائب (معطلة افتراضياً)</h4>
+                <span className="text-[11px] font-bold text-[#FF6A00]">
+                  سعر الأكل + التوصيل = الإجمالي
+                </span>
+              </div>
+
+              {forceZeroFeesGlobally && (
+                <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-3 py-2 text-[11px] font-extrabold text-amber-900 dark:text-amber-200">
+                  تنبيه: تم إلغاء جميع الرسوم والضرائب لكل المطاعم على مستوى المنصة من لوحة الأدمن.
+                </div>
+              )}
+
+              {/* Service Fee Toggle */}
+              <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
+                <span>تفعيل رسوم الخدمة</span>
+                <div className="flex items-center gap-2">
+                  {editEnableServiceFee && (
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={editServiceFeePct}
+                      onChange={(e) => setEditServiceFeePct(e.target.value)}
+                      placeholder="%"
+                      className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-center tabular-nums"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditEnableServiceFee((v) => !v)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-extrabold ${
+                      editEnableServiceFee
+                        ? 'bg-[#FF6A00] text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {editEnableServiceFee ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+
+              {/* VAT Toggle */}
+              <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
+                <span>تفعيل الضريبة / VAT</span>
+                <div className="flex items-center gap-2">
+                  {editEnableVat && (
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={editVatPct}
+                      onChange={(e) => setEditVatPct(e.target.value)}
+                      placeholder="%"
+                      className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-center tabular-nums"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditEnableVat((v) => !v)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-extrabold ${
+                      editEnableVat
+                        ? 'bg-[#FF6A00] text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {editEnableVat ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Packaging Fee Toggle */}
+              <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
+                <span>تفعيل رسوم التغليف</span>
+                <div className="flex items-center gap-2">
+                  {editEnablePackagingFee && (
+                    <input
+                      type="number"
+                      min={0}
+                      value={editPackagingFee}
+                      onChange={(e) => setEditPackagingFee(e.target.value)}
+                      placeholder="ج"
+                      className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-center tabular-nums"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditEnablePackagingFee((v) => !v)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-extrabold ${
+                      editEnablePackagingFee
+                        ? 'bg-[#FF6A00] text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {editEnablePackagingFee ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-bold mb-1">اسم النشاط</label>
               <input
                 type="text"
                 value={editNameAr}
                 onChange={(e) => setEditNameAr(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1559,7 +2059,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   value={editWhatsapp}
                   onChange={(e) => setEditWhatsapp(e.target.value)}
                   placeholder={SUPPORT_CONTACT.WHATSAPP_NUMBER}
-                  className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                  className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                 />
               </div>
               <div>
@@ -1568,7 +2068,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   type="text"
                   value={editAddress}
                   onChange={(e) => setEditAddress(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                  className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                 />
               </div>
             </div>
@@ -1584,7 +2084,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     onClick={() => setEditTemplate(tpl.id)}
                     className={`p-2.5 rounded-2xl border text-right text-xs transition-colors ${
                       editTemplate === tpl.id
-                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 font-extrabold'
+                        ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] font-extrabold'
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 font-bold'
                     }`}
                   >
@@ -1601,14 +2101,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <div className="space-y-1.5">
               <label className="block text-xs font-extrabold">لون الهوية</label>
               <div className="flex flex-wrap gap-2">
-                {['أخضر', 'أحمر', 'أزرق مخضر', 'أسود', 'لون آخر'].map((c) => (
+                {['برتقالي', 'أخضر', 'أحمر', 'أزرق مخضر', 'أسود', 'لون آخر'].map((c) => (
                   <button
                     key={c}
                     type="button"
                     onClick={() => setEditThemeColor(c)}
                     className={`px-3 py-1.5 rounded-full text-xs font-bold border inline-flex items-center gap-1.5 ${
                       editThemeColor === c
-                        ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/50'
+                        ? 'border-[#FF6A00] bg-orange-50 dark:bg-orange-950/50'
                         : 'border-slate-200 dark:border-slate-700'
                     }`}
                   >
@@ -1623,7 +2123,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
 
             {/* Brand Logo Editor */}
-            <div className="rounded-2xl border border-emerald-100 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
+            <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-extrabold">لوجو المطعم على الأصناف</span>
                 <input
@@ -1671,7 +2171,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     onClick={() => setEditShowLogoOnItems((v) => !v)}
                     className={`px-3 py-1 rounded-full text-xs font-bold ${
                       editShowLogoOnItems
-                        ? 'bg-emerald-600 text-white'
+                        ? 'bg-[#FF6A00] text-white'
                         : 'bg-slate-200 dark:bg-slate-700'
                     }`}
                   >
@@ -1682,7 +2182,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
 
             {/* Restaurant Cover / Background Behind Name & Logo */}
-            <div className="rounded-2xl border border-emerald-100 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
+            <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-extrabold">خلفية المطعم (ورا الاسم واللوجو)</div>
@@ -1718,7 +2218,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
               </div>
               {coverError && <p className="text-xs font-bold text-amber-800">{coverError}</p>}
-              <div className="relative h-24 rounded-2xl overflow-hidden border border-emerald-200/70 dark:border-slate-700 flex items-end p-3">
+              <div className="relative h-24 rounded-2xl overflow-hidden border border-orange-200/70 dark:border-slate-700 flex items-end p-3">
                 {editCoverImage ? (
                   <>
                     <img
@@ -1759,7 +2259,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     </div>
                     <div
                       className={`text-[10px] font-bold ${
-                        editCoverImage ? 'text-emerald-200' : 'text-emerald-700 dark:text-emerald-300'
+                        editCoverImage ? 'text-orange-200' : 'text-[#FF6A00] dark:text-orange-300'
                       }`}
                     >
                       معاينة الخلفية واللوجو
@@ -1783,37 +2283,37 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       {/* Reports Modal */}
       {reportsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-emerald-100 dark:border-slate-800 shadow-xl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">ملخص التقارير</h3>
               <button
                 type="button"
                 onClick={() => setReportsModalOpen(false)}
-                className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="space-y-2.5 text-sm font-bold">
-              <div className="flex justify-between p-3 rounded-2xl bg-emerald-50/60 dark:bg-slate-800">
+              <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
                 <span>إجمالي الطلبات</span>
                 <span className="tabular-nums">{orders.length}</span>
               </div>
-              <div className="flex justify-between p-3 rounded-2xl bg-emerald-50/60 dark:bg-slate-800">
+              <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
                 <span>طلبات الكاشير</span>
                 <span className="tabular-nums">
                   {orders.filter((o) => o.source === 'cashier').length}
                 </span>
               </div>
-              <div className="flex justify-between p-3 rounded-2xl bg-emerald-50/60 dark:bg-slate-800">
+              <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
                 <span>طلبات المنيو</span>
                 <span className="tabular-nums">
                   {orders.filter((o) => o.source === 'menu').length}
                 </span>
               </div>
-              <div className="flex justify-between p-3 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60">
+              <div className="flex justify-between p-3 rounded-2xl bg-orange-100 dark:bg-orange-950/60">
                 <span>إجمالي المبيعات</span>
-                <span className="text-emerald-800 dark:text-emerald-300 tabular-nums">
+                <span className="text-[#FF6A00] dark:text-orange-300 tabular-nums">
                   {formatMoney(todaySales, shop.country)}
                 </span>
               </div>
@@ -1825,38 +2325,40 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       {/* Subscription Modal */}
       {subscriptionModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-emerald-100 dark:border-slate-800 shadow-xl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">الاشتراك والدفع</h3>
+              <h3 className="text-lg font-extrabold">الاشتراك والتفعيل — غزالة Ghazalo</h3>
               <button
                 type="button"
                 onClick={() => setSubscriptionModalOpen(false)}
-                className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 space-y-1">
+            <div className="bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800 rounded-2xl p-4 space-y-1">
               <div className="font-extrabold text-sm">
                 الحالة الحالية:{' '}
-                {shop.subscriptionStatus === 'active' ? 'باقة مفعلة' : 'فترة تجريبية مجانية'}
+                {isPaidSubscription
+                  ? `مفعل حتى تاريخ ${shopAccess.expirationDateFormatted}`
+                  : 'فترة تجريبية مجانية (7 أيام)'}
               </div>
               <div className="text-xs font-bold text-slate-600 dark:text-slate-300 tabular-nums">
                 الأيام المتبقية: {daysRemaining} يوم
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2.5 text-center">
-              <div className="rounded-2xl border border-emerald-200 dark:border-slate-700 p-3 space-y-0.5">
-                <div className="text-xs font-bold text-slate-500">اشتراك شهري</div>
-                <div className="text-base font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+              <div className="rounded-2xl border border-orange-200 dark:border-slate-700 p-3 space-y-0.5">
+                <div className="text-xs font-bold text-slate-500">اشتراك شهري (30 يوم)</div>
+                <div className="text-base font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
                   {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / شهري
                 </div>
               </div>
-              <div className="rounded-2xl border border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/30 dark:border-emerald-800 p-3 space-y-1">
-                <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                  اشتراك سنوي
+              <div className="rounded-2xl border-2 border-[#FF6A00] bg-orange-50/60 dark:bg-orange-950/30 p-3 space-y-1">
+                <div className="text-xs font-bold text-[#FF6A00] dark:text-orange-300">
+                  اشتراك سنوي (365 يوم)
                 </div>
-                <div className="text-base font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                <div className="text-base font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
                   {SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / سنوي
                 </div>
                 <div className="inline-block px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[10px] font-extrabold">
@@ -1865,25 +2367,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </div>
             </div>
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              لتجديد اشتراكك وتفعيل المنيو، تواصل مباشرة مع إدارة غزالو (التفعيل يتم عن طريق الإدارة فقط):
+              لتجديد اشتراكك وتفعيل المنيو فوراً، تواصل مباشرة مع إدارة غزالة عبر واتساب أو الإيميل:
             </p>
             <div className="space-y-2">
               <a
                 href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
-                  `مرحباً إدارة غزالو، أرغب في تفعيل اشتراك متجر ${shop.nameAr}`
+                  `مرحباً إدارة غزالة، أرغب في تفعيل اشتراك مطعم ${shop.nameAr} (${storeSlug})`
                 )}`}
                 target="_blank"
                 rel="noreferrer"
                 className="w-full py-3 rounded-full glass-btn-primary font-bold text-sm flex items-center justify-center gap-2"
               >
                 <MessageCircle className="w-4 h-4" />
-                <span>تواصل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
+                <span>تواصل للتفعيل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
               </a>
               <a
                 href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${encodeURIComponent(
                   `تفعيل اشتراك متجر ${shop.nameAr}`
                 )}`}
-                className="w-full py-3 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-bold text-xs flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 font-bold text-xs flex items-center justify-center gap-2"
               >
                 <Mail className="w-4 h-4" />
                 <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>

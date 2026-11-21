@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { Lock, LogOut, Mail, MessageCircle, RefreshCw } from 'lucide-react';
 import { auth } from './firebase';
 import {
+  findShopBySlugOrId,
   getOwnerShops,
+  getPlatformConfig,
   subscribeToOrders,
   subscribeToProducts,
   subscribeToShop,
@@ -15,6 +17,18 @@ import {
   isPhoneAuthEmail,
   isUserActivated,
 } from './utils/authHelpers';
+import {
+  clearAuthTokenKeepLastStore,
+  findLocalRestaurantBySlugOrShopId,
+  getPlatformSettingsLocal,
+  getStoredAuthSession,
+  safeJsonParse,
+  savePlatformSettingsLocal,
+  setAuthSessionStorage,
+  shopToDemoRecord,
+  upsertLocalRestaurant,
+} from './utils/storeRegistry';
+import { DEMO_PROJECTS } from './data/demoProjects';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PlatformLoader } from './components/PlatformLoader';
@@ -34,11 +48,71 @@ import {
   SUPPORT_CONTACT,
   type AppView,
   type DemoProject,
+  type DemoRestaurantRecord,
   type Order,
   type Product,
   type Shop,
   type ShopTable,
 } from './types';
+
+function loadLocalOrders(shopId: string): Order[] {
+  try {
+    return safeJsonParse<Order[]>(localStorage.getItem(`ghazalo_orders_${shopId}`), []);
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalOrders(shopId: string, orders: Order[]): void {
+  try {
+    localStorage.setItem(`ghazalo_orders_${shopId}`, JSON.stringify(orders));
+  } catch {
+    // ignore storage quota
+  }
+}
+
+function loadLocalTables(shopId: string): ShopTable[] {
+  try {
+    return safeJsonParse<ShopTable[]>(localStorage.getItem(`ghazalo_tables_${shopId}`), []);
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalTables(shopId: string, tables: ShopTable[]): void {
+  try {
+    localStorage.setItem(`ghazalo_tables_${shopId}`, JSON.stringify(tables));
+  } catch {
+    // ignore storage quota
+  }
+}
+
+function parseRouteTarget(): {
+  isAdminRoute: boolean;
+  shopTarget: string | null;
+  tableLabel: string;
+  shortcutMode: 'cashier' | 'dashboard' | null;
+} {
+  const pathname = window.location.pathname || '/';
+  const params = new URLSearchParams(window.location.search);
+  const portalParam = params.get('portal');
+  const shopParam = params.get('shop');
+  const tableLabel = params.get('table') || '';
+  const modeParam = params.get('mode');
+
+  const isAdminRoute =
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    Boolean(portalParam && portalParam === ADMIN_PORTAL_KEY);
+
+  const menuMatch = pathname.match(/^\/([a-z0-9-]+)\/menu\/?$/i);
+  const shopTarget = menuMatch ? menuMatch[1] : shopParam;
+
+  const shortcutMode =
+    modeParam === 'cashier' || modeParam === 'dashboard' ? modeParam : null;
+
+  return { isAdminRoute, shopTarget, tableLabel, shortcutMode };
+}
 
 function AppShell() {
   const [darkMode, setDarkMode] = useState(false);
@@ -49,16 +123,22 @@ function AppShell() {
   const [authReady, setAuthReady] = useState(false);
   const [bootSplash, setBootSplash] = useState(true);
 
+  const [forceZeroFeesGlobally, setForceZeroFeesGlobally] = useState<boolean>(
+    () => getPlatformSettingsLocal().forceZeroFeesGlobally
+  );
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setBootSplash(false);
-    }, 1100);
+    }, 900);
     return () => window.clearTimeout(timer);
   }, []);
 
   const [signupMeta, setSignupMeta] = useState<{
     fullName: string;
     businessName: string;
+    storeSlug?: string;
+    password?: string;
     country: string;
     contact: string;
   }>({ fullName: '', businessName: '', country: 'مصر', contact: '' });
@@ -76,6 +156,7 @@ function AppShell() {
   const [qrTableLabel, setQrTableLabel] = useState<string>('');
   const [publicShop, setPublicShop] = useState<Shop | null>(null);
   const [publicProducts, setPublicProducts] = useState<Product[]>([]);
+  const [publicNotFound, setPublicNotFound] = useState(false);
 
   // Apply Dark Mode class on <html>
   useEffect(() => {
@@ -94,40 +175,134 @@ function AppShell() {
 
   const [pendingShortcutMode, setPendingShortcutMode] = useState<'cashier' | 'dashboard' | null>(null);
 
-  // Detect URL ?shop=...&table=..., PWA shortcut ?mode=..., or exclusive owner ?portal=...
+  // Fetch global platform configuration (Global "الغاء كل الرسوم والضرايب لكل المطاعم" toggle)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const portalParam = params.get('portal');
-    const shopParam = params.get('shop');
-    const tableParam = params.get('table') || '';
-    const modeParam = params.get('mode');
-    if (portalParam && portalParam === ADMIN_PORTAL_KEY) {
+    const syncPlatformConfig = async () => {
+      try {
+        const res = await fetch('/api/platform-config');
+        if (res.ok) {
+          const cfg = (await res.json()) as { forceZeroFeesGlobally?: boolean };
+          const val = Boolean(cfg.forceZeroFeesGlobally);
+          setForceZeroFeesGlobally(val);
+          savePlatformSettingsLocal({ forceZeroFeesGlobally: val });
+          return;
+        }
+      } catch {
+        // fallback below
+      }
+      try {
+        const fsCfg = await getPlatformConfig();
+        setForceZeroFeesGlobally(Boolean(fsCfg.forceZeroFeesGlobally));
+        savePlatformSettingsLocal({ forceZeroFeesGlobally: Boolean(fsCfg.forceZeroFeesGlobally) });
+      } catch {
+        // ignore offline error
+      }
+    };
+    void syncPlatformConfig();
+  }, []);
+
+  const hydrateStoreSession = useCallback(
+    async (
+      slugOrId: string,
+      recordOverride?: DemoRestaurantRecord | null,
+      targetView?: AppView
+    ): Promise<boolean> => {
+      const localRec = recordOverride || findLocalRestaurantBySlugOrShopId(slugOrId);
+      if (localRec) {
+        setActiveShopId(localRec.shopId);
+        setActiveShop(localRec.shop);
+        setShopProducts(
+          localRec.products && localRec.products.length > 0
+            ? localRec.products
+            : DEMO_PROJECTS[0]?.products || []
+        );
+        setShopOrders(loadLocalOrders(localRec.shopId));
+        setShopTables(loadLocalTables(localRec.shopId));
+        if (targetView) setView(targetView);
+        return true;
+      }
+
+      const remoteShop = await findShopBySlugOrId(slugOrId);
+      if (remoteShop) {
+        setActiveShopId(remoteShop.id);
+        setActiveShop(remoteShop);
+        setShopOrders(loadLocalOrders(remoteShop.id));
+        setShopTables(loadLocalTables(remoteShop.id));
+        if (targetView) setView(targetView);
+        return true;
+      }
+
+      return false;
+    },
+    []
+  );
+
+  // Detect URL /admin, ?portal=..., ?shop=...&table=..., /{slug}/menu, or ?mode=...
+  useEffect(() => {
+    const { isAdminRoute, shopTarget, tableLabel, shortcutMode } = parseRouteTarget();
+    if (isAdminRoute) {
       setView('admin');
       return;
     }
-    if (shopParam) {
-      setQrTargetShopId(shopParam);
-      setQrTableLabel(tableParam);
+    if (shopTarget) {
+      setQrTargetShopId(shopTarget);
+      setQrTableLabel(tableLabel);
       setView('storefront');
       return;
     }
-    if (modeParam === 'cashier' || modeParam === 'dashboard') {
-      setPendingShortcutMode(modeParam);
+    if (shortcutMode) {
+      setPendingShortcutMode(shortcutMode);
     }
   }, []);
 
-  // Subscribe to Public QR Shop when viewing public storefront via ?shop=
+  // Subscribe / Resolve Public Customer Menu when viewing via ?shop= or /{slug}/menu
   useEffect(() => {
     if (!qrTargetShopId || demoPreview) return;
-    const unsubShop = subscribeToShop(qrTargetShopId, (s) => setPublicShop(s));
-    const unsubProds = subscribeToProducts(qrTargetShopId, (p) => setPublicProducts(p));
+    let active = true;
+    let unsubShop: (() => void) | null = null;
+    let unsubProds: (() => void) | null = null;
+    setPublicNotFound(false);
+
+    const localRec = findLocalRestaurantBySlugOrShopId(qrTargetShopId);
+    if (localRec) {
+      setPublicShop(localRec.shop);
+      setPublicProducts(
+        localRec.products && localRec.products.length > 0
+          ? localRec.products
+          : DEMO_PROJECTS[0]?.products || []
+      );
+    }
+
+    const resolveAndSubscribe = async () => {
+      try {
+        const fsShop = await findShopBySlugOrId(qrTargetShopId);
+        if (!active) return;
+        if (fsShop) {
+          setPublicShop(fsShop);
+          unsubShop = subscribeToShop(fsShop.id, (s) => {
+            if (s && active) setPublicShop(s);
+          });
+          unsubProds = subscribeToProducts(fsShop.id, (p) => {
+            if (active) setPublicProducts(p);
+          });
+        } else if (!localRec) {
+          setPublicNotFound(true);
+        }
+      } catch {
+        if (!localRec && active) setPublicNotFound(true);
+      }
+    };
+
+    void resolveAndSubscribe();
+
     return () => {
-      unsubShop();
-      unsubProds();
+      active = false;
+      unsubShop?.();
+      unsubProds?.();
     };
   }, [qrTargetShopId, demoPreview]);
 
-  // Listen to Firebase Auth state
+  // Listen to Firebase Auth state AND honor persisted localStorage ("token" + "lastStore") auto-redirect
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user && !isUserActivated(user)) {
@@ -139,38 +314,67 @@ function AppShell() {
       }
       setCurrentUser(user);
       setAuthSyncTick((t) => t + 1);
+
+      const { isAdminRoute, shopTarget, shortcutMode } = parseRouteTarget();
+      const isSpecialRoute = Boolean(isAdminRoute || shopTarget);
+
       if (user && isUserActivated(user)) {
         try {
           const shops = await getOwnerShops(user.uid);
           if (shops.length > 0) {
-            setActiveShopId(shops[0].id);
-            setActiveShop(shops[0]);
-            if (pendingShortcutMode === 'cashier') {
-              setView('cashier');
-              setPendingShortcutMode(null);
-            } else if (pendingShortcutMode === 'dashboard') {
-              setView('dashboard');
-              setPendingShortcutMode(null);
+            const firstShop = shops[0];
+            setActiveShopId(firstShop.id);
+            setActiveShop(firstShop);
+            upsertLocalRestaurant(
+              shopToDemoRecord(firstShop, { email: user.email || '' })
+            );
+            setAuthSessionStorage(
+              firstShop.storeSlug || firstShop.id,
+              `fb-${user.uid}`
+            );
+            if (!isSpecialRoute) {
+              const modeTarget = shortcutMode || pendingShortcutMode;
+              setView(modeTarget === 'cashier' ? 'cashier' : 'dashboard');
+              if (pendingShortcutMode) setPendingShortcutMode(null);
             }
           }
         } catch {
           // handled gracefully
         }
       } else {
-        setActiveShopId(null);
-        setActiveShop(null);
-        setShopProducts([]);
-        setShopOrders([]);
-        setShopTables([]);
+        const storedSession = getStoredAuthSession();
+        if (storedSession.token && storedSession.lastStore) {
+          const hydrated = await hydrateStoreSession(
+            storedSession.lastStore,
+            null,
+            !isSpecialRoute
+              ? (shortcutMode || pendingShortcutMode) === 'cashier'
+                ? 'cashier'
+                : 'dashboard'
+              : undefined
+          );
+          if (!hydrated) {
+            setActiveShopId(null);
+            setActiveShop(null);
+          }
+        } else {
+          setActiveShopId(null);
+          setActiveShop(null);
+          setShopProducts([]);
+          setShopOrders([]);
+          setShopTables([]);
+        }
       }
       setAuthReady(true);
     });
     return () => unsub();
-  }, []);
+  }, [hydrateStoreSession, pendingShortcutMode]);
 
-  // Real-time Firestore subscriptions for Merchant's Active Shop
+  // Real-time Firestore subscriptions for Merchant's Active Shop (when authenticated with Firebase)
   useEffect(() => {
     if (!activeShopId || !currentUser || !isUserActivated(currentUser)) return;
+    if (!activeShopId.startsWith('shop-')) return;
+
     const unsubShop = subscribeToShop(activeShopId, (s) => {
       if (s) setActiveShop(s);
     });
@@ -194,6 +398,8 @@ function AppShell() {
   const handleAuthComplete = async (meta: {
     fullName: string;
     businessName: string;
+    storeSlug?: string;
+    password?: string;
     country: string;
     contact: string;
   }) => {
@@ -209,22 +415,43 @@ function AppShell() {
     if (isAdmin && shops.length === 0) {
       setView('admin');
     } else if (shops.length > 0) {
-      setActiveShopId(shops[0].id);
-      setActiveShop(shops[0]);
+      const firstShop = shops[0];
+      setActiveShopId(firstShop.id);
+      setActiveShop(firstShop);
+      setAuthSessionStorage(firstShop.storeSlug || firstShop.id, `fb-${user.uid}`);
       setView('dashboard');
     } else {
       setView('onboarding');
     }
   };
 
+  // On logout: remove ONLY "token", keep "lastStore" so login input stays pre-filled
   const handleLogout = async () => {
-    await signOut(auth);
-    setView('landing');
+    clearAuthTokenKeepLastStore();
+    if (auth.currentUser) {
+      try {
+        await signOut(auth);
+      } catch {
+        // ignore offline signOut error
+      }
+    }
+    setActiveShopId(null);
+    setActiveShop(null);
+    setShopProducts([]);
+    setShopOrders([]);
+    setShopTables([]);
+    setAuthMode('login');
+    setView('login');
   };
 
   const isAdminUser = Boolean(
     currentUser?.emailVerified &&
       currentUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+  );
+
+  const hasMerchantSession = Boolean(
+    (currentUser && isUserActivated(currentUser)) ||
+      (getStoredAuthSession().token && activeShop)
   );
 
   if (bootSplash || !authReady) {
@@ -242,7 +469,7 @@ function AppShell() {
       <LandingPage
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((d) => !d)}
-        isAuthenticated={Boolean(currentUser && isUserActivated(currentUser))}
+        isAuthenticated={hasMerchantSession}
         isAdminUser={isAdminUser}
         onNavigateAuth={(mode) => {
           setAuthMode(mode);
@@ -285,6 +512,9 @@ function AppShell() {
         initialMode={authMode}
         onBack={() => setView('landing')}
         onAuthComplete={(meta) => void handleAuthComplete(meta)}
+        onStoreLoginSuccess={({ storeSlug, shopId, record }) => {
+          void hydrateStoreSession(storeSlug || shopId, record, 'dashboard');
+        }}
       />
     );
   }
@@ -300,6 +530,9 @@ function AppShell() {
             : ''
         }
         initialBusinessName={signupMeta.businessName}
+        initialStoreSlug={signupMeta.storeSlug}
+        initialContact={signupMeta.contact}
+        initialPassword={signupMeta.password}
         initialCountry={signupMeta.country}
         onCancel={() => setView('landing')}
         onCompleted={(newShop) => {
@@ -318,6 +551,7 @@ function AppShell() {
           shop={demoPreview.shop}
           products={demoPreview.products}
           isDemo
+          forceZeroFeesGlobally={forceZeroFeesGlobally}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
           onBack={() => {
@@ -330,6 +564,32 @@ function AppShell() {
     }
 
     if (qrTargetShopId) {
+      if (publicNotFound) {
+        return (
+          <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 flex items-center justify-center p-4">
+            <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-8 border border-orange-100 dark:border-slate-800 text-center space-y-4 shadow-sm">
+              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                لم يتم العثور على هذا المنيو
+              </h2>
+              <p className="text-sm font-medium text-slate-500">
+                تأكد من رابط المتجر أو عد إلى الصفحة الرئيسية.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  window.history.replaceState({}, '', '/');
+                  setQrTargetShopId(null);
+                  setPublicNotFound(false);
+                  setView('landing');
+                }}
+                className="px-6 py-3 rounded-2xl bg-[#FF6A00] text-white font-extrabold text-sm"
+              >
+                العودة إلى الرئيسية
+              </button>
+            </div>
+          </div>
+        );
+      }
       if (!publicShop) {
         return <PlatformLoader subtitle="جاري تحميل المنيو..." />;
       }
@@ -338,8 +598,19 @@ function AppShell() {
           shop={publicShop}
           products={publicProducts}
           initialTableLabel={qrTableLabel}
+          forceZeroFeesGlobally={forceZeroFeesGlobally}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
+          onOrderPlaced={(newOrder) => {
+            if (!publicShop.id.startsWith('shop-')) {
+              const existing = loadLocalOrders(publicShop.id);
+              const next = [newOrder, ...existing.filter((o) => o.id !== newOrder.id)];
+              saveLocalOrders(publicShop.id, next);
+              if (activeShopId === publicShop.id) {
+                setShopOrders(next);
+              }
+            }
+          }}
           onBack={() => {
             window.history.replaceState({}, '', '/');
             setQrTargetShopId(null);
@@ -356,8 +627,18 @@ function AppShell() {
           shop={activeShop}
           products={shopProducts}
           initialTableLabel={qrTableLabel}
+          forceZeroFeesGlobally={forceZeroFeesGlobally}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
+          onOrderPlaced={(newOrder) => {
+            if (!activeShop.id.startsWith('shop-')) {
+              setShopOrders((prev) => {
+                const next = [newOrder, ...prev.filter((o) => o.id !== newOrder.id)];
+                saveLocalOrders(activeShop.id, next);
+                return next;
+              });
+            }
+          }}
           onBack={() => setView('dashboard')}
           backLabel="لوحة التحكم"
         />
@@ -366,38 +647,18 @@ function AppShell() {
   }
 
   if (view === 'admin') {
-    const hasValidPortalParam =
-      new URLSearchParams(window.location.search).get('portal') === ADMIN_PORTAL_KEY;
-    if (!hasValidPortalParam && !isAdminUser) {
-      return (
-        <LandingPage
-          darkMode={darkMode}
-          onToggleDarkMode={() => setDarkMode((d) => !d)}
-          isAuthenticated={Boolean(currentUser && isUserActivated(currentUser))}
-          isAdminUser={isAdminUser}
-          onNavigateAuth={(mode) => {
-            setAuthMode(mode);
-            setView(mode);
-          }}
-          onNavigateDashboard={() => setView(activeShop ? 'dashboard' : 'onboarding')}
-          onOpenDemoMenu={(demo) => {
-            setDemoPreview(demo);
-            setQrTargetShopId(null);
-            setQrTableLabel('');
-            setView('storefront');
-          }}
-        />
-      );
-    }
     return (
       <AdminPage
         onBack={() => {
           window.history.replaceState({}, '', '/');
           setView(activeShop ? 'dashboard' : 'landing');
         }}
+        onPlatformConfigChange={(settings) => {
+          setForceZeroFeesGlobally(Boolean(settings.forceZeroFeesGlobally));
+        }}
         onPreviewShop={(shopItem) => {
           setDemoPreview(null);
-          setQrTargetShopId(shopItem.id);
+          setQrTargetShopId(shopItem.storeSlug || shopItem.id);
           setQrTableLabel('');
           setView('storefront');
         }}
@@ -408,8 +669,7 @@ function AppShell() {
   // Enforce 7-day trial expiration & Admin-only approval on Merchant Portal views
   if (
     activeShop &&
-    currentUser &&
-    isUserActivated(currentUser) &&
+    hasMerchantSession &&
     (view === 'dashboard' || view === 'cashier' || view === 'orders' || view === 'share')
   ) {
     const shopAccess = getShopAccessState(activeShop);
@@ -420,64 +680,64 @@ function AppShell() {
       const mailSubject = encodeURIComponent(`تفعيل منيو ${activeShop.nameAr} - Ghazalo`);
 
       return (
-        <div dir="rtl" className="min-h-screen bg-emerald-50/40 dark:bg-slate-950 flex items-center justify-center p-4">
-          <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-amber-300 dark:border-amber-800 shadow-sm space-y-5">
+        <div dir="rtl" className="min-h-screen bg-orange-50/30 dark:bg-slate-950 flex items-center justify-center p-4">
+          <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-200 dark:border-amber-800 shadow-sm space-y-5">
             <div className="text-center space-y-3">
-              <div className="w-16 h-16 rounded-3xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 mx-auto flex items-center justify-center">
+              <div className="w-16 h-16 rounded-3xl bg-orange-100 dark:bg-amber-950/60 text-[#FF6A00] dark:text-amber-300 mx-auto flex items-center justify-center">
                 <Lock className="w-8 h-8" />
               </div>
 
               <div className="space-y-1.5">
                 <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white leading-snug">
-                  انتهت الفترة المجانية، لتفعيل المنيو تواصل مع إدارة غزالو
+                  المنيو متوقف مؤقتاً، انتهت الفترة المجانية، فعل اشتراكك لتشغيل المنيو
                 </h1>
                 <p className="text-sm font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
                   تم إيقاف متجر{' '}
-                  <span className="text-emerald-700 dark:text-emerald-400">"{activeShop.nameAr}"</span>{' '}
+                  <span className="text-[#FF6A00] dark:text-orange-400">"{activeShop.nameAr}"</span>{' '}
                   لحين التفعيل من الإدارة. جميع أصنافك وبياناتك محفوظة بأمان.
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="p-4 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800/70 space-y-1">
+              <div className="p-4 rounded-2xl border border-orange-200 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800/70 space-y-1">
                 <div className="font-extrabold text-sm text-slate-900 dark:text-white">
-                  الباقة الشهرية
+                  الباقة الشهرية (30 يوم)
                 </div>
-                <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                <div className="text-xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
                   {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / شهري
                 </div>
               </div>
 
-              <div className="p-4 rounded-2xl border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 space-y-1">
+              <div className="p-4 rounded-2xl border-2 border-[#FF6A00] bg-orange-50 dark:bg-orange-950/40 space-y-1">
                 <div className="flex items-center justify-between gap-1">
                   <span className="font-extrabold text-sm text-slate-900 dark:text-white">
-                    الباقة السنوية
+                    الباقة السنوية (365 يوم)
                   </span>
                   <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">
                     وفّر {SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه
                   </span>
                 </div>
-                <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                <div className="text-xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
                   {SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / سنوي
                 </div>
               </div>
             </div>
 
-            <div className="space-y-2.5 pt-1 border-t border-emerald-100 dark:border-slate-800">
+            <div className="space-y-2.5 pt-1 border-t border-orange-100 dark:border-slate-800">
               <a
                 href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${waText}`}
                 target="_blank"
                 rel="noreferrer"
-                className="w-full py-3.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+                className="w-full py-3.5 px-4 rounded-full bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
               >
                 <MessageCircle className="w-4 h-4" />
-                <span>تواصل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
+                <span>تواصل للتفعيل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
               </a>
 
               <a
                 href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${mailSubject}`}
-                className="w-full py-3.5 px-4 rounded-full bg-emerald-50 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-slate-700 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-slate-700 font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+                className="w-full py-3.5 px-4 rounded-full bg-orange-50 dark:bg-slate-800 hover:bg-orange-100 dark:hover:bg-slate-700 text-[#FF6A00] dark:text-orange-200 border border-orange-200 dark:border-slate-700 font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
               >
                 <Mail className="w-4 h-4" />
                 <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>
@@ -487,10 +747,22 @@ function AppShell() {
                 <button
                   type="button"
                   onClick={async () => {
-                    const shops = await getOwnerShops(currentUser.uid);
-                    if (shops.length > 0) setActiveShop(shops[0]);
+                    const localRec = findLocalRestaurantBySlugOrShopId(
+                      activeShop.storeSlug || activeShop.id
+                    );
+                    if (localRec) {
+                      setActiveShop(localRec.shop);
+                    }
+                    if (currentUser && activeShop.id.startsWith('shop-')) {
+                      try {
+                        const shops = await getOwnerShops(currentUser.uid);
+                        if (shops.length > 0) setActiveShop(shops[0]);
+                      } catch {
+                        // ignore
+                      }
+                    }
                   }}
-                  className="py-3 rounded-full glass-btn text-emerald-800 dark:text-emerald-200 font-bold text-xs flex items-center justify-center gap-1.5"
+                  className="py-3 rounded-full glass-btn text-[#FF6A00] dark:text-orange-200 font-bold text-xs flex items-center justify-center gap-1.5"
                 >
                   <RefreshCw className="w-4 h-4" />
                   تحديث الحالة
@@ -512,38 +784,87 @@ function AppShell() {
     }
   }
 
-  if (view === 'cashier' && activeShop) {
+  if (view === 'cashier' && activeShop && hasMerchantSession) {
     return (
       <CashierPage
         shop={activeShop}
         products={shopProducts}
         tables={shopTables}
         orders={shopOrders}
+        forceZeroFeesGlobally={forceZeroFeesGlobally}
         onBackDashboard={() => setView('dashboard')}
-        onOrderCreated={() => {
-          // Firestore onSnapshot automatically refreshes shopOrders
+        onOrderCreated={(newOrder) => {
+          if (!activeShop.id.startsWith('shop-')) {
+            setShopOrders((prev) => {
+              const next = [newOrder, ...prev.filter((o) => o.id !== newOrder.id)];
+              saveLocalOrders(activeShop.id, next);
+              return next;
+            });
+          }
+        }}
+        onOrderStatusChange={(orderId, nextStatus) => {
+          if (!activeShop.id.startsWith('shop-')) {
+            setShopOrders((prev) => {
+              const next = prev.map((o) =>
+                o.id === orderId ? { ...o, status: nextStatus } : o
+              );
+              saveLocalOrders(activeShop.id, next);
+              return next;
+            });
+          }
         }}
       />
     );
   }
 
-  if (view === 'orders' && activeShop) {
+  if (view === 'orders' && activeShop && hasMerchantSession) {
     return (
       <OrdersPage
         shop={activeShop}
         orders={shopOrders}
         onBackDashboard={() => setView('dashboard')}
         onOpenCashier={() => setView('cashier')}
+        onOrderStatusUpdated={(orderId, nextStatus) => {
+          if (!activeShop.id.startsWith('shop-')) {
+            setShopOrders((prev) => {
+              const next = prev.map((o) =>
+                o.id === orderId ? { ...o, status: nextStatus } : o
+              );
+              saveLocalOrders(activeShop.id, next);
+              return next;
+            });
+          }
+        }}
       />
     );
   }
 
-  if (view === 'share' && activeShop) {
+  if (view === 'share' && activeShop && hasMerchantSession) {
     return (
       <ShareQrPage
         shop={activeShop}
         tables={shopTables}
         onBackDashboard={() => setView('dashboard')}
+        onLocalTableAdd={(label) => {
+          const newTbl: ShopTable = {
+            id: `tbl-${Date.now()}`,
+            shopId: activeShop.id,
+            shopOwnerId: activeShop.ownerId,
+            label,
+          };
+          setShopTables((prev) => {
+            const next = [...prev, newTbl];
+            saveLocalTables(activeShop.id, next);
+            return next;
+          });
+        }}
+        onLocalTableDelete={(tableId) => {
+          setShopTables((prev) => {
+            const next = prev.filter((t) => t.id !== tableId);
+            saveLocalTables(activeShop.id, next);
+            return next;
+          });
+        }}
         onOpenStorefront={(tbl) => {
           setDemoPreview(null);
           setQrTargetShopId(null);
@@ -554,17 +875,27 @@ function AppShell() {
     );
   }
 
-  if (activeShop && currentUser && isUserActivated(currentUser)) {
+  if (activeShop && hasMerchantSession) {
     return (
       <DashboardPage
         shop={activeShop}
         products={shopProducts}
         orders={shopOrders}
-        userName={currentUser.displayName || signupMeta.fullName || 'تاجر Ghazalo'}
-        userEmail={formatAuthContactLabel(currentUser.email) || signupMeta.contact || ''}
+        userName={
+          currentUser?.displayName || signupMeta.fullName || activeShop.nameAr || 'تاجر Ghazalo'
+        }
+        userEmail={
+          formatAuthContactLabel(currentUser?.email) ||
+          signupMeta.contact ||
+          activeShop.whatsapp ||
+          ''
+        }
         isAdminUser={isAdminUser}
+        forceZeroFeesGlobally={forceZeroFeesGlobally}
         darkMode={darkMode}
         onSetThemeMode={handleSetThemeMode}
+        onShopUpdated={(updated) => setActiveShop(updated)}
+        onProductsUpdated={(updatedProducts) => setShopProducts(updatedProducts)}
         onOpenStorefront={() => {
           setDemoPreview(null);
           setQrTargetShopId(null);

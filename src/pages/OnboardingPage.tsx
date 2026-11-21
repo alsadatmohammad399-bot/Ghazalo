@@ -16,19 +16,36 @@ import {
   ImagePlus,
 } from 'lucide-react';
 import { GhazaloLogo } from '../components/BrandLogo';
-import { createShop, saveUserProfile } from '../services/firestoreService';
+import {
+  createShop,
+  saveStoreCredentialRecord,
+  saveUserProfile,
+} from '../services/firestoreService';
 import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
 import { getShopThemeHex } from '../utils/calculations';
 import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { sortExtractedMenuItems, sortMenuCategories } from '../utils/menuSorting';
 import { getProductOptions } from '../utils/productVariants';
-import type { ExtractedMenuItem, MenuTemplateId, Shop } from '../types';
+import {
+  setAuthSessionStorage,
+  shopToDemoRecord,
+  upsertLocalRestaurant,
+} from '../utils/storeRegistry';
+import {
+  normalizeStoreSlug,
+  type ExtractedMenuItem,
+  type MenuTemplateId,
+  type Shop,
+} from '../types';
 
 interface OnboardingPageProps {
   ownerId: string;
   ownerName: string;
   ownerEmail: string;
   initialBusinessName?: string;
+  initialStoreSlug?: string;
+  initialContact?: string;
+  initialPassword?: string;
   initialCountry?: string;
   onCancel: () => void;
   onCompleted: (shop: Shop) => void;
@@ -38,11 +55,11 @@ const COUNTRIES = ['مصر', 'السعودية', 'الإمارات', 'الكوي
 const MENU_LANGUAGES = ['العربية', 'English', 'العربية والإنجليزية', 'الفرنسية'];
 const WORK_DAYS = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
 const THEME_COLORS = [
+  { name: 'برتقالي', swatch: '#FF6A00' },
   { name: 'أخضر', swatch: '#16A34A' },
   { name: 'أحمر', swatch: '#B45309' },
   { name: 'أزرق مخضر', swatch: '#0D9488' },
   { name: 'أسود', swatch: '#1E293B' },
-  { name: 'لون آخر', swatch: '#059669' },
 ];
 const PAYMENT_METHODS = ['نقداً', 'بطاقة', 'فودافون كاش', 'انستاباي', 'فوري'];
 
@@ -58,6 +75,9 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   ownerName,
   ownerEmail,
   initialBusinessName = '',
+  initialStoreSlug = '',
+  initialContact = '',
+  initialPassword = '',
   initialCountry = 'مصر',
   onCancel,
   onCompleted,
@@ -70,6 +90,8 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   const [showMoreLangs, setShowMoreLangs] = useState(false);
   const [nameAr, setNameAr] = useState(initialBusinessName || '');
   const [nameEn, setNameEn] = useState('');
+  const [storeSlug, setStoreSlug] = useState(() => normalizeStoreSlug(initialStoreSlug || ''));
+  const [slugTouched, setSlugTouched] = useState(Boolean(initialStoreSlug));
 
   // Step 3
   const [branchCount, setBranchCount] = useState<'فرع واحد' | 'أكثر من فرع'>('فرع واحد');
@@ -82,7 +104,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   // Step 4: Appearance, Templates & Logo
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
-  const [themeColor, setThemeColor] = useState('أخضر');
+  const [themeColor, setThemeColor] = useState('برتقالي');
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light');
   const [menuTemplate, setMenuTemplate] = useState<MenuTemplateId>('classic');
   const [logoUrl, setLogoUrl] = useState('');
@@ -94,6 +116,8 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   // Step 5
   const [acceptOrders, setAcceptOrders] = useState(true);
   const [paymentMethods, setPaymentMethods] = useState<string[]>(['نقداً', 'فودافون كاش']);
+  const [deliveryFeeInput, setDeliveryFeeInput] = useState('20');
+  const [deliveryTimeInput, setDeliveryTimeInput] = useState('30-45 دقيقة');
   const [bio, setBio] = useState('');
 
   // Step 6 (AI Extraction)
@@ -292,9 +316,18 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
     setAiError('');
     try {
       const itemsToSave = skipItems ? [] : extractedItems;
+      const derivedSlug =
+        normalizeStoreSlug(storeSlug) ||
+        normalizeStoreSlug(nameEn) ||
+        `store-${Date.now().toString().slice(-5)}`;
+      const cleanPhone =
+        initialContact && !initialContact.includes('@') ? initialContact.trim() : '';
+      const parsedDeliveryFee = Math.max(0, Number(deliveryFeeInput) || 0);
+
       const newShop = await createShop(
         {
           ownerId,
+          storeSlug: derivedSlug,
           nameAr: nameAr.trim() || 'متجري الجديد',
           nameEn: nameEn.trim(),
           country,
@@ -313,10 +346,20 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
           acceptOrders,
           paymentMethods: paymentMethods.length ? paymentMethods : ['نقداً'],
           bio: bio.trim(),
-          whatsapp: '',
+          whatsapp: cleanPhone,
           coverImage,
           isOpen: true,
-          plan: 'بداية',
+          plan: 'تجريبي 7 أيام',
+          deliveryFee: parsedDeliveryFee,
+          freeDelivery: parsedDeliveryFee === 0,
+          freeDeliveryMinOrder: 0,
+          deliveryTime: deliveryTimeInput.trim() || '30-45 دقيقة',
+          enableServiceFee: false,
+          serviceFeePct: 0,
+          enableVat: false,
+          vatPct: 0,
+          enablePackagingFee: false,
+          packagingFee: 0,
         },
         itemsToSave
       );
@@ -325,9 +368,53 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
         uid: ownerId,
         fullName: ownerName || 'تاجر',
         email: ownerEmail,
+        phone: cleanPhone,
         country,
         defaultShopId: newShop.id,
       });
+
+      const finalSlug = newShop.storeSlug || derivedSlug;
+      try {
+        await saveStoreCredentialRecord({
+          shopId: newShop.id,
+          storeSlug: finalSlug,
+          ownerId,
+          nameAr: newShop.nameAr,
+          email: ownerEmail,
+          phone: cleanPhone,
+        });
+      } catch {
+        // optional secondary credential record
+      }
+
+      upsertLocalRestaurant(
+        shopToDemoRecord(newShop, {
+          email: ownerEmail,
+          phone: cleanPhone,
+          password: initialPassword || undefined,
+        })
+      );
+      setAuthSessionStorage(finalSlug, `gh-store-${newShop.id}-${Date.now()}`);
+
+      if (initialPassword) {
+        try {
+          await fetch('/api/store-auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              shopId: newShop.id,
+              storeSlug: finalSlug,
+              ownerId,
+              nameAr: newShop.nameAr,
+              email: ownerEmail,
+              phone: cleanPhone,
+              password: initialPassword,
+            }),
+          });
+        } catch {
+          // non-blocking
+        }
+      }
 
       onCompleted(newShop);
     } catch (err: unknown) {
@@ -340,27 +427,27 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   const progressPct = Math.round((step / 6) * 100);
 
   return (
-    <div dir="rtl" className="min-h-screen bg-emerald-50/40 dark:bg-slate-950 flex flex-col">
+    <div dir="rtl" className="min-h-screen bg-orange-50/30 dark:bg-slate-950 flex flex-col">
       {/* Top Progress Bar */}
-      <header className="bg-white dark:bg-slate-900 border-b border-emerald-100 dark:border-slate-800 px-4 sm:px-8 py-4">
+      <header className="bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 sm:px-8 py-4">
         <div className="max-w-3xl mx-auto space-y-3">
           <div className="flex items-center justify-between">
             <GhazaloLogo />
-            <span className="text-sm font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+            <span className="text-sm font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
               الخطوة {step} من 6
             </span>
           </div>
-          <div className="w-full h-2.5 rounded-full bg-emerald-100 dark:bg-slate-800 overflow-hidden">
+          <div className="w-full h-2.5 rounded-full bg-orange-100 dark:bg-slate-800 overflow-hidden">
             <div
               style={{ width: `${progressPct}%` }}
-              className="h-full bg-emerald-600 rounded-full transition-all duration-300"
+              className="h-full bg-[#FF6A00] rounded-full transition-all duration-300"
             />
           </div>
         </div>
       </header>
 
       <main className="flex-1 flex items-center justify-center p-4 sm:p-8">
-        <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-10 border border-emerald-100 dark:border-slate-800 shadow-sm space-y-6">
+        <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-10 border border-orange-100 dark:border-slate-800 shadow-sm space-y-6">
           {/* Step 1: Welcome */}
           {step === 1 && (
             <div className="text-center space-y-6 py-4">
@@ -371,20 +458,20 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                 خلال دقائق قليلة هنعمل المنيو الخاص بيك
               </h1>
               <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                أجب عن 5 أسئلة سريعة وارفع صورة المنيو ليجهز متجرك فوراً.
+                أجب عن 5 أسئلة سريعة وارفع صورة المنيو ليجهز متجرك بتجربة مجانية 7 أيام.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setStep(2)}
-                  className="w-full sm:w-44 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-base transition-colors"
+                  className="w-full sm:w-44 py-3.5 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-base transition-colors"
                 >
                   لنبدأ
                 </button>
                 <button
                   type="button"
                   onClick={onCancel}
-                  className="w-full sm:w-44 py-3.5 rounded-2xl bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-emerald-200 dark:border-slate-700 font-bold text-base transition-colors"
+                  className="w-full sm:w-44 py-3.5 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-orange-200 dark:border-slate-700 font-bold text-base transition-colors"
                 >
                   إيقاف
                 </button>
@@ -407,7 +494,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       onClick={() => setCountry(c)}
                       className={`py-2.5 px-3 rounded-2xl text-sm font-bold border transition-colors ${
                         country === c
-                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                          ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-[#FF6A00] dark:text-orange-300'
                           : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                       }`}
                     >
@@ -427,7 +514,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       onClick={() => setMenuLanguage(lang)}
                       className={`py-2.5 px-4 rounded-2xl text-sm font-bold border transition-colors ${
                         menuLanguage === lang
-                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                          ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-[#FF6A00] dark:text-orange-300'
                           : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                       }`}
                     >
@@ -438,7 +525,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowMoreLangs(true)}
-                      className="py-2.5 px-4 rounded-2xl text-sm font-bold border border-dashed border-emerald-300 text-emerald-700 dark:text-emerald-300"
+                      className="py-2.5 px-4 rounded-2xl text-sm font-bold border border-dashed border-orange-300 text-[#FF6A00] dark:text-orange-300"
                     >
                       عرض المزيد
                     </button>
@@ -453,8 +540,8 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     type="text"
                     value={nameAr}
                     onChange={(e) => setNameAr(e.target.value)}
-                    placeholder="مثال: البرنس"
-                    className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                    placeholder="مثال: ركن الكشري"
+                    className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                   />
                 </div>
                 <div>
@@ -463,10 +550,39 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     type="text"
                     dir="ltr"
                     value={nameEn}
-                    onChange={(e) => setNameEn(e.target.value)}
-                    placeholder="Al Prince"
-                    className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setNameEn(val);
+                      if (!slugTouched) {
+                        setStoreSlug(normalizeStoreSlug(val));
+                      }
+                    }}
+                    placeholder="Koshary Corner"
+                    className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                   />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">عنوان المتجر (رابط المنيو)</label>
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={storeSlug}
+                    onChange={(e) => {
+                      setSlugTouched(true);
+                      setStoreSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                    }}
+                    placeholder="koshary-corner"
+                    className="w-full pl-32 pr-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold"
+                  />
+                  <span
+                    dir="ltr"
+                    className="absolute left-3 px-2.5 py-1 rounded-xl bg-orange-50 dark:bg-slate-700 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold"
+                  >
+                    .ghazalo.com
+                  </span>
                 </div>
               </div>
             </div>
@@ -487,7 +603,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       onClick={() => setBranchCount(option)}
                       className={`py-3 rounded-2xl text-sm font-bold border transition-colors ${
                         branchCount === option
-                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                          ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-[#FF6A00] dark:text-orange-300'
                           : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                       }`}
                     >
@@ -505,7 +621,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     placeholder="القاهرة"
-                    className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                    className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                   />
                 </div>
                 <div>
@@ -515,7 +631,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     placeholder="الشارع والمنطقة"
-                    className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                    className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                   />
                 </div>
               </div>
@@ -527,7 +643,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     type="text"
                     value={workFrom}
                     onChange={(e) => setWorkFrom(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                    className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                   />
                 </div>
                 <div>
@@ -536,7 +652,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     type="text"
                     value={workTo}
                     onChange={(e) => setWorkTo(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                    className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                   />
                 </div>
               </div>
@@ -553,7 +669,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                         onClick={() => toggleWorkDay(day)}
                         className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold border transition-colors ${
                           checked
-                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
                             : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                         }`}
                       >
@@ -585,15 +701,15 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                         onClick={() => setMenuTemplate(tpl.id)}
                         className={`p-3.5 rounded-2xl border text-right transition-all flex flex-col justify-between gap-2 ${
                           selected
-                            ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 ring-2 ring-emerald-500/20'
-                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-emerald-300'
+                            ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] ring-2 ring-[#FF6A00]/20'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-orange-300'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-extrabold text-sm text-slate-900 dark:text-white">
                             {tpl.name}
                           </span>
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-emerald-100/80 dark:bg-slate-700 text-emerald-800 dark:text-emerald-200">
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-orange-100/80 dark:bg-slate-700 text-orange-800 dark:text-orange-200">
                             {tpl.badge}
                           </span>
                         </div>
@@ -607,7 +723,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
               </div>
 
               {/* Brand Logo Upload & Dish Badge Toggle */}
-              <div className="rounded-2xl border border-emerald-100 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800/60 p-4 space-y-3">
+              <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800/60 p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-0.5">
                     <div className="text-sm font-extrabold">لوجو المطعم على الأصناف</div>
@@ -649,7 +765,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                 )}
 
                 {logoUrl && (
-                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-emerald-100 dark:border-slate-700">
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-orange-100 dark:border-slate-700">
                     <div className="flex items-center gap-3">
                       <img
                         src={logoUrl}
@@ -665,7 +781,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       onClick={() => setShowLogoOnItems((v) => !v)}
                       className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-colors ${
                         showLogoOnItems
-                          ? 'bg-emerald-600 text-white'
+                          ? 'bg-[#FF6A00] text-white'
                           : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                       }`}
                     >
@@ -680,15 +796,19 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     معاينة مباشرة لشكل الصنف بالقالب المختار:
                   </div>
                   <div
-                    className={`rounded-2xl p-3 border flex items-center gap-3 ${
-                      menuTemplate === 'luxury'
-                        ? 'bg-[#17211C] border-amber-400/50 text-amber-50'
-                        : themeMode === 'dark'
-                          ? 'bg-slate-900 border-slate-700 text-white'
-                          : 'bg-white border-emerald-100 text-slate-900'
+                    className={`rounded-2xl p-3 border flex items-center gap-3 transition-colors ${
+                      menuTemplate === 'modern'
+                        ? 'bg-slate-900 border-orange-500/40 text-white'
+                        : menuTemplate === 'minimal'
+                          ? 'bg-[#FAFAF9] border-slate-300 text-slate-900'
+                          : menuTemplate === 'compact'
+                            ? 'bg-slate-50 border-slate-300 text-slate-900 py-2'
+                            : themeMode === 'dark'
+                              ? 'bg-slate-900 border-slate-700 text-white'
+                              : 'bg-white border-orange-100 text-slate-900'
                     }`}
                   >
-                    <div className="relative w-16 h-16 rounded-2xl bg-emerald-100/70 dark:bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
+                    <div className="relative w-16 h-16 rounded-2xl bg-orange-100/70 dark:bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
                       <Utensils
                         style={{ color: getShopThemeHex(themeColor) }}
                         className="w-6 h-6 opacity-70"
@@ -707,7 +827,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       <div
                         style={{
                           color:
-                            menuTemplate === 'luxury' ? '#FBBF24' : getShopThemeHex(themeColor),
+                            menuTemplate === 'modern' ? '#FF6A00' : getShopThemeHex(themeColor),
                         }}
                         className="text-xs font-extrabold tabular-nums"
                       >
@@ -722,7 +842,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
               </div>
 
               {/* Restaurant Cover / Background Behind Logo & Name */}
-              <div className="rounded-2xl border border-emerald-100 dark:border-slate-700 bg-emerald-50/40 dark:bg-slate-800/60 p-4 space-y-3">
+              <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800/60 p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-0.5">
                     <div className="text-sm font-extrabold">صورة خلفية المطعم (ورا الاسم واللوجو)</div>
@@ -761,7 +881,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
 
                 {coverError && <p className="text-xs font-bold text-amber-800">{coverError}</p>}
 
-                <div className="relative h-28 rounded-2xl overflow-hidden border border-emerald-200/70 dark:border-slate-700 flex items-end p-3.5">
+                <div className="relative h-28 rounded-2xl overflow-hidden border border-orange-200/70 dark:border-slate-700 flex items-end p-3.5">
                   {coverImage ? (
                     <>
                       <img
@@ -802,7 +922,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       </div>
                       <div
                         className={`text-[11px] font-semibold ${
-                          coverImage ? 'text-emerald-200' : 'text-emerald-700 dark:text-emerald-300'
+                          coverImage ? 'text-orange-200' : 'text-[#FF6A00] dark:text-orange-300'
                         }`}
                       >
                         مفتوح الآن
@@ -822,7 +942,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       onClick={() => setThemeColor(color.name)}
                       className={`p-3 rounded-2xl border flex items-center gap-2.5 text-sm font-bold transition-colors ${
                         themeColor === color.name
-                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                          ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-[#FF6A00] dark:text-orange-300'
                           : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                       }`}
                     >
@@ -849,7 +969,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       onClick={() => setThemeMode(m.id as 'light' | 'dark')}
                       className={`py-3 rounded-2xl border text-sm font-bold transition-colors ${
                         themeMode === m.id
-                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                          ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-[#FF6A00] dark:text-orange-300'
                           : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                       }`}
                     >
@@ -874,7 +994,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     onClick={() => setAcceptOrders(true)}
                     className={`py-3 px-4 rounded-2xl border text-sm font-bold transition-colors ${
                       acceptOrders
-                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                        ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-[#FF6A00] dark:text-orange-300'
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                     }`}
                   >
@@ -885,7 +1005,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     onClick={() => setAcceptOrders(false)}
                     className={`py-3 px-4 rounded-2xl border text-sm font-bold transition-colors ${
                       !acceptOrders
-                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 text-emerald-800 dark:text-emerald-300'
+                        ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-[#FF6A00] dark:text-orange-300'
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                     }`}
                   >
@@ -906,7 +1026,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                         onClick={() => togglePaymentMethod(pm)}
                         className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl border text-sm font-bold transition-colors ${
                           selected
-                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
                             : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                         }`}
                       >
@@ -918,6 +1038,33 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-2xl bg-orange-50/40 dark:bg-slate-800/70 p-3.5 border border-orange-100 dark:border-slate-700">
+                <div>
+                  <label className="block text-xs font-bold mb-1">سعر التوصيل (جنيه)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={deliveryFeeInput}
+                    onChange={(e) => setDeliveryFeeInput(e.target.value)}
+                    placeholder="20"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold mb-1">وقت التوصيل المتوقع</label>
+                  <input
+                    type="text"
+                    value={deliveryTimeInput}
+                    onChange={(e) => setDeliveryTimeInput(e.target.value)}
+                    placeholder="30-45 دقيقة"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold"
+                  />
+                </div>
+                <p className="sm:col-span-2 text-[11px] font-bold text-slate-500">
+                  بدون رسوم خدمة أو ضرائب إضافية افتراضياً — السعر شامل: الأكل + التوصيل فقط.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-bold mb-1">نبذة عن نشاطك</label>
                 <textarea
@@ -925,7 +1072,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   placeholder="وصف مختصر لمطعمك أو متجرك يظهر للعملاء..."
-                  className="w-full px-4 py-3 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                  className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                 />
               </div>
             </div>
@@ -935,7 +1082,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
           {step === 6 && (
             <div className="space-y-5">
               <div className="text-center space-y-1.5">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 mx-auto flex items-center justify-center">
+                <div className="w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 mx-auto flex items-center justify-center">
                   <Sparkles className="w-6 h-6" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-extrabold">المنيو بالذكاء الاصطناعي</h2>
@@ -957,7 +1104,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                 type="button"
                 disabled={aiProcessing || savingShop}
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-5 px-6 rounded-3xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-base flex items-center justify-center gap-3 shadow-sm transition-colors"
+                className="w-full py-5 px-6 rounded-3xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-base flex items-center justify-center gap-3 shadow-sm transition-colors"
               >
                 {aiProcessing ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -998,7 +1145,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     {uploadedPreviews.map((fileItem) => (
                       <div
                         key={fileItem.id}
-                        className="w-20 h-20 rounded-2xl border border-emerald-200 dark:border-slate-700 bg-emerald-50/50 dark:bg-slate-800 shrink-0 overflow-hidden flex flex-col items-center justify-center p-1 relative"
+                        className="w-20 h-20 rounded-2xl border border-orange-200 dark:border-slate-700 bg-orange-50/50 dark:bg-slate-800 shrink-0 overflow-hidden flex flex-col items-center justify-center p-1 relative"
                       >
                         {!aiProcessing && (
                           <button
@@ -1022,14 +1169,14 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                           />
                         ) : fileItem.isSheet ? (
                           <>
-                            <FileSpreadsheet className="w-6 h-6 text-emerald-600" />
+                            <FileSpreadsheet className="w-6 h-6 text-[#FF6A00]" />
                             <span className="text-[10px] font-bold truncate w-full text-center mt-1">
                               {fileItem.name}
                             </span>
                           </>
                         ) : (
                           <>
-                            <FileText className="w-6 h-6 text-emerald-600" />
+                            <FileText className="w-6 h-6 text-[#FF6A00]" />
                             <span className="text-[10px] font-bold truncate w-full text-center mt-1">
                               {fileItem.name}
                             </span>
@@ -1043,16 +1190,16 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
 
               {/* AI Progress Stages */}
               {(aiProcessing || extractedItems.length > 0) && (
-                <div className="bg-emerald-50/60 dark:bg-slate-800 rounded-2xl p-4 space-y-2 border border-emerald-100 dark:border-slate-700">
+                <div className="bg-orange-50/60 dark:bg-slate-800 rounded-2xl p-4 space-y-2 border border-orange-100 dark:border-slate-700">
                   {AI_STAGES.map((label, idx) => {
                     const done = !aiProcessing || idx < aiStageIndex;
                     const active = aiProcessing && idx === aiStageIndex;
                     return (
                       <div key={label} className="flex items-center gap-2.5 text-sm font-bold">
                         {done ? (
-                          <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
                         ) : active ? (
-                          <Loader2 className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />
+                          <Loader2 className="w-4 h-4 text-[#FF6A00] animate-spin shrink-0" />
                         ) : (
                           <span className="w-4 h-4 rounded-full border border-slate-300 shrink-0" />
                         )}
@@ -1074,11 +1221,11 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
               {/* Review Extracted Items */}
               {extractedItems.length > 0 && !aiProcessing && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between bg-emerald-100/70 dark:bg-emerald-950/50 rounded-2xl px-4 py-3">
-                    <span className="text-sm font-extrabold text-emerald-900 dark:text-emerald-200 tabular-nums">
+                  <div className="flex items-center justify-between bg-orange-100/70 dark:bg-orange-950/50 rounded-2xl px-4 py-3">
+                    <span className="text-sm font-extrabold text-orange-900 dark:text-orange-200 tabular-nums">
                       {extractedCategories.length} أقسام، {extractedItems.length} صنف
                     </span>
-                    <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                    <span className="text-xs font-bold text-[#FF6A00] dark:text-orange-300">
                       مرتبة تلقائياً بالصور
                     </span>
                   </div>
@@ -1089,10 +1236,10 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       return (
                       <div
                         key={`${item.name}-${idx}`}
-                        className="flex items-center justify-between gap-2 bg-white dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 rounded-2xl p-2.5 text-sm"
+                        className="flex items-center justify-between gap-2 bg-white dark:bg-slate-800 border border-orange-100 dark:border-slate-700 rounded-2xl p-2.5 text-sm"
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <div className="relative w-12 h-12 rounded-xl bg-emerald-50 dark:bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden">
+                          <div className="relative w-12 h-12 rounded-xl bg-orange-50 dark:bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden">
                             {item.imageUrl ? (
                               <img
                                 src={item.imageUrl}
@@ -1101,7 +1248,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                                 className="w-full h-full object-cover"
                               />
                             ) : (
-                              <Utensils className="w-5 h-5 text-emerald-400" />
+                              <Utensils className="w-5 h-5 text-orange-400" />
                             )}
                             {logoUrl && showLogoOnItems && (
                               <img
@@ -1127,7 +1274,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                                 {itemOptions.map((opt) => (
                                   <span
                                     key={opt.raw}
-                                    className="px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-[10px] font-extrabold tabular-nums border border-emerald-200/70 dark:border-emerald-800"
+                                    className="px-2 py-0.5 rounded-lg bg-orange-50 dark:bg-orange-950/60 text-orange-800 dark:text-orange-200 text-[10px] font-extrabold tabular-nums border border-orange-200/70 dark:border-orange-800"
                                   >
                                     {opt.label}
                                     {opt.hasExplicitPrice ? ` · ${opt.price}` : ''}
@@ -1160,7 +1307,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                             className={`px-2 py-1 rounded-xl text-[11px] font-bold inline-flex items-center gap-1 ${
                               item.isOffer
                                 ? 'bg-amber-400 text-slate-900'
-                                : 'bg-emerald-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300'
+                                : 'bg-orange-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300'
                             }`}
                           >
                             <Tag className="w-3 h-3" />
@@ -1175,7 +1322,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                                 prev.map((it, i) => (i === idx ? { ...it, price: nextVal } : it))
                               );
                             }}
-                            className="w-20 px-2 py-1 rounded-xl border border-emerald-200 dark:border-slate-600 bg-emerald-50/40 dark:bg-slate-900 text-center font-bold tabular-nums"
+                            className="w-20 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-600 bg-orange-50/40 dark:bg-slate-900 text-center font-bold tabular-nums"
                           />
                           <button
                             type="button"
@@ -1197,7 +1344,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     type="button"
                     disabled={savingShop}
                     onClick={() => void handleFinish(false)}
-                    className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-base flex items-center justify-center gap-2"
+                    className="w-full py-3.5 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-base flex items-center justify-center gap-2"
                   >
                     {savingShop && <Loader2 className="w-5 h-5 animate-spin" />}
                     <span>حفظ وإنهاء الإعداد</span>
@@ -1209,7 +1356,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                 type="button"
                 disabled={savingShop || aiProcessing}
                 onClick={() => void handleFinish(true)}
-                className="w-full py-3 rounded-2xl bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-emerald-200 dark:border-slate-700 font-bold text-sm"
+                className="w-full py-3 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-orange-200 dark:border-slate-700 font-bold text-sm"
               >
                 {savingShop ? 'جاري إنشاء المتجر...' : 'تخطي إضافة الأصناف يدوياً'}
               </button>
@@ -1218,11 +1365,11 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
 
           {/* Step Navigation Footer (Steps 2–5) */}
           {step >= 2 && step <= 5 && (
-            <div className="flex items-center justify-between gap-3 pt-4 border-t border-emerald-100 dark:border-slate-800">
+            <div className="flex items-center justify-between gap-3 pt-4 border-t border-orange-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setStep((s) => s - 1)}
-                className="px-5 py-3 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-bold text-sm inline-flex items-center gap-1.5"
+                className="px-5 py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm inline-flex items-center gap-1.5"
               >
                 <ChevronRight className="w-4 h-4" />
                 السابق
@@ -1230,7 +1377,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
               <button
                 type="button"
                 onClick={() => setStep((s) => s + 1)}
-                className="px-8 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm"
+                className="px-8 py-3 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-sm"
               >
                 التالي
               </button>
@@ -1238,11 +1385,11 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
           )}
 
           {step === 6 && (
-            <div className="pt-2 border-t border-emerald-100 dark:border-slate-800 flex justify-start">
+            <div className="pt-2 border-t border-orange-100 dark:border-slate-800 flex justify-start">
               <button
                 type="button"
                 onClick={() => setStep(5)}
-                className="px-5 py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 font-bold text-xs inline-flex items-center gap-1"
+                className="px-5 py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-xs inline-flex items-center gap-1"
               >
                 <ChevronRight className="w-4 h-4" />
                 الخطوة السابقة

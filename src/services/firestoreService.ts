@@ -17,12 +17,16 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import {
   FIELD_LIMITS,
+  normalizeMenuTemplateId,
+  normalizeStoreSlug,
   type ExtractedMenuItem,
   type Order,
   type OrderStatus,
+  type PlatformSettings,
   type Product,
   type Shop,
   type ShopTable,
+  type StoreCredentialRecord,
   type UserProfile,
 } from '../types';
 
@@ -85,6 +89,56 @@ export async function getOwnerShops(ownerId: string): Promise<Shop[]> {
   }
 }
 
+export async function findShopBySlugOrId(slugOrId: string): Promise<Shop | null> {
+  const raw = (slugOrId || '').trim();
+  if (!raw) return null;
+  try {
+    const directSnap = await getDoc(doc(db, 'shops', raw));
+    if (directSnap.exists()) return directSnap.data() as Shop;
+    const norm = normalizeStoreSlug(raw);
+    if (!norm) return null;
+    const q = query(collection(db, 'shops'), where('storeSlug', '==', norm));
+    const snap = await getDocs(q);
+    if (!snap.empty) return snap.docs[0].data() as Shop;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveStoreCredentialRecord(input: {
+  shopId: string;
+  storeSlug: string;
+  ownerId: string;
+  nameAr: string;
+  email?: string;
+  phone?: string;
+}): Promise<void> {
+  const path = `store_credentials/${input.shopId}`;
+  try {
+    await setDoc(doc(db, 'store_credentials', input.shopId), {
+      shopId: input.shopId,
+      storeSlug: normalizeStoreSlug(input.storeSlug) || input.shopId,
+      ownerId: input.ownerId,
+      nameAr: (input.nameAr || 'متجر').slice(0, FIELD_LIMITS.NAME_AR_MAX),
+      email: (input.email || '').slice(0, 200),
+      phone: (input.phone || '').slice(0, FIELD_LIMITS.PHONE_MAX),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function getAllStoreCredentials(): Promise<StoreCredentialRecord[]> {
+  try {
+    const snap = await getDocs(collection(db, 'store_credentials'));
+    return snap.docs.map((d) => d.data() as StoreCredentialRecord);
+  } catch {
+    return [];
+  }
+}
+
 export async function createShop(
   shopData: Omit<Shop, 'id' | 'createdAt' | 'updatedAt' | 'subscriptionStatus' | 'trialEndsAt'>,
   extractedItems: ExtractedMenuItem[] = []
@@ -92,11 +146,16 @@ export async function createShop(
   const shopId = generateId('shop');
   const path = `shops/${shopId}`;
   const trialEndsAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+  const derivedSlug =
+    normalizeStoreSlug(shopData.storeSlug || '') ||
+    normalizeStoreSlug(shopData.nameEn || '') ||
+    shopId;
 
   try {
     const cleanShop: Record<string, unknown> = {
       id: shopId,
       ownerId: shopData.ownerId,
+      storeSlug: derivedSlug.slice(0, FIELD_LIMITS.SLUG_MAX),
       nameAr: (shopData.nameAr || 'متجري').trim().slice(0, FIELD_LIMITS.NAME_AR_MAX),
       nameEn: (shopData.nameEn || '').trim().slice(0, FIELD_LIMITS.NAME_EN_MAX),
       country: (shopData.country || 'مصر').trim().slice(0, FIELD_LIMITS.COUNTRY_MAX),
@@ -107,9 +166,9 @@ export async function createShop(
       workFrom: (shopData.workFrom || '4م').slice(0, 30),
       workTo: (shopData.workTo || '2ص').slice(0, 30),
       workDays: (shopData.workDays || []).slice(0, 7),
-      themeColor: (shopData.themeColor || 'أخضر').slice(0, 30),
+      themeColor: (shopData.themeColor || 'برتقالي').slice(0, 30),
       themeMode: shopData.themeMode === 'dark' ? 'dark' : 'light',
-      menuTemplate: shopData.menuTemplate || 'classic',
+      menuTemplate: normalizeMenuTemplateId(shopData.menuTemplate),
       logoUrl: (shopData.logoUrl || '').slice(0, FIELD_LIMITS.LOGO_URL_MAX),
       showLogoOnItems: Boolean(shopData.showLogoOnItems),
       acceptOrders: Boolean(shopData.acceptOrders),
@@ -120,8 +179,18 @@ export async function createShop(
       isOpen: true,
       subscriptionStatus: 'trial',
       approvedByAdmin: false,
-      plan: (shopData.plan || 'بداية').slice(0, 40),
+      plan: (shopData.plan || 'تجريبي 7 أيام').slice(0, 40),
       trialEndsAt,
+      deliveryFee: Math.max(0, Number(shopData.deliveryFee) || 0),
+      freeDelivery: Boolean(shopData.freeDelivery),
+      freeDeliveryMinOrder: Math.max(0, Number(shopData.freeDeliveryMinOrder) || 0),
+      deliveryTime: (shopData.deliveryTime || '30-45 دقيقة').slice(0, FIELD_LIMITS.DELIVERY_TIME_MAX),
+      enableServiceFee: Boolean(shopData.enableServiceFee),
+      serviceFeePct: Math.max(0, Number(shopData.serviceFeePct) || 0),
+      enableVat: Boolean(shopData.enableVat),
+      vatPct: Math.max(0, Number(shopData.vatPct) || 0),
+      enablePackagingFee: Boolean(shopData.enablePackagingFee),
+      packagingFee: Math.max(0, Number(shopData.packagingFee) || 0),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -185,6 +254,10 @@ export async function updateShop(
   const path = `shops/${shopId}`;
   try {
     const allowed: Record<string, unknown> = { updatedAt: serverTimestamp() };
+    if (updates.storeSlug !== undefined) {
+      const s = normalizeStoreSlug(updates.storeSlug);
+      if (s) allowed.storeSlug = s.slice(0, FIELD_LIMITS.SLUG_MAX);
+    }
     if (updates.nameAr !== undefined) allowed.nameAr = updates.nameAr.slice(0, FIELD_LIMITS.NAME_AR_MAX);
     if (updates.nameEn !== undefined) allowed.nameEn = updates.nameEn.slice(0, FIELD_LIMITS.NAME_EN_MAX);
     if (updates.country !== undefined) allowed.country = updates.country.slice(0, FIELD_LIMITS.COUNTRY_MAX);
@@ -197,7 +270,9 @@ export async function updateShop(
     if (updates.workDays !== undefined) allowed.workDays = updates.workDays.slice(0, 7);
     if (updates.themeColor !== undefined) allowed.themeColor = updates.themeColor.slice(0, 30);
     if (updates.themeMode !== undefined) allowed.themeMode = updates.themeMode;
-    if (updates.menuTemplate !== undefined) allowed.menuTemplate = updates.menuTemplate;
+    if (updates.menuTemplate !== undefined) {
+      allowed.menuTemplate = normalizeMenuTemplateId(updates.menuTemplate);
+    }
     if (updates.logoUrl !== undefined) allowed.logoUrl = updates.logoUrl.slice(0, FIELD_LIMITS.LOGO_URL_MAX);
     if (updates.showLogoOnItems !== undefined) allowed.showLogoOnItems = Boolean(updates.showLogoOnItems);
     if (updates.acceptOrders !== undefined) allowed.acceptOrders = Boolean(updates.acceptOrders);
@@ -209,6 +284,16 @@ export async function updateShop(
     if (updates.plan !== undefined) allowed.plan = updates.plan.slice(0, 40);
     if (updates.requestedPlan !== undefined) allowed.requestedPlan = updates.requestedPlan;
     if (updates.paymentNote !== undefined) allowed.paymentNote = updates.paymentNote.slice(0, FIELD_LIMITS.PAYMENT_NOTE_MAX);
+    if (updates.deliveryFee !== undefined) allowed.deliveryFee = Math.max(0, Number(updates.deliveryFee) || 0);
+    if (updates.freeDelivery !== undefined) allowed.freeDelivery = Boolean(updates.freeDelivery);
+    if (updates.freeDeliveryMinOrder !== undefined) allowed.freeDeliveryMinOrder = Math.max(0, Number(updates.freeDeliveryMinOrder) || 0);
+    if (updates.deliveryTime !== undefined) allowed.deliveryTime = updates.deliveryTime.slice(0, FIELD_LIMITS.DELIVERY_TIME_MAX);
+    if (updates.enableServiceFee !== undefined) allowed.enableServiceFee = Boolean(updates.enableServiceFee);
+    if (updates.serviceFeePct !== undefined) allowed.serviceFeePct = Math.max(0, Math.min(100, Number(updates.serviceFeePct) || 0));
+    if (updates.enableVat !== undefined) allowed.enableVat = Boolean(updates.enableVat);
+    if (updates.vatPct !== undefined) allowed.vatPct = Math.max(0, Math.min(100, Number(updates.vatPct) || 0));
+    if (updates.enablePackagingFee !== undefined) allowed.enablePackagingFee = Boolean(updates.enablePackagingFee);
+    if (updates.packagingFee !== undefined) allowed.packagingFee = Math.max(0, Number(updates.packagingFee) || 0);
 
     await updateDoc(doc(db, 'shops', shopId), allowed);
   } catch (error) {
@@ -225,9 +310,10 @@ export async function approveAndActivateShop(shopId: string, days = 30): Promise
   try {
     const now = Date.now();
     const expiresAt = now + days * 24 * 60 * 60 * 1000;
-    const planLabel = days >= 360 ? 'السنوية (3,000 ج)' : 'الشهرية (600 ج)';
+    const isYearly = days >= 360;
+    const planLabel = isYearly ? 'السنوية (3,000 ج)' : 'الشهرية (600 ج)';
     await updateDoc(doc(db, 'shops', shopId), {
-      subscriptionStatus: 'active',
+      subscriptionStatus: isYearly ? 'yearly' : 'monthly',
       approvedByAdmin: true,
       approvedAt: now,
       subscriptionExpiresAt: expiresAt,
@@ -246,7 +332,9 @@ export async function extendTrialShop(shopId: string, days = 7): Promise<void> {
     const trialEndsAt = Date.now() + days * 24 * 60 * 60 * 1000;
     await updateDoc(doc(db, 'shops', shopId), {
       subscriptionStatus: 'trial',
+      approvedByAdmin: true,
       trialEndsAt,
+      plan: 'تجريبي مجاني - 7 أيام',
       updatedAt: serverTimestamp(),
     });
   } catch (error) {
@@ -267,8 +355,33 @@ export async function suspendShop(shopId: string): Promise<void> {
   }
 }
 
+export async function getPlatformConfig(): Promise<PlatformSettings> {
+  try {
+    const snap = await getDoc(doc(db, 'app_settings', 'platform_config'));
+    if (!snap.exists()) return { forceZeroFeesGlobally: false };
+    const data = snap.data() as PlatformSettings;
+    return {
+      forceZeroFeesGlobally: Boolean(data.forceZeroFeesGlobally),
+      updatedAt: data.updatedAt,
+    };
+  } catch {
+    return { forceZeroFeesGlobally: false };
+  }
+}
+
+export async function savePlatformConfig(forceZeroFeesGlobally: boolean): Promise<void> {
+  const path = 'app_settings/platform_config';
+  try {
+    await setDoc(doc(db, 'app_settings', 'platform_config'), {
+      forceZeroFeesGlobally: Boolean(forceZeroFeesGlobally),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
 export async function getAdminCustomPin(): Promise<string | null> {
-  const path = 'app_settings/admin_security';
   try {
     const snap = await getDoc(doc(db, 'app_settings', 'admin_security'));
     if (!snap.exists()) return null;
@@ -598,6 +711,8 @@ export async function createOrder(
       itemSummary: (orderInput.itemSummary || []).slice(0, 50),
       subtotal: Math.max(0, Number(orderInput.subtotal)),
       discount: Math.max(0, Number(orderInput.discount || 0)),
+      deliveryFee: Math.max(0, Number(orderInput.deliveryFee || 0)),
+      packagingFee: Math.max(0, Number(orderInput.packagingFee || 0)),
       serviceFee: Math.max(0, Number(orderInput.serviceFee)),
       vat: Math.max(0, Number(orderInput.vat)),
       roundingDiff: Number(orderInput.roundingDiff || 0),

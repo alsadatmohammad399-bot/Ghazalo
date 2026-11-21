@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import type { Request, Response } from 'express';
+import crypto from 'crypto';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
@@ -10,6 +12,130 @@ const __dirname = path.dirname(__filename);
 
 const PORT = 3000;
 const DEFAULT_ADMIN_PIN = process.env.ADMIN_PIN || '202600';
+const TOKEN_SIGNING_SECRET =
+  process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const STORE_REGISTRY_PATH = '/tmp/ghazalo_store_registry.json';
+
+interface ServerStoreCredential {
+  shopId: string;
+  storeSlug: string;
+  nameAr: string;
+  email: string;
+  phone: string;
+  passwordSalt: string;
+  passwordHash: string;
+  resetCode?: string;
+  resetCodeExpiresAt?: number;
+  updatedAt: number;
+}
+
+interface ServerRegistryState {
+  adminPin?: string;
+  forceZeroFeesGlobally: boolean;
+  stores: Record<string, ServerStoreCredential>;
+}
+
+function loadRegistryState(): ServerRegistryState {
+  try {
+    if (fs.existsSync(STORE_REGISTRY_PATH)) {
+      const raw = fs.readFileSync(STORE_REGISTRY_PATH, 'utf8');
+      const parsed = JSON.parse(raw) as Partial<ServerRegistryState>;
+      return {
+        adminPin: parsed.adminPin,
+        forceZeroFeesGlobally: Boolean(parsed.forceZeroFeesGlobally),
+        stores: parsed.stores || {},
+      };
+    }
+  } catch {
+    // ignore read error on cold start
+  }
+  return { forceZeroFeesGlobally: false, stores: {} };
+}
+
+function persistRegistryState(state: ServerRegistryState): void {
+  try {
+    fs.writeFileSync(STORE_REGISTRY_PATH, JSON.stringify(state), 'utf8');
+  } catch {
+    // non-blocking in read-only runtimes
+  }
+}
+
+let serverRegistry: ServerRegistryState = loadRegistryState();
+
+function hashPasswordScrypt(password: string, salt?: string): { salt: string; hash: string } {
+  const usedSalt = salt || crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(password, usedSalt, 64).toString('hex');
+  return { salt: usedSalt, hash: derived };
+}
+
+function verifyPasswordScrypt(password: string, salt: string, hash: string): boolean {
+  if (!salt || !hash) return false;
+  try {
+    const derived = crypto.scryptSync(password, salt, 64);
+    const storedBuf = Buffer.from(hash, 'hex');
+    if (derived.length !== storedBuf.length) return false;
+    return crypto.timingSafeEqual(derived, storedBuf);
+  } catch {
+    return false;
+  }
+}
+
+function signToken(payload: Record<string, unknown>, ttlMs = 7 * 24 * 60 * 60 * 1000): string {
+  const body = Buffer.from(
+    JSON.stringify({ ...payload, exp: Date.now() + ttlMs }),
+    'utf8'
+  ).toString('base64url');
+  const sig = crypto.createHmac('sha256', TOKEN_SIGNING_SECRET).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+function verifySignedToken(token: string): Record<string, unknown> | null {
+  try {
+    const parts = (token || '').split('.');
+    if (parts.length !== 2) return null;
+    const [body, sig] = parts;
+    const expected = crypto
+      .createHmac('sha256', TOKEN_SIGNING_SECRET)
+      .update(body)
+      .digest('base64url');
+    const sigBuf = Buffer.from(sig);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return null;
+    }
+    const decoded = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    if (typeof decoded.exp === 'number' && Date.now() > decoded.exp) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function requireAdminAuth(req: Request, res: Response): boolean {
+  const authHeader = String(req.headers.authorization || '');
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const payload = verifySignedToken(bearer);
+  if (!payload || payload.role !== 'admin') {
+    res.status(401).json({ ok: false, error: 'صلاحية الإدارة مطلوبة.' });
+    return false;
+  }
+  return true;
+}
+
+function normalizeSlugServer(raw: string): string {
+  return (raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/https?:\/\//g, '')
+    .replace(/\.ghazalo\.com.*$/i, '')
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -307,14 +433,237 @@ async function startServer() {
     res.json({ ok: true, service: 'ghazalo-api' });
   });
 
+  app.get('/api/platform-config', (_req: Request, res: Response) => {
+    res.json({ forceZeroFeesGlobally: Boolean(serverRegistry.forceZeroFeesGlobally) });
+  });
+
   app.post('/api/admin/verify-pin', (req: Request, res: Response) => {
     const body = req.body as { pin?: string };
     const submitted = String(body.pin || '').trim();
-    if (!submitted || submitted !== DEFAULT_ADMIN_PIN) {
+    const expectedPin = serverRegistry.adminPin || DEFAULT_ADMIN_PIN;
+    if (!submitted || submitted !== expectedPin) {
       res.status(401).json({ ok: false, error: 'الرقم السري غير صحيح.' });
       return;
     }
+    const adminToken = signToken({ role: 'admin' }, 24 * 60 * 60 * 1000);
+    res.json({ ok: true, adminToken });
+  });
+
+  app.post('/api/admin/update-pin', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+    const body = req.body as { newPin?: string };
+    const clean = String(body.newPin || '').trim().slice(0, 32);
+    if (clean.length < 4) {
+      res.status(400).json({ ok: false, error: 'الرقم السري يجب ألا يقل عن 4 أحرف.' });
+      return;
+    }
+    serverRegistry.adminPin = clean;
+    persistRegistryState(serverRegistry);
     res.json({ ok: true });
+  });
+
+  app.post('/api/admin/global-settings', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+    const body = req.body as { forceZeroFeesGlobally?: boolean };
+    serverRegistry.forceZeroFeesGlobally = Boolean(body.forceZeroFeesGlobally);
+    persistRegistryState(serverRegistry);
+    res.json({ ok: true, forceZeroFeesGlobally: serverRegistry.forceZeroFeesGlobally });
+  });
+
+  app.get('/api/admin/store-codes', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+    const items = Object.values(serverRegistry.stores).map((s) => ({
+      shopId: s.shopId,
+      storeSlug: s.storeSlug,
+      nameAr: s.nameAr,
+      email: s.email,
+      phone: s.phone,
+      resetCode: s.resetCode && (!s.resetCodeExpiresAt || Date.now() < s.resetCodeExpiresAt) ? s.resetCode : undefined,
+      resetCodeExpiresAt: s.resetCodeExpiresAt,
+    }));
+    res.json({ ok: true, stores: items });
+  });
+
+  app.post('/api/admin/generate-code', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+    const body = req.body as {
+      shopId?: string;
+      storeSlug?: string;
+      nameAr?: string;
+      email?: string;
+      phone?: string;
+    };
+    const slug = normalizeSlugServer(body.storeSlug || body.shopId || '');
+    const key = slug || String(body.shopId || '').trim();
+    if (!key) {
+      res.status(400).json({ ok: false, error: 'معرف المتجر مطلوب.' });
+      return;
+    }
+    const existing = serverRegistry.stores[key];
+    const code = String(crypto.randomInt(100000, 1000000));
+    const expiresAt = Date.now() + 30 * 60 * 1000;
+    serverRegistry.stores[key] = {
+      shopId: body.shopId || existing?.shopId || key,
+      storeSlug: slug || existing?.storeSlug || key,
+      nameAr: String(body.nameAr || existing?.nameAr || key).slice(0, 120),
+      email: String(body.email || existing?.email || '').slice(0, 200),
+      phone: String(body.phone || existing?.phone || '').slice(0, 40),
+      passwordSalt: existing?.passwordSalt || '',
+      passwordHash: existing?.passwordHash || '',
+      resetCode: code,
+      resetCodeExpiresAt: expiresAt,
+      updatedAt: Date.now(),
+    };
+    persistRegistryState(serverRegistry);
+    res.json({ ok: true, code, expiresAt });
+  });
+
+  app.post('/api/admin/store-password', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+    const body = req.body as {
+      shopId?: string;
+      storeSlug?: string;
+      nameAr?: string;
+      email?: string;
+      phone?: string;
+      newPassword?: string;
+    };
+    const slug = normalizeSlugServer(body.storeSlug || body.shopId || '');
+    const key = slug || String(body.shopId || '').trim();
+    const cleanPass = String(body.newPassword || '').trim();
+    if (!key || cleanPass.length < 4) {
+      res.status(400).json({ ok: false, error: 'كلمة السر الجديدة يجب أن تكون 4 أحرف على الأقل.' });
+      return;
+    }
+    const existing = serverRegistry.stores[key];
+    const { salt, hash } = hashPasswordScrypt(cleanPass);
+    serverRegistry.stores[key] = {
+      shopId: body.shopId || existing?.shopId || key,
+      storeSlug: slug || existing?.storeSlug || key,
+      nameAr: String(body.nameAr || existing?.nameAr || key).slice(0, 120),
+      email: String(body.email || existing?.email || '').slice(0, 200),
+      phone: String(body.phone || existing?.phone || '').slice(0, 40),
+      passwordSalt: salt,
+      passwordHash: hash,
+      resetCode: undefined,
+      resetCodeExpiresAt: undefined,
+      updatedAt: Date.now(),
+    };
+    persistRegistryState(serverRegistry);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/store-auth/register', (req: Request, res: Response) => {
+    const body = req.body as {
+      shopId?: string;
+      storeSlug?: string;
+      nameAr?: string;
+      email?: string;
+      phone?: string;
+      password?: string;
+    };
+    const slug = normalizeSlugServer(body.storeSlug || body.shopId || '');
+    const pass = String(body.password || '');
+    if (!slug || pass.length < 4) {
+      res.status(400).json({ ok: false, error: 'يرجى إدخال عنوان المتجر وكلمة السر.' });
+      return;
+    }
+    const { salt, hash } = hashPasswordScrypt(pass);
+    const cred: ServerStoreCredential = {
+      shopId: body.shopId || slug,
+      storeSlug: slug,
+      nameAr: String(body.nameAr || slug).slice(0, 120),
+      email: String(body.email || '').slice(0, 200),
+      phone: String(body.phone || '').slice(0, 40),
+      passwordSalt: salt,
+      passwordHash: hash,
+      updatedAt: Date.now(),
+    };
+    serverRegistry.stores[slug] = cred;
+    persistRegistryState(serverRegistry);
+    const token = signToken({ role: 'merchant', storeSlug: slug, shopId: cred.shopId });
+    res.json({ ok: true, token, storeSlug: slug, shopId: cred.shopId });
+  });
+
+  app.post('/api/store-auth/login', (req: Request, res: Response) => {
+    const body = req.body as { storeSlug?: string; password?: string };
+    const slug = normalizeSlugServer(body.storeSlug || '');
+    const pass = String(body.password || '');
+    const match = Object.values(serverRegistry.stores).find(
+      (s) => s.storeSlug === slug || s.shopId.toLowerCase() === (body.storeSlug || '').trim().toLowerCase()
+    );
+    if (!match || !verifyPasswordScrypt(pass, match.passwordSalt, match.passwordHash)) {
+      res.status(401).json({ ok: false, error: 'عنوان المتجر أو كلمة السر غير صحيحة.' });
+      return;
+    }
+    const token = signToken({ role: 'merchant', storeSlug: match.storeSlug, shopId: match.shopId });
+    res.json({
+      ok: true,
+      token,
+      storeSlug: match.storeSlug,
+      shopId: match.shopId,
+      nameAr: match.nameAr,
+    });
+  });
+
+  app.post('/api/store-auth/forgot-request', (req: Request, res: Response) => {
+    const body = req.body as { identifier?: string };
+    const q = String(body.identifier || '').trim().toLowerCase();
+    if (!q) {
+      res.status(400).json({ ok: false, error: 'أدخل اسم المتجر أو رقم الموبايل أو الإيميل.' });
+      return;
+    }
+    const slug = normalizeSlugServer(q);
+    const digits = q.replace(/[^0-9]/g, '');
+    const match = Object.values(serverRegistry.stores).find(
+      (s) =>
+        (slug && s.storeSlug === slug) ||
+        s.nameAr.toLowerCase() === q ||
+        (s.email && s.email.toLowerCase() === q) ||
+        (digits && s.phone && s.phone.replace(/[^0-9]/g, '') === digits)
+    );
+    res.json({
+      ok: true,
+      found: Boolean(match),
+      storeSlug: match?.storeSlug,
+    });
+  });
+
+  app.post('/api/store-auth/reset-password', (req: Request, res: Response) => {
+    const body = req.body as { identifier?: string; code?: string; newPassword?: string };
+    const q = String(body.identifier || '').trim().toLowerCase();
+    const code = String(body.code || '').trim();
+    const newPassword = String(body.newPassword || '').trim();
+    if (!q || code.length !== 6 || newPassword.length < 4) {
+      res.status(400).json({ ok: false, error: 'تأكد من إدخال كود الاستعادة المكون من 6 أرقام وكلمة السر الجديدة.' });
+      return;
+    }
+    const slug = normalizeSlugServer(q);
+    const digits = q.replace(/[^0-9]/g, '');
+    const match = Object.values(serverRegistry.stores).find(
+      (s) =>
+        (slug && s.storeSlug === slug) ||
+        s.nameAr.toLowerCase() === q ||
+        (s.email && s.email.toLowerCase() === q) ||
+        (digits && s.phone && s.phone.replace(/[^0-9]/g, '') === digits)
+    );
+    if (!match || !match.resetCode || match.resetCode !== code) {
+      res.status(400).json({ ok: false, error: 'كود الاستعادة غير صحيح أو لم يتم إنشاؤه من الإدارة بعد.' });
+      return;
+    }
+    if (match.resetCodeExpiresAt && Date.now() > match.resetCodeExpiresAt) {
+      res.status(400).json({ ok: false, error: 'انتهت صلاحية كود الاستعادة، اطلب كوداً جديداً من الإدارة.' });
+      return;
+    }
+    const { salt, hash } = hashPasswordScrypt(newPassword);
+    match.passwordSalt = salt;
+    match.passwordHash = hash;
+    match.resetCode = undefined;
+    match.resetCodeExpiresAt = undefined;
+    match.updatedAt = Date.now();
+    serverRegistry.stores[match.storeSlug] = match;
+    persistRegistryState(serverRegistry);
+    res.json({ ok: true, storeSlug: match.storeSlug });
   });
 
   app.post('/api/ai/extract-menu', async (req: Request, res: Response) => {
@@ -587,8 +936,28 @@ async function startServer() {
     if (process.env.NODE_ENV !== 'production') {
       const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
-        server: { middlewareMode: true },
+        server: { middlewareMode: true, hmr: false, ws: false },
         appType: 'spa',
+        plugins: [
+          {
+            name: 'disable-hmr-websocket-client',
+            transform(code, id) {
+              if (!id.includes('vite/dist/client/client.mjs')) return null;
+              const startMarker = 'const transport = normalizeModuleRunnerTransport((() => {';
+              const endMarker = '})());';
+              const startIdx = code.indexOf(startMarker);
+              const endIdx = startIdx >= 0 ? code.indexOf(endMarker, startIdx) : -1;
+              if (startIdx >= 0 && endIdx > startIdx) {
+                return (
+                  code.slice(0, startIdx) +
+                  'const transport = normalizeModuleRunnerTransport({ async connect() {}, async disconnect() {}, send() {} });' +
+                  code.slice(endIdx + endMarker.length)
+                );
+              }
+              return null;
+            },
+          },
+        ],
       });
       app.use(vite.middlewares);
     } else {

@@ -66,16 +66,21 @@ service cloud.firestore {
           'isOpen', 'subscriptionStatus', 'createdAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
-          'id', 'ownerId', 'nameAr', 'nameEn', 'country', 'menuLanguage',
+          'id', 'ownerId', 'storeSlug', 'nameAr', 'nameEn', 'country', 'menuLanguage',
           'branchCount', 'city', 'address', 'workFrom', 'workTo', 'workDays',
           'themeColor', 'themeMode', 'acceptOrders', 'paymentMethods', 'bio',
           'whatsapp', 'coverImage', 'logoUrl', 'showLogoOnItems', 'menuTemplate',
           'requestedPlan', 'paymentNote', 'isOpen', 'subscriptionStatus',
           'approvedByAdmin', 'approvedAt', 'plan',
-          'trialEndsAt', 'subscriptionExpiresAt', 'createdAt', 'updatedAt'
+          'trialEndsAt', 'subscriptionExpiresAt',
+          'deliveryFee', 'freeDelivery', 'freeDeliveryMinOrder', 'deliveryTime',
+          'enableServiceFee', 'serviceFeePct', 'enableVat', 'vatPct',
+          'enablePackagingFee', 'packagingFee',
+          'createdAt', 'updatedAt'
         ])
         && isValidId(data.id)
         && isValidId(data.ownerId)
+        && (!('storeSlug' in data) || (data.storeSlug is string && data.storeSlug.size() <= 64))
         && data.nameAr is string && data.nameAr.size() >= 1 && data.nameAr.size() <= 120
         && (!('nameEn' in data) || (data.nameEn is string && data.nameEn.size() <= 120))
         && data.country is string && data.country.size() >= 1 && data.country.size() <= 60
@@ -95,16 +100,26 @@ service cloud.firestore {
         && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 90000))
         && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 24000))
         && (!('showLogoOnItems' in data) || data.showLogoOnItems is bool)
-        && (!('menuTemplate' in data) || (data.menuTemplate in ['classic', 'luxury', 'magazine', 'compact']))
+        && (!('menuTemplate' in data) || (data.menuTemplate in ['classic', 'modern', 'minimal', 'compact', 'luxury', 'magazine']))
         && (!('requestedPlan' in data) || (data.requestedPlan in ['', 'monthly_600', 'yearly_3000', 'yearly_6000']))
         && (!('paymentNote' in data) || (data.paymentNote is string && data.paymentNote.size() <= 200))
         && data.isOpen is bool
-        && data.subscriptionStatus in ['trial', 'active', 'expired', 'suspended']
+        && data.subscriptionStatus in ['trial', 'monthly', 'yearly', 'active', 'expired', 'suspended']
         && (!('approvedByAdmin' in data) || data.approvedByAdmin is bool)
         && (!('approvedAt' in data) || data.approvedAt is number)
         && (!('plan' in data) || (data.plan is string && data.plan.size() <= 40))
         && (!('trialEndsAt' in data) || data.trialEndsAt is number)
         && (!('subscriptionExpiresAt' in data) || data.subscriptionExpiresAt is number)
+        && (!('deliveryFee' in data) || (data.deliveryFee is number && data.deliveryFee >= 0 && data.deliveryFee <= 100000))
+        && (!('freeDelivery' in data) || data.freeDelivery is bool)
+        && (!('freeDeliveryMinOrder' in data) || (data.freeDeliveryMinOrder is number && data.freeDeliveryMinOrder >= 0 && data.freeDeliveryMinOrder <= 1000000))
+        && (!('deliveryTime' in data) || (data.deliveryTime is string && data.deliveryTime.size() <= 60))
+        && (!('enableServiceFee' in data) || data.enableServiceFee is bool)
+        && (!('serviceFeePct' in data) || (data.serviceFeePct is number && data.serviceFeePct >= 0 && data.serviceFeePct <= 100))
+        && (!('enableVat' in data) || data.enableVat is bool)
+        && (!('vatPct' in data) || (data.vatPct is number && data.vatPct >= 0 && data.vatPct <= 100))
+        && (!('enablePackagingFee' in data) || data.enablePackagingFee is bool)
+        && (!('packagingFee' in data) || (data.packagingFee is number && data.packagingFee >= 0 && data.packagingFee <= 10000))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -145,6 +160,25 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidPlatformConfig(data) {
+      return data.keys().hasAll(['forceZeroFeesGlobally', 'updatedAt'])
+        && data.keys().hasOnly(['forceZeroFeesGlobally', 'updatedAt'])
+        && data.forceZeroFeesGlobally is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStoreCredential(data) {
+      return data.keys().hasAll(['shopId', 'storeSlug', 'ownerId', 'updatedAt'])
+        && data.keys().hasOnly(['shopId', 'storeSlug', 'ownerId', 'nameAr', 'email', 'phone', 'updatedAt'])
+        && isValidId(data.shopId)
+        && isValidId(data.ownerId)
+        && data.storeSlug is string && data.storeSlug.size() >= 1 && data.storeSlug.size() <= 64
+        && (!('nameAr' in data) || (data.nameAr is string && data.nameAr.size() <= 120))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 200))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 40))
+        && data.updatedAt is timestamp;
+    }
+
     function isValidShopTable(data) {
       return data.keys().hasAll(['id', 'shopId', 'shopOwnerId', 'label', 'createdAt'])
         && data.keys().hasOnly(['id', 'shopId', 'shopOwnerId', 'label', 'createdAt'])
@@ -165,7 +199,7 @@ service cloud.firestore {
           'id', 'orderNumber', 'shopId', 'shopOwnerId', 'source', 'orderType',
           'status', 'paymentMethod', 'customerName', 'customerPhone', 'address',
           'floor', 'apartment', 'driverName', 'tableLabel', 'notes',
-          'itemsCount', 'itemSummary', 'subtotal', 'discount', 'serviceFee',
+          'itemsCount', 'itemSummary', 'subtotal', 'discount', 'deliveryFee', 'packagingFee', 'serviceFee',
           'vat', 'roundingDiff', 'total', 'paidAmount', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.id)
@@ -188,6 +222,8 @@ service cloud.firestore {
         && (!('itemSummary' in data) || (data.itemSummary is list && data.itemSummary.size() <= 50 && (data.itemSummary.size() == 0 || data.itemSummary[0] is string)))
         && data.subtotal is number && data.subtotal >= 0 && data.subtotal <= 10000000
         && (!('discount' in data) || (data.discount is number && data.discount >= 0 && data.discount <= 10000000))
+        && (!('deliveryFee' in data) || (data.deliveryFee is number && data.deliveryFee >= 0 && data.deliveryFee <= 100000))
+        && (!('packagingFee' in data) || (data.packagingFee is number && data.packagingFee >= 0 && data.packagingFee <= 10000))
         && data.serviceFee is number && data.serviceFee >= 0
         && data.vat is number && data.vat >= 0
         && (!('roundingDiff' in data) || (data.roundingDiff is number && data.roundingDiff >= -5 && data.roundingDiff <= 5))
@@ -246,11 +282,14 @@ service cloud.firestore {
             existing().ownerId == request.auth.uid
             && incoming().subscriptionStatus == existing().subscriptionStatus
             && incoming().diff(existing()).affectedKeys().hasOnly([
-              'nameAr', 'nameEn', 'country', 'menuLanguage', 'branchCount',
+              'storeSlug', 'nameAr', 'nameEn', 'country', 'menuLanguage', 'branchCount',
               'city', 'address', 'workFrom', 'workTo', 'workDays',
               'themeColor', 'themeMode', 'acceptOrders', 'paymentMethods',
               'bio', 'whatsapp', 'coverImage', 'logoUrl', 'showLogoOnItems',
-              'menuTemplate', 'requestedPlan', 'paymentNote', 'isOpen', 'plan', 'updatedAt'
+              'menuTemplate', 'requestedPlan', 'paymentNote', 'isOpen', 'plan',
+              'deliveryFee', 'freeDelivery', 'freeDeliveryMinOrder', 'deliveryTime',
+              'enableServiceFee', 'serviceFeePct', 'enableVat', 'vatPct',
+              'enablePackagingFee', 'packagingFee', 'updatedAt'
             ])
           )
         );
@@ -328,8 +367,8 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/shops/$(shopId))
           && get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == incoming().shopOwnerId
           && (
-            (incoming().source == 'menu' && incoming().status == 'new' && get(/databases/$(database)/documents/shops/$(shopId)).data.acceptOrders == true && get(/databases/$(database)/documents/shops/$(shopId)).data.subscriptionStatus in ['trial', 'active']) ||
-            (incoming().source == 'cashier' && isVerifiedUser() && incoming().shopOwnerId == request.auth.uid && incoming().status in ['new', 'held', 'completed'] && get(/databases/$(database)/documents/shops/$(shopId)).data.subscriptionStatus in ['trial', 'active'])
+            (incoming().source == 'menu' && incoming().status == 'new' && get(/databases/$(database)/documents/shops/$(shopId)).data.acceptOrders == true && get(/databases/$(database)/documents/shops/$(shopId)).data.subscriptionStatus in ['trial', 'monthly', 'yearly', 'active']) ||
+            (incoming().source == 'cashier' && isVerifiedUser() && incoming().shopOwnerId == request.auth.uid && incoming().status in ['new', 'held', 'completed'] && get(/databases/$(database)/documents/shops/$(shopId)).data.subscriptionStatus in ['trial', 'monthly', 'yearly', 'active'])
           );
         allow update: if isValidId(shopId) && isValidId(orderId)
           && isVerifiedUser()
@@ -351,18 +390,43 @@ service cloud.firestore {
       }
     }
 
-    // Admin Security Settings (PIN management - strictly Admin only)
+    // Store Credentials Directory (strictly Owner or Admin only — never public)
+    match /store_credentials/{shopId} {
+      allow get: if isValidId(shopId) && isSignedIn() && (isAdmin() || existing().ownerId == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid);
+      allow create: if isValidId(shopId)
+        && isVerifiedUser()
+        && isValidStoreCredential(incoming())
+        && incoming().shopId == shopId
+        && (isAdmin() || incoming().ownerId == request.auth.uid)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(shopId)
+        && isVerifiedUser()
+        && isValidStoreCredential(incoming())
+        && incoming().shopId == existing().shopId
+        && incoming().ownerId == existing().ownerId
+        && (isAdmin() || existing().ownerId == request.auth.uid)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(shopId) && isAdmin();
+    }
+
+    // Admin Security Settings & Global Platform Config
     match /app_settings/{settingId} {
-      allow get: if isValidId(settingId) && isAdmin();
+      allow get: if isValidId(settingId) && (settingId == 'platform_config' || isAdmin());
       allow create: if isValidId(settingId)
         && isAdmin()
-        && isValidAdminSettings(incoming())
-        && incoming().updatedAt == request.time;
+        && incoming().updatedAt == request.time
+        && (
+          (settingId == 'platform_config' && isValidPlatformConfig(incoming())) ||
+          (settingId != 'platform_config' && isValidAdminSettings(incoming()))
+        );
       allow update: if isValidId(settingId)
         && isAdmin()
-        && isValidAdminSettings(incoming())
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['adminPin', 'updatedAt']);
+        && (
+          (settingId == 'platform_config' && isValidPlatformConfig(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['forceZeroFeesGlobally', 'updatedAt'])) ||
+          (settingId != 'platform_config' && isValidAdminSettings(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['adminPin', 'updatedAt']))
+        );
       allow delete: if isValidId(settingId) && isAdmin();
     }
   }
