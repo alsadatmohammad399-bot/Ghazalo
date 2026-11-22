@@ -3,14 +3,17 @@ import {
   ArrowLeft,
   ArrowRight,
   Barcode,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   CreditCard,
   Edit3,
   Globe,
   Grid,
   List,
   Loader2,
+  MessageCircle,
   Minus,
   PauseCircle,
   Plus,
@@ -25,6 +28,11 @@ import {
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { createOrder, updateOrderStatus } from '../services/firestoreService';
 import { calculateOrderTotals, formatCompactMoney, formatMoney } from '../utils/calculations';
+import {
+  copyMenuLink,
+  getAbsoluteMenuUrl,
+  getWhatsAppShareUrl,
+} from '../utils/menuLink';
 import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
 import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
 import { getShopDisplayName, tx, useUiLang } from '../utils/uiLang';
@@ -82,8 +90,22 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   const [optionPickerProduct, setOptionPickerProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [menuLinkCopied, setMenuLinkCopied] = useState(false);
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
   const [lastReceiptOrder, setLastReceiptOrder] = useState<Order | null>(null);
+
+  const menuUrl = getAbsoluteMenuUrl(shop);
+  const handleCopyMenuUrl = async () => {
+    const ok = await copyMenuLink(menuUrl);
+    if (ok) {
+      setMenuLinkCopied(true);
+      setToastMsg(tx(isEn, 'تم نسخ اللينك ✅', 'Link copied ✅'));
+      setTimeout(() => {
+        setMenuLinkCopied(false);
+        setToastMsg('');
+      }, 2600);
+    }
+  };
 
   const sortedProducts = useMemo(() => sortProductsCulinary(products), [products]);
 
@@ -842,6 +864,43 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         </div>
       </header>
 
+      {/* Menu Share & Copy Link Strip */}
+      <div className="bg-orange-50/70 dark:bg-slate-900/90 border-b border-orange-100 dark:border-slate-800 px-4 py-2 no-print">
+        <div className="max-w-7xl mx-auto flex flex-col gap-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCopyMenuUrl()}
+                className="px-3.5 py-1.5 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+              >
+                {menuLinkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>
+                  {menuLinkCopied
+                    ? tx(isEn, 'تم نسخ اللينك ✅', 'Link copied ✅')
+                    : tx(isEn, 'نسخ لينك المنيو', 'Copy Menu Link')}
+                </span>
+              </button>
+              <a
+                href={getWhatsAppShareUrl(menuUrl)}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>{tx(isEn, 'واتساب', 'WhatsApp')}</span>
+              </a>
+            </div>
+            <span
+              dir="ltr"
+              className="text-[11px] font-bold text-[#FF6A00] dark:text-orange-300 bg-white dark:bg-slate-800 px-3 py-1 rounded-xl border border-orange-200/70 dark:border-slate-700 break-all"
+            >
+              {menuUrl}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {toastMsg && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#FF6A00] text-white px-5 py-2.5 rounded-2xl text-sm font-bold shadow-lg no-print">
           {toastMsg}
@@ -1308,7 +1367,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 >
                   <span>{opt.label}</span>
                   <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                    {formatMoney(opt.price, shop.country, isEn)}
+                    {formatMoney(opt.price, shop.country, undefined, isEn)}
                   </span>
                 </button>
               ))}

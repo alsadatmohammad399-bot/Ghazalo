@@ -41,6 +41,7 @@ import {
   updateShop,
 } from '../services/firestoreService';
 import { formatArabicDate, getShopAccessState } from '../utils/calculations';
+import { copyMenuLink, getAbsoluteMenuUrl } from '../utils/menuLink';
 import {
   LS_KEYS,
   getLocalRestaurants,
@@ -734,14 +735,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   };
 
   const handleCopyMenuLink = async (row: UnifiedRestaurantRow) => {
-    const pathLink = `/menu/${row.storeSlug}`;
-    const fullLink = `${window.location.origin}${pathLink}`;
-    try {
-      await navigator.clipboard.writeText(fullLink);
+    const fullLink = getAbsoluteMenuUrl(row.storeSlug);
+    const ok = await copyMenuLink(fullLink);
+    if (ok) {
       setCopiedSlugId(row.shopId);
-      setTimeout(() => setCopiedSlugId(null), 2000);
-      showToast(`تم نسخ رابط المنيو (${pathLink}): ${fullLink}`);
-    } catch {
+      setTimeout(() => setCopiedSlugId(null), 2200);
+      showToast(`تم نسخ اللينك ✅ (${fullLink})`);
+    } else {
       showToast(fullLink);
     }
   };
@@ -749,12 +749,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const privateAdminUrl = `${window.location.origin}/?portal=${ADMIN_PORTAL_KEY}`;
 
   const handleCopyAdminLink = async () => {
-    try {
-      await navigator.clipboard.writeText(privateAdminUrl);
+    const ok = await copyMenuLink(privateAdminUrl);
+    if (ok) {
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2500);
-    } catch {
-      // ignore
     }
   };
 

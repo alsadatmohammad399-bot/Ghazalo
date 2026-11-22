@@ -25,6 +25,7 @@ import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
 import { getShopThemeHex } from '../utils/calculations';
 import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { sortExtractedMenuItems, sortMenuCategories } from '../utils/menuSorting';
+import { syncPublicStoreSnapshot } from '../utils/menuLink';
 import { getProductOptions } from '../utils/productVariants';
 import { setStoredUiLang } from '../utils/uiLang';
 import {
@@ -320,6 +321,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
       const derivedSlug =
         normalizeStoreSlug(storeSlug) ||
         normalizeStoreSlug(nameEn) ||
+        normalizeStoreSlug(nameAr) ||
         `store-${Date.now().toString().slice(-5)}`;
       const cleanPhone =
         initialContact && !initialContact.includes('@') ? initialContact.trim() : '';
@@ -416,6 +418,26 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
           // non-blocking
         }
       }
+
+      void syncPublicStoreSnapshot(
+        newShop,
+        itemsToSave.map((item, idx) => ({
+          id: `${newShop.id}-item-${idx + 1}`,
+          shopId: newShop.id,
+          shopOwnerId: ownerId,
+          name: item.name,
+          category: item.category || 'أصناف متنوعة',
+          price: Number(item.price) || 0,
+          description: item.description || '',
+          imageUrl: item.imageUrl || '',
+          available: true,
+          variants: item.variants || [],
+          sortOrder: idx,
+          isOffer: Boolean(item.isOffer),
+          originalPrice: item.originalPrice,
+          offerLabel: item.offerLabel,
+        }))
+      );
 
       onCompleted(newShop);
     } catch (err: unknown) {

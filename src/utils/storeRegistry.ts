@@ -505,14 +505,50 @@ export function findLocalRestaurantBySlugOrShopId(queryVal: string): DemoRestaur
   const norm = normalizeStoreSlug(queryVal);
   const raw = (queryVal || '').trim().toLowerCase();
   const list = getLocalRestaurants();
-  return (
+  const direct =
     list.find(
       (r) =>
         r.shopId.toLowerCase() === raw ||
         r.id.toLowerCase() === raw ||
         (norm && normalizeStoreSlug(r.storeSlug) === norm)
-    ) || null
-  );
+    ) || null;
+  if (direct) return direct;
+
+  try {
+    const rawStores = safeJsonParse<Array<Record<string, unknown>>>(
+      localStorage.getItem('stores'),
+      []
+    );
+    const storeMatch = rawStores.find((s) => {
+      const sSlug = normalizeStoreSlug(String(s.slug || s.storeSlug || ''));
+      const sId = String(s.id || s.shopId || '').toLowerCase();
+      return (norm && sSlug === norm) || (raw && (sId === raw || sSlug === raw));
+    });
+    if (storeMatch) {
+      const slug =
+        normalizeStoreSlug(String(storeMatch.slug || storeMatch.storeSlug || '')) || raw || 'mtgry-algdyd';
+      const name = String(storeMatch.name || storeMatch.nameAr || slug);
+      const shop: Shop = {
+        id: String(storeMatch.id || slug),
+        ownerId: String(storeMatch.ownerId || `owner-${slug}`),
+        storeSlug: slug,
+        nameAr: name,
+        nameEn: String(storeMatch.nameEn || name),
+        country: String(storeMatch.country || 'مصر'),
+        acceptOrders: true,
+        isOpen: true,
+        subscriptionStatus: 'trial',
+        whatsapp: String(storeMatch.whatsapp || storeMatch.phone || '201015861991'),
+      };
+      const prods = Array.isArray(storeMatch.items || storeMatch.products)
+        ? ((storeMatch.items || storeMatch.products) as Product[])
+        : undefined;
+      return shopToDemoRecord(shop, undefined, prods);
+    }
+  } catch {
+    // ignore invalid localStorage 'stores'
+  }
+  return null;
 }
 
 export function findLocalRestaurantByIdentifier(identifier: string): DemoRestaurantRecord | null {

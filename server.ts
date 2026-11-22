@@ -29,10 +29,19 @@ interface ServerStoreCredential {
   updatedAt: number;
 }
 
+interface PublicMenuSnapshot {
+  shopId: string;
+  storeSlug: string;
+  shop: Record<string, unknown>;
+  products: Record<string, unknown>[];
+  updatedAt: number;
+}
+
 interface ServerRegistryState {
   adminPin?: string;
   forceZeroFeesGlobally: boolean;
   stores: Record<string, ServerStoreCredential>;
+  publicMenus: Record<string, PublicMenuSnapshot>;
 }
 
 function loadRegistryState(): ServerRegistryState {
@@ -44,12 +53,13 @@ function loadRegistryState(): ServerRegistryState {
         adminPin: parsed.adminPin,
         forceZeroFeesGlobally: Boolean(parsed.forceZeroFeesGlobally),
         stores: parsed.stores || {},
+        publicMenus: parsed.publicMenus || {},
       };
     }
   } catch {
     // ignore read error on cold start
   }
-  return { forceZeroFeesGlobally: false, stores: {} };
+  return { forceZeroFeesGlobally: false, stores: {}, publicMenus: {} };
 }
 
 function persistRegistryState(state: ServerRegistryState): void {
@@ -664,6 +674,95 @@ async function startServer() {
     serverRegistry.stores[match.storeSlug] = match;
     persistRegistryState(serverRegistry);
     res.json({ ok: true, storeSlug: match.storeSlug });
+  });
+
+  app.get('/api/public-stores/:slug', (req: Request, res: Response) => {
+    const rawSlug = decodeURIComponent(String(req.params.slug || '')).trim().toLowerCase();
+    const norm = normalizeSlugServer(rawSlug);
+    const menus = serverRegistry.publicMenus || {};
+    const direct =
+      (norm && menus[norm]) ||
+      menus[rawSlug] ||
+      Object.values(menus).find(
+        (m) =>
+          (norm && m.storeSlug.toLowerCase() === norm) ||
+          m.storeSlug.toLowerCase() === rawSlug ||
+          m.shopId.toLowerCase() === rawSlug
+      );
+
+    if (direct) {
+      res.json({ ok: true, found: true, shop: direct.shop, products: direct.products });
+      return;
+    }
+
+    const cred = Object.values(serverRegistry.stores || {}).find(
+      (s) =>
+        (norm && s.storeSlug.toLowerCase() === norm) ||
+        s.storeSlug.toLowerCase() === rawSlug ||
+        s.shopId.toLowerCase() === rawSlug
+    );
+    if (cred) {
+      res.json({
+        ok: true,
+        found: true,
+        shop: {
+          id: cred.shopId,
+          ownerId: `owner-${cred.storeSlug}`,
+          storeSlug: cred.storeSlug,
+          nameAr: cred.nameAr,
+          nameEn: cred.storeSlug,
+          country: 'مصر',
+          acceptOrders: true,
+          isOpen: true,
+          subscriptionStatus: 'trial',
+          whatsapp: cred.phone || '201015861991',
+        },
+        products: [],
+      });
+      return;
+    }
+
+    res.json({ ok: true, found: false });
+  });
+
+  app.post('/api/public-stores', (req: Request, res: Response) => {
+    const body = req.body as {
+      shop?: Record<string, unknown>;
+      products?: Record<string, unknown>[];
+    };
+    const shopObj = body?.shop;
+    if (!shopObj || typeof shopObj !== 'object') {
+      res.status(400).json({ ok: false, error: 'Missing shop payload' });
+      return;
+    }
+    const rawSlug = String(shopObj.storeSlug || shopObj.nameEn || shopObj.nameAr || shopObj.id || '');
+    const storeSlug = normalizeSlugServer(rawSlug) || String(shopObj.id || '').trim().toLowerCase();
+    const shopId = String(shopObj.id || storeSlug).trim();
+    if (!storeSlug || !shopId) {
+      res.status(400).json({ ok: false, error: 'Missing storeSlug' });
+      return;
+    }
+
+    const menus = serverRegistry.publicMenus || {};
+    const existing = menus[storeSlug];
+    const incomingProducts = Array.isArray(body.products) ? body.products.slice(0, 400) : existing?.products || [];
+    const snapshot: PublicMenuSnapshot = {
+      shopId,
+      storeSlug,
+      shop: {
+        ...shopObj,
+        id: shopId,
+        storeSlug,
+      },
+      products: incomingProducts,
+      updatedAt: Date.now(),
+    };
+    serverRegistry.publicMenus = {
+      ...menus,
+      [storeSlug]: snapshot,
+    };
+    persistRegistryState(serverRegistry);
+    res.json({ ok: true, storeSlug });
   });
 
   app.post('/api/ai/extract-menu', async (req: Request, res: Response) => {

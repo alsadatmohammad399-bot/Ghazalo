@@ -123,22 +123,27 @@ export function getShopEffectiveDeliveryFee(shop: Shop, orderSubtotal = 0): numb
   return Math.max(0, Number(shop.deliveryFee) || 0);
 }
 
-export function getCurrencyLabel(country?: string): string {
+export function getCurrencyLabel(country?: string, isEn = false): string {
   switch (country) {
     case 'السعودية':
-      return 'ر.س';
+      return isEn ? 'SAR' : 'ر.س';
     case 'الإمارات':
-      return 'د.إ';
+      return isEn ? 'AED' : 'د.إ';
     case 'الكويت':
-      return 'د.ك';
+      return isEn ? 'KWD' : 'د.ك';
     case 'قطر':
-      return 'ر.ق';
+      return isEn ? 'QAR' : 'ر.ق';
     default:
-      return 'جنيه';
+      return isEn ? 'EGP' : 'جنيه';
   }
 }
 
-export function formatMoney(amount: number, country?: string, decimals = 2): string {
+export function formatMoney(
+  amount: number,
+  country?: string,
+  decimals = 2,
+  isEn = false
+): string {
   const safe = Number.isFinite(amount) ? amount : 0;
   const isWhole = Math.abs(safe - Math.round(safe)) < 0.005;
   const usedDecimals = isWhole && decimals === 2 ? 0 : decimals;
@@ -146,12 +151,16 @@ export function formatMoney(amount: number, country?: string, decimals = 2): str
     minimumFractionDigits: usedDecimals,
     maximumFractionDigits: usedDecimals,
   });
-  return `${formatted} ${getCurrencyLabel(country)}`;
+  return `${formatted} ${getCurrencyLabel(country, isEn)}`;
 }
 
-export function formatCompactMoney(amount: number, country?: string): string {
+export function formatCompactMoney(
+  amount: number,
+  country?: string,
+  isEn = false
+): string {
   const isWhole = Math.abs(amount - Math.round(amount)) < 0.005;
-  return formatMoney(amount, country, isWhole ? 0 : 2);
+  return formatMoney(amount, country, isWhole ? 0 : 2, isEn);
 }
 
 export function getShopThemeHex(colorName?: string): string {

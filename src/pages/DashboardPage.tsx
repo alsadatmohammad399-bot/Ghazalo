@@ -56,6 +56,12 @@ import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { getCategoryCulinaryRank, sortProductsCulinary } from '../utils/menuSorting';
 import { getProductOptions, parseVariantsInput } from '../utils/productVariants';
 import {
+  copyMenuLink,
+  getAbsoluteMenuUrl,
+  getWhatsAppShareUrl,
+  syncPublicStoreSnapshot,
+} from '../utils/menuLink';
+import {
   deriveShopSlug,
   findLocalRestaurantBySlugOrShopId,
   shopToDemoRecord,
@@ -228,15 +234,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   }, [settingsModalOpen, shop]);
 
   const storeSlug = useMemo(() => deriveShopSlug(shop), [shop]);
-  const brandedMenuUrl = `/menu/${storeSlug}`;
-  const menuUrl = `${window.location.origin}/menu/${storeSlug}`;
+  const menuUrl = getAbsoluteMenuUrl(shop);
   const handleCopyMenuUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(menuUrl);
+    const ok = await copyMenuLink(menuUrl);
+    if (ok) {
       setMenuLinkCopied(true);
-      setTimeout(() => setMenuLinkCopied(false), 2200);
-    } catch {
-      // ignore clipboard restriction
+      setTimeout(() => setMenuLinkCopied(false), 2600);
     }
   };
   const shopAccess = useMemo(() => getShopAccessState(shop), [shop]);
@@ -266,6 +269,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         products
       )
     );
+    void syncPublicStoreSnapshot(updatedShop, products);
     onShopUpdated?.(updatedShop);
     return updatedShop;
   };
@@ -285,6 +289,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         nextProducts
       )
     );
+    void syncPublicStoreSnapshot(shop, nextProducts);
     onProductsUpdated?.(nextProducts);
   };
 
@@ -1026,25 +1031,36 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 )}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span
+            <div className="flex flex-col items-stretch sm:items-end gap-2 w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCopyMenuUrl()}
+                  className="px-4 py-2 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+                >
+                  {menuLinkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>
+                    {menuLinkCopied
+                      ? tx(isEn, 'تم نسخ اللينك ✅', 'Link copied ✅')
+                      : tx(isEn, 'نسخ لينك المنيو', 'Copy Menu Link')}
+                  </span>
+                </button>
+                <a
+                  href={getWhatsAppShareUrl(menuUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3.5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>{tx(isEn, 'مشاركة واتساب', 'WhatsApp')}</span>
+                </a>
+              </div>
+              <div
                 dir="ltr"
-                className="text-xs font-extrabold text-[#FF6A00] bg-orange-50 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-orange-200/70 dark:border-slate-700"
+                className="text-[11px] font-bold text-[#FF6A00] bg-orange-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-orange-200/70 dark:border-slate-700 break-all text-left"
               >
-                {brandedMenuUrl}
-              </span>
-              <button
-                type="button"
-                onClick={() => void handleCopyMenuUrl()}
-                className="px-3.5 py-1.5 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
-              >
-                {menuLinkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>
-                  {menuLinkCopied
-                    ? tx(isEn, 'تم النسخ!', 'Copied!')
-                    : tx(isEn, 'نسخ لينك المنيو', 'Copy Menu Link')}
-                </span>
-              </button>
+                {menuUrl}
+              </div>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">

@@ -25,6 +25,12 @@ import { DEMO_PROJECTS } from '../data/demoProjects';
 import { SUPPORT_CONTACT, type DemoProject, type DemoRestaurantRecord } from '../types';
 import { phoneToAuthEmail, toAsciiDigits } from '../utils/authHelpers';
 import {
+  copyMenuLink,
+  getAbsoluteMenuUrl,
+  getWhatsAppShareUrl,
+  syncPublicStoreSnapshot,
+} from '../utils/menuLink';
+import {
   findLocalRestaurantByIdentifier,
   findLocalUserByEmailOrPhone,
   getLocalRestaurants,
@@ -290,6 +296,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         });
       } catch {
         // non-blocking localStorage demo works offline
+      }
+
+      if (res.record) {
+        void syncPublicStoreSnapshot(res.record.shop, res.record.products);
       }
 
       setSignupSuccessData({
@@ -1106,29 +1116,48 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <CheckCircle2 className="w-9 h-9" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">
                     مبروك! لينك المنيو بتاعك:
                   </h3>
-                  <div
-                    dir="ltr"
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-sm font-extrabold text-[#FF6A00]"
-                  >
-                    <span>/menu/{signupSuccessData.storeSlug}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const url = `${window.location.origin}/menu/${signupSuccessData.storeSlug}`;
-                        void navigator.clipboard.writeText(url);
-                        setCopiedNewLink(true);
-                        setTimeout(() => setCopiedNewLink(false), 2000);
-                      }}
-                      className="text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
-                      title="نسخ الرابط"
-                    >
-                      {copiedNewLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                  </div>
+                  {(() => {
+                    const url = getAbsoluteMenuUrl(signupSuccessData.storeSlug);
+                    return (
+                      <div className="space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const ok = await copyMenuLink(url);
+                              if (ok) {
+                                setCopiedNewLink(true);
+                                setTimeout(() => setCopiedNewLink(false), 2600);
+                              }
+                            }}
+                            className="px-4 py-2 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                          >
+                            {copiedNewLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                            <span>{copiedNewLink ? 'تم نسخ اللينك ✅' : 'نسخ لينك المنيو'}</span>
+                          </button>
+                          <a
+                            href={getWhatsAppShareUrl(url)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                            <span>مشاركة واتساب</span>
+                          </a>
+                        </div>
+                        <div
+                          dir="ltr"
+                          className="px-3.5 py-2 rounded-2xl bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-xs font-bold text-[#FF6A00] break-all"
+                        >
+                          {url}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="space-y-2.5">

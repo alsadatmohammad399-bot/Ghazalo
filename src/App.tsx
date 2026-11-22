@@ -30,6 +30,8 @@ import {
   upsertLocalRestaurant,
 } from './utils/storeRegistry';
 import { DEMO_PROJECTS } from './data/demoProjects';
+import { buildFallbackStoreForSlug, findDemoStoreBySlug } from './data/stores';
+import { fetchPublicStoreSnapshot } from './utils/menuLink';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PlatformLoader } from './components/PlatformLoader';
@@ -108,13 +110,21 @@ function parseRouteTarget(): {
     pathname.startsWith('/admin/') ||
     Boolean(portalParam && portalParam === ADMIN_PORTAL_KEY);
 
-  const menuPathMatch = pathname.match(/^\/menu\/([a-z0-9-]+)\/?$/i);
-  const legacyMenuMatch = pathname.match(/^\/([a-z0-9-]+)\/menu\/?$/i);
-  const shopTarget = menuPathMatch
+  const menuPathMatch = pathname.match(/^\/menu\/([^/?#]+)\/?$/i);
+  const legacyMenuMatch = pathname.match(/^\/([^/?#]+)\/menu\/?$/i);
+  const rawMenuSegment = menuPathMatch
     ? menuPathMatch[1]
     : legacyMenuMatch
       ? legacyMenuMatch[1]
       : shopParam;
+  let shopTarget: string | null = rawMenuSegment;
+  if (shopTarget) {
+    try {
+      shopTarget = decodeURIComponent(shopTarget);
+    } catch {
+      // keep raw segment
+    }
+  }
 
   const dashboardMatch = pathname.match(/^\/dashboard\/([a-z0-9-]+)\/?$/i);
   const dashboardTarget = dashboardMatch ? dashboardMatch[1] : null;
@@ -160,18 +170,19 @@ function AppShell() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authSyncTick, setAuthSyncTick] = useState(0);
   const [authReady, setAuthReady] = useState(false);
-  const [bootSplash, setBootSplash] = useState(true);
+  const [bootSplash, setBootSplash] = useState(() => !parseRouteTarget().shopTarget);
 
   const [forceZeroFeesGlobally, setForceZeroFeesGlobally] = useState<boolean>(
     () => getPlatformSettingsLocal().forceZeroFeesGlobally
   );
 
   useEffect(() => {
+    if (!bootSplash) return;
     const timer = window.setTimeout(() => {
       setBootSplash(false);
     }, 900);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [bootSplash]);
 
   const [signupMeta, setSignupMeta] = useState<{
     fullName: string;
@@ -195,7 +206,7 @@ function AppShell() {
   const [qrTableLabel, setQrTableLabel] = useState<string>('');
   const [publicShop, setPublicShop] = useState<Shop | null>(null);
   const [publicProducts, setPublicProducts] = useState<Product[]>([]);
-  const [publicNotFound, setPublicNotFound] = useState(false);
+  const [isFallbackMenu, setIsFallbackMenu] = useState(false);
 
   // Apply Dark Mode class on <html>
   useEffect(() => {
@@ -325,22 +336,42 @@ function AppShell() {
     return () => window.removeEventListener('popstate', applyRouteFromLocation);
   }, [hydrateStoreSession]);
 
-  // Subscribe / Resolve Public Customer Menu when viewing via ?shop= or /{slug}/menu
+  // Subscribe / Resolve Public Customer Menu when viewing via /menu/:slug (no login or localStorage required)
   useEffect(() => {
     if (!qrTargetShopId || demoPreview) return;
     let active = true;
     let unsubShop: (() => void) | null = null;
     let unsubProds: (() => void) | null = null;
-    setPublicNotFound(false);
 
+    const demoStoreMatch = findDemoStoreBySlug(qrTargetShopId);
     const localRec = findLocalRestaurantBySlugOrShopId(qrTargetShopId);
+    const demoProjectMatch = DEMO_PROJECTS.find(
+      (p) =>
+        p.id.toLowerCase() === qrTargetShopId.toLowerCase() ||
+        p.shop.storeSlug?.toLowerCase() === qrTargetShopId.toLowerCase()
+    );
+
     if (localRec) {
       setPublicShop(localRec.shop);
       setPublicProducts(
         localRec.products && localRec.products.length > 0
           ? localRec.products
-          : DEMO_PROJECTS[0]?.products || []
+          : demoStoreMatch?.products || buildFallbackStoreForSlug(qrTargetShopId).products
       );
+      setIsFallbackMenu(false);
+    } else if (demoStoreMatch) {
+      setPublicShop(demoStoreMatch.shop);
+      setPublicProducts(demoStoreMatch.products);
+      setIsFallbackMenu(false);
+    } else if (demoProjectMatch) {
+      setPublicShop(demoProjectMatch.shop);
+      setPublicProducts(demoProjectMatch.products);
+      setIsFallbackMenu(false);
+    } else {
+      const generic = buildFallbackStoreForSlug(qrTargetShopId);
+      setPublicShop(generic.shop);
+      setPublicProducts(generic.products);
+      setIsFallbackMenu(true);
     }
 
     const resolveAndSubscribe = async () => {
@@ -349,17 +380,31 @@ function AppShell() {
         if (!active) return;
         if (fsShop) {
           setPublicShop(fsShop);
+          setIsFallbackMenu(false);
           unsubShop = subscribeToShop(fsShop.id, (s) => {
             if (s && active) setPublicShop(s);
           });
           unsubProds = subscribeToProducts(fsShop.id, (p) => {
             if (active) setPublicProducts(p);
           });
-        } else if (!localRec) {
-          setPublicNotFound(true);
+          return;
         }
       } catch {
-        if (!localRec && active) setPublicNotFound(true);
+        // continue to server snapshot lookup
+      }
+
+      if (!localRec && !demoStoreMatch && !demoProjectMatch) {
+        const remoteSnapshot = await fetchPublicStoreSnapshot(qrTargetShopId);
+        if (!active) return;
+        if (remoteSnapshot) {
+          setPublicShop(remoteSnapshot.shop);
+          setPublicProducts(
+            remoteSnapshot.products.length > 0
+              ? remoteSnapshot.products
+              : buildFallbackStoreForSlug(qrTargetShopId).products
+          );
+          setIsFallbackMenu(false);
+        }
       }
     };
 
@@ -533,14 +578,8 @@ function AppShell() {
       (getStoredAuthSession().token && activeShop)
   );
 
-  if (bootSplash || !authReady) {
-    return (
-      <PlatformLoader
-        subtitle={
-          view === 'storefront' ? 'جاري تحميل المنيو...' : 'جاري تحميل المنصة...'
-        }
-      />
-    );
+  if (view !== 'storefront' && (bootSplash || !authReady)) {
+    return <PlatformLoader subtitle="جاري تحميل المنصة..." />;
   }
 
   if (view === 'landing') {
@@ -674,55 +713,38 @@ function AppShell() {
     }
 
     if (qrTargetShopId) {
-      if (publicNotFound) {
-        return (
-          <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 flex items-center justify-center p-4">
-            <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-8 border border-orange-100 dark:border-slate-800 text-center space-y-4 shadow-sm">
-              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
-                لم يتم العثور على هذا المنيو
-              </h2>
-              <p className="text-sm font-medium text-slate-500">
-                تأكد من رابط المتجر أو عد إلى الصفحة الرئيسية.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  window.history.replaceState({}, '', '/');
-                  setQrTargetShopId(null);
-                  setPublicNotFound(false);
-                  setView('landing');
-                }}
-                className="px-6 py-3 rounded-2xl bg-[#FF6A00] text-white font-extrabold text-sm"
-              >
-                العودة إلى الرئيسية
-              </button>
-            </div>
-          </div>
-        );
-      }
-      if (!publicShop) {
-        return <PlatformLoader subtitle="جاري تحميل المنيو..." />;
-      }
+      const resolvedPublic = publicShop
+        ? { shop: publicShop, products: publicProducts }
+        : buildFallbackStoreForSlug(qrTargetShopId);
       return (
         <StorefrontPage
-          shop={publicShop}
-          products={publicProducts}
+          shop={resolvedPublic.shop}
+          products={resolvedPublic.products}
           initialTableLabel={qrTableLabel}
+          isFallbackMenu={isFallbackMenu}
+          onCreateFreeStore={() => {
+            setQrTargetShopId(null);
+            setIsFallbackMenu(false);
+            setAuthMode('signup');
+            pushPathSafely('/signup');
+            setView('signup');
+          }}
           forceZeroFeesGlobally={forceZeroFeesGlobally}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
           onOrderPlaced={(newOrder) => {
-            if (!publicShop.id.startsWith('shop-')) {
-              const existing = loadLocalOrders(publicShop.id);
+            if (!resolvedPublic.shop.id.startsWith('shop-')) {
+              const existing = loadLocalOrders(resolvedPublic.shop.id);
               const next = [newOrder, ...existing.filter((o) => o.id !== newOrder.id)];
-              saveLocalOrders(publicShop.id, next);
-              if (activeShopId === publicShop.id) {
+              saveLocalOrders(resolvedPublic.shop.id, next);
+              if (activeShopId === resolvedPublic.shop.id) {
                 setShopOrders(next);
               }
             }
           }}
           onBack={() => {
             setQrTargetShopId(null);
+            setIsFallbackMenu(false);
             if (activeShop) {
               replacePathSafely(`/dashboard/${activeShop.storeSlug || activeShop.id}`);
               setView('dashboard');

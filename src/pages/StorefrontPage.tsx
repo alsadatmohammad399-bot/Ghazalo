@@ -42,6 +42,11 @@ import {
 import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
+import {
+  copyMenuLink,
+  getAbsoluteMenuUrl,
+  getWhatsAppShareUrl,
+} from '../utils/menuLink';
 import { getShopDisplayName, tx, useUiLang } from '../utils/uiLang';
 import {
   SUBSCRIPTION_PRICING,
@@ -57,6 +62,8 @@ interface StorefrontPageProps {
   shop: Shop;
   products: Product[];
   isDemo?: boolean;
+  isFallbackMenu?: boolean;
+  onCreateFreeStore?: () => void;
   forceZeroFeesGlobally?: boolean;
   initialTableLabel?: string;
   darkMode: boolean;
@@ -78,6 +85,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   shop,
   products,
   isDemo = false,
+  isFallbackMenu = false,
+  onCreateFreeStore,
   forceZeroFeesGlobally = false,
   initialTableLabel = '',
   darkMode,
@@ -407,16 +416,16 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     });
   };
 
+  const menuShareUrl = getAbsoluteMenuUrl(shop);
+
   const handleShareMenu = async () => {
-    const slug = shop.storeSlug || shop.id;
-    const shareUrl = `${window.location.origin}/menu/${encodeURIComponent(slug)}`;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setShareToast(tx(isEn, 'تم نسخ رابط المنيو', 'Menu link copied'));
-      setTimeout(() => setShareToast(''), 2500);
-    } catch {
-      setShareToast(shareUrl);
-    }
+    const ok = await copyMenuLink(menuShareUrl);
+    setShareToast(
+      ok
+        ? tx(isEn, 'تم نسخ اللينك ✅', 'Link copied ✅')
+        : menuShareUrl
+    );
+    setTimeout(() => setShareToast(''), 3000);
   };
 
   const handleConfirmOrder = async (e: React.FormEvent) => {
@@ -746,6 +755,30 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       dir={isEn ? 'ltr' : 'rtl'}
       className={`min-h-screen pb-28 transition-colors ${templateStyles.pageBackgroundClass}`}
     >
+      {/* Generic Store Fallback Banner when opened via unknown slug */}
+      {isFallbackMenu && (
+        <div className="bg-gradient-to-l from-[#FF6A00] to-orange-500 text-white px-4 py-2.5 shadow-xs">
+          <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-extrabold">
+            <span>
+              {tx(
+                isEn,
+                `معاينة منيو (${displayShopName}) — هل هذا مطعمك؟ أنشئ متجرك الخاص وعدّل أصنافك مجاناً`,
+                `Previewing menu (${displayShopName}) — Own this place? Create your store and customize items free`
+              )}
+            </span>
+            {onCreateFreeStore && (
+              <button
+                type="button"
+                onClick={onCreateFreeStore}
+                className="px-4 py-1.5 rounded-full bg-white text-[#FF6A00] hover:bg-orange-50 text-xs font-extrabold shadow-xs transition-colors shrink-0"
+              >
+                {tx(isEn, 'انشئ متجرك مجانا', 'Create your store free')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Top Floating Glass Bar */}
       <div className="sticky top-0 z-30 bg-white/75 dark:bg-slate-900/75 backdrop-blur-xl border-b border-white/60 dark:border-slate-800 px-4 h-14 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-2 min-w-0">
@@ -1729,8 +1762,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
       {/* Share Toast */}
       {shareToast && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#FF6A00] text-white px-5 py-2.5 rounded-2xl text-xs font-bold shadow-lg">
-          {shareToast}
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#FF6A00] text-white px-5 py-2.5 rounded-2xl text-xs font-bold shadow-lg text-center space-y-0.5 max-w-[90vw]">
+          <div>{shareToast}</div>
+          <div dir="ltr" className="text-[11px] opacity-95 truncate max-w-xs mx-auto">
+            {menuShareUrl}
+          </div>
         </div>
       )}
 
@@ -2178,8 +2214,18 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Share2 className="w-4 h-4 text-[#FF6A00]" />
-                  {tx(isEn, 'مشاركة المنيو', 'Share Menu')}
+                  {tx(isEn, 'نسخ رابط المنيو', 'Copy Menu Link')}
                 </button>
+                <a
+                  href={getWhatsAppShareUrl(menuShareUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setSideMenuOpen(false)}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start text-emerald-700 dark:text-emerald-400"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  {tx(isEn, 'مشاركة على واتساب', 'Share via WhatsApp')}
+                </a>
                 <button
                   type="button"
                   onClick={() => {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Copy, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Copy, MessageCircle, Plus, Trash2 } from 'lucide-react';
 import {
   QrCodeImage,
   downloadQrPdf,
@@ -7,8 +7,13 @@ import {
   downloadQrSvg,
 } from '../components/QrToolkit';
 import { addShopTable, deleteShopTable } from '../services/firestoreService';
+import {
+  copyMenuLink,
+  getAbsoluteMenuUrl,
+  getWhatsAppShareUrl,
+} from '../utils/menuLink';
 import { tx, useUiLang } from '../utils/uiLang';
-import { normalizeStoreSlug, type Shop, type ShopTable } from '../types';
+import type { Shop, ShopTable } from '../types';
 
 interface ShareQrPageProps {
   shop: Shop;
@@ -32,17 +37,13 @@ export const ShareQrPage: React.FC<ShareQrPageProps> = ({
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const slug = normalizeStoreSlug(shop.storeSlug || shop.nameEn || shop.id) || shop.id;
-  const baseMenuUrl = `${window.location.origin}/menu/${slug}`;
-  const brandedMenuLink = `/menu/${slug}`;
+  const baseMenuUrl = getAbsoluteMenuUrl(shop);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(baseMenuUrl);
+    const ok = await copyMenuLink(baseMenuUrl);
+    if (ok) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // ignore
+      setTimeout(() => setCopied(false), 2600);
     }
   };
 
@@ -96,31 +97,42 @@ export const ShareQrPage: React.FC<ShareQrPageProps> = ({
           </div>
           <div className="space-y-1">
             <h2 className="text-xl font-extrabold">{tx(isEn, 'المنيو', 'Digital Menu')}</h2>
-            <p className="text-xs font-extrabold text-[#FF6A00]" dir="ltr">
-              {brandedMenuLink}
-            </p>
             <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
               {tx(isEn, 'امسح لفتح المنيو', 'Scan to open menu')}
             </p>
           </div>
-          <div className="flex items-center justify-center gap-2 max-w-md mx-auto">
+          <div className="max-w-md mx-auto space-y-2.5">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCopy()}
+                className="px-4 py-2.5 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+              >
+                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>
+                  {copied
+                    ? tx(isEn, 'تم نسخ اللينك ✅', 'Link copied ✅')
+                    : tx(isEn, 'نسخ لينك المنيو', 'Copy Menu Link')}
+                </span>
+              </button>
+              <a
+                href={getWhatsAppShareUrl(baseMenuUrl)}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>{tx(isEn, 'مشاركة واتساب', 'Share on WhatsApp')}</span>
+              </a>
+            </div>
             <input
               type="text"
               readOnly
               dir="ltr"
               value={baseMenuUrl}
-              className="flex-1 px-3 py-2 rounded-xl bg-orange-50/50 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 text-xs font-mono-num"
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              className="w-full px-3 py-2 rounded-xl bg-orange-50/50 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 text-xs font-mono-num text-center text-[#FF6A00]"
             />
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="px-3 py-2 rounded-xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] text-xs font-bold inline-flex items-center gap-1 shrink-0"
-            >
-              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {copied
-                ? tx(isEn, 'تم النسخ!', 'Copied!')
-                : tx(isEn, 'نسخ لينك المنيو', 'Copy Menu Link')}
-            </button>
           </div>
 
           <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto pt-2">
