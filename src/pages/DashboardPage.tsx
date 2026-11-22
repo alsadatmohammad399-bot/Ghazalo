@@ -66,6 +66,8 @@ import {
   findLocalRestaurantBySlugOrShopId,
   shopToDemoRecord,
   upsertLocalRestaurant,
+  type GhazaloUserSession,
+  type VisibleStoreItem,
 } from '../utils/storeRegistry';
 import {
   getShopDisplayName,
@@ -78,6 +80,7 @@ import {
   SUBSCRIPTION_PRICING,
   SUPPORT_CONTACT,
   normalizeMenuTemplateId,
+  type DemoRestaurantRecord,
   type ExtractedMenuItem,
   type MenuTemplateId,
   type Order,
@@ -91,6 +94,10 @@ interface DashboardPageProps {
   orders: Order[];
   userName: string;
   userEmail: string;
+  ghazaloUser?: GhazaloUserSession | null;
+  availableStores?: VisibleStoreItem[];
+  onSelectStore?: (record: DemoRestaurantRecord) => void;
+  onCreateNewStore?: (restaurantName: string) => void;
   isAdminUser?: boolean;
   forceZeroFeesGlobally?: boolean;
   darkMode: boolean;
@@ -111,6 +118,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   orders,
   userName,
   userEmail,
+  ghazaloUser,
+  availableStores = [],
+  onSelectStore,
+  onCreateNewStore,
   isAdminUser = false,
   forceZeroFeesGlobally = false,
   darkMode,
@@ -126,6 +137,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
+  const [createStoreOpen, setCreateStoreOpen] = useState(false);
+  const [newStoreNameInput, setNewStoreNameInput] = useState('');
   const [productsModalOpen, setProductsModalOpen] = useState(false);
   const [offersModalOpen, setOffersModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
@@ -954,67 +967,222 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </span>
           </button>
 
-          {bellOpen && (
-            <div
-              className={`absolute ${
-                isEn ? 'right-0' : 'left-0'
-              } top-12 w-72 bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-xl z-40 space-y-2`}
-            >
-              <div className="flex items-center justify-between font-extrabold text-sm">
-                <span>{tx(isEn, 'الإشعارات', 'Notifications')}</span>
-                <button type="button" onClick={() => setBellOpen(false)}>
-                  <X className="w-4 h-4" />
-                </button>
+            {bellOpen && (
+              <div
+                className={`absolute ${
+                  isEn ? 'right-0' : 'left-0'
+                } top-12 w-72 bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-xl z-40 space-y-2`}
+              >
+                <div className="flex items-center justify-between font-extrabold text-sm">
+                  <span>{tx(isEn, 'الإشعارات', 'Notifications')}</span>
+                  <button type="button" onClick={() => setBellOpen(false)}>
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="rounded-2xl bg-orange-50/70 dark:bg-slate-800 p-3 text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {tx(
+                    isEn,
+                    'مرحباً بك في غزالة Ghazalo! متجرك جاهز لاستقبال الطلبات بدون أي عمولة.',
+                    'Welcome to Ghazalo! Your store is ready to receive commission-free orders.'
+                  )}
+                </div>
+                {newOrders.slice(0, 3).map((ord) => (
+                  <div
+                    key={ord.id}
+                    onClick={() => {
+                      setBellOpen(false);
+                      onOpenOrders();
+                    }}
+                    className="cursor-pointer rounded-2xl bg-amber-50 dark:bg-amber-950/30 p-3 text-xs font-bold"
+                  >
+                    {tx(isEn, 'طلب جديد', 'New Order')} #{ord.orderNumber} -{' '}
+                    {formatMoney(ord.total, shop.country)}
+                  </div>
+                ))}
               </div>
-              <div className="rounded-2xl bg-orange-50/70 dark:bg-slate-800 p-3 text-xs font-bold text-slate-700 dark:text-slate-200">
-                {tx(
-                  isEn,
-                  'مرحباً بك في غزالة Ghazalo! متجرك جاهز لاستقبال الطلبات بدون أي عمولة.',
-                  'Welcome to Ghazalo! Your store is ready to receive commission-free orders.'
+            )}
+
+            <button
+              type="button"
+              onClick={onLogout}
+              className="px-3 h-9 rounded-full bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 font-extrabold text-xs inline-flex items-center gap-1.5 transition-colors"
+              title={tx(isEn, 'تسجيل الخروج', 'Logout')}
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{tx(isEn, 'تسجيل الخروج', 'Logout')}</span>
+            </button>
+          </div>
+        </header>
+
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
+          {/* Welcome */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3.5">
+              {ghazaloUser?.photo ? (
+                <img
+                  src={ghazaloUser.photo}
+                  alt={ghazaloUser.name}
+                  className="w-12 h-12 rounded-2xl object-cover border-2 border-[#FF6A00] shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-950/60 text-[#FF6A00] font-extrabold text-lg flex items-center justify-center shrink-0">
+                  {(ghazaloUser?.name || userName || 'غ').slice(0, 1)}
+                </div>
+              )}
+              <div className="space-y-0.5">
+                <h1 className="text-xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
+                  {tx(
+                    isEn,
+                    `أهلا يا ${ghazaloUser?.name || userName}`,
+                    `Welcome, ${ghazaloUser?.name || userName}`
+                  )}
+                </h1>
+                <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
+                  {tx(
+                    isEn,
+                    `تدير الآن: ${displayShopName}`,
+                    `Managing: ${displayShopName}`
+                  )}
+                  {ghazaloUser?.isGuest
+                    ? tx(isEn, ' • وضع التجربة (ضيف)', ' • Guest Trial Mode')
+                    : ''}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSettingsModalOpen(true)}
+              className="px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-xs font-extrabold text-[#FF6A00] hover:bg-orange-50 inline-flex items-center gap-1.5"
+            >
+              <Settings className="w-4 h-4" />
+              <span>{tx(isEn, 'اعدادات التوصيل والقالب', 'Delivery & Theme Settings')}</span>
+            </button>
+          </div>
+
+          {/* Demo Restaurants & User Stores Switcher */}
+          {availableStores.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-0.5">
+                  <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
+                    {tx(
+                      isEn,
+                      'مطاعمك والمطاعم التجريبية (اختر مطعماً للإدارة)',
+                      'Your Stores & Demo Restaurants'
+                    )}
+                  </h2>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    {tx(
+                      isEn,
+                      'يمكنك التبديل بين أي مطعم تجريبي أو إنشاء مطعمك الخاص فوراً',
+                      'Switch between demo restaurants or create your own store anytime'
+                    )}
+                  </p>
+                </div>
+                {onCreateNewStore && (
+                  <button
+                    type="button"
+                    onClick={() => setCreateStoreOpen((v) => !v)}
+                    className="px-3.5 py-2 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{tx(isEn, 'إضافة متجر جديد', 'Create New Store')}</span>
+                  </button>
                 )}
               </div>
-              {newOrders.slice(0, 3).map((ord) => (
-                <div
-                  key={ord.id}
-                  onClick={() => {
-                    setBellOpen(false);
-                    onOpenOrders();
+
+              {createStoreOpen && onCreateNewStore && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newStoreNameInput.trim()) return;
+                    onCreateNewStore(newStoreNameInput.trim());
+                    setNewStoreNameInput('');
+                    setCreateStoreOpen(false);
                   }}
-                  className="cursor-pointer rounded-2xl bg-amber-50 dark:bg-amber-950/30 p-3 text-xs font-bold"
+                  className="flex flex-wrap items-center gap-2 p-3 rounded-2xl bg-orange-50/70 dark:bg-slate-800 border border-orange-200 dark:border-slate-700"
                 >
-                  {tx(isEn, 'طلب جديد', 'New Order')} #{ord.orderNumber} -{' '}
-                  {formatMoney(ord.total, shop.country)}
-                </div>
-              ))}
+                  <input
+                    type="text"
+                    required
+                    value={newStoreNameInput}
+                    onChange={(e) => setNewStoreNameInput(e.target.value)}
+                    placeholder={tx(isEn, 'اكتب اسم مطعمك الجديد...', 'Enter new store name...')}
+                    className="flex-1 min-w-[180px] px-3.5 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-[#FF6A00] text-white text-xs font-extrabold"
+                  >
+                    {tx(isEn, 'إنشاء وفتح', 'Create & Open')}
+                  </button>
+                </form>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {availableStores.map((item) => {
+                  const itemSlug = item.record.storeSlug || item.record.shopId;
+                  const isCurrent =
+                    itemSlug.toLowerCase() === storeSlug.toLowerCase() ||
+                    item.record.shopId === shop.id;
+                  const itemCount = item.record.products?.length || 0;
+                  return (
+                    <div
+                      key={itemSlug}
+                      className={`rounded-2xl p-3 border transition-all flex items-center justify-between gap-2.5 ${
+                        isCurrent
+                          ? 'border-[#FF6A00] bg-orange-50/80 dark:bg-orange-950/30 ring-1 ring-[#FF6A00]'
+                          : 'border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 hover:border-orange-300'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSelectStore?.(item.record)}
+                        className="flex-1 flex items-center gap-2.5 text-start min-w-0"
+                      >
+                        <span className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-700 flex items-center justify-center text-xl shrink-0">
+                          {item.logoEmoji}
+                        </span>
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                              {item.record.nameAr}
+                            </span>
+                            {item.isOwnedByUser && !item.isDemo ? (
+                              <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold">
+                                {tx(isEn, 'متجرك', 'Yours')}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-slate-700 text-[#FF6A00] dark:text-orange-300 text-[10px] font-extrabold">
+                                {item.category}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                            {isCurrent
+                              ? tx(isEn, 'النشط حالياً', 'Currently Active')
+                              : tx(isEn, 'اضغط للإدارة', 'Click to manage')}{' '}
+                            • {itemCount} {tx(isEn, 'صنف', 'items')}
+                          </div>
+                        </div>
+                      </button>
+
+                      <a
+                        href={`/menu/${itemSlug}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-8 h-8 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-[#FF6A00] flex items-center justify-center shrink-0"
+                        title={tx(isEn, 'فتح المنيو', 'Open Menu')}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
-        {/* Welcome */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
-              {tx(isEn, `أهلاً بيك في ${displayShopName}`, `Welcome to ${displayShopName}`)}
-            </h1>
-            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-              {tx(
-                isEn,
-                'تابع المبيعات والطلبات من مكان واحد',
-                'Track your sales, menu, and orders in one place'
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSettingsModalOpen(true)}
-            className="px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-xs font-extrabold text-[#FF6A00] hover:bg-orange-50 inline-flex items-center gap-1.5"
-          >
-            <Settings className="w-4 h-4" />
-            <span>{tx(isEn, 'اعدادات التوصيل والقالب', 'Delivery & Theme Settings')}</span>
-          </button>
-        </div>
 
         {/* QR Card */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-orange-100 dark:border-slate-800 shadow-xs space-y-4">

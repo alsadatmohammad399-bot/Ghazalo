@@ -13,12 +13,14 @@ import {
   Moon,
   Plus,
   Minus,
+  Phone,
   ShieldCheck,
   Sun,
+  UserCheck,
   X,
 } from 'lucide-react';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebase';
+import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { auth, googleProvider } from '../firebase';
 import { GhazaloLogo } from '../components/BrandLogo';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { DEMO_PROJECTS } from '../data/demoProjects';
@@ -40,6 +42,8 @@ import {
   saveLocalRestaurants,
   saveLocalUsers,
   setAuthSessionStorage,
+  setGhazaloUser,
+  type GhazaloUserSession,
 } from '../utils/storeRegistry';
 
 interface LandingPageProps {
@@ -57,6 +61,7 @@ interface LandingPageProps {
     shopId: string;
     token: string;
     record?: DemoRestaurantRecord | null;
+    userSession?: GhazaloUserSession;
   }) => void;
 }
 
@@ -232,10 +237,64 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   const openLiveDemo = () => {
     if (onOpenStoreMenu) {
-      onOpenStoreMenu('kebda-masr');
+      onOpenStoreMenu('mshwyat-al-ghazal');
       return;
     }
     onOpenDemoMenu(DEMO_PROJECTS[0]);
+  };
+
+  const handleModalGoogleLogin = async () => {
+    setLoginError('');
+    setLoginLoading(true);
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      const u = cred.user;
+      const userSession: GhazaloUserSession = {
+        uid: u.uid,
+        name: u.displayName || u.email?.split('@')[0] || 'مستخدم جوجل',
+        email: u.email || '',
+        phone: u.phoneNumber || '',
+        photo: u.photoURL || '',
+        isGuest: false,
+        loginMethod: 'google',
+      };
+      const token = `fb-google-${u.uid}-${Date.now()}`;
+      setGhazaloUser(userSession);
+      setAuthSessionStorage('mshwyat-al-ghazal', token);
+      setLoginModalOpen(false);
+      onStoreLoginSuccess?.({
+        storeSlug: 'mshwyat-al-ghazal',
+        shopId: 'mshwyat-al-ghazal',
+        token,
+        userSession,
+      });
+    } catch {
+      setLoginError('تعذر تسجيل الدخول بجوجل هنا. يمكنك الدخول برقم الموبايل أو كضيف.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleModalGuestLogin = () => {
+    const userSession: GhazaloUserSession = {
+      uid: 'guest',
+      name: 'ضيف غزالو',
+      email: '',
+      phone: '',
+      photo: '',
+      isGuest: true,
+      loginMethod: 'guest',
+    };
+    const token = `ghz-guest-${Date.now()}`;
+    setGhazaloUser(userSession);
+    setAuthSessionStorage('mshwyat-al-ghazal', token);
+    setLoginModalOpen(false);
+    onStoreLoginSuccess?.({
+      storeSlug: 'mshwyat-al-ghazal',
+      shopId: 'mshwyat-al-ghazal',
+      token,
+      userSession,
+    });
   };
 
   const handleMockupWhatsapp = () => {
@@ -1343,7 +1402,43 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             )}
 
-            <form onSubmit={(e) => void handleLoginSubmit(e)} className="space-y-4">
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                disabled={loginLoading}
+                onClick={() => void handleModalGoogleLogin()}
+                className="w-full py-3.5 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50/70 border-2 border-slate-200 dark:border-slate-700 hover:border-[#FF6A00] font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+              >
+                <span>دخول بجوجل - Gmail</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginModalOpen(false);
+                  onNavigateAuth('login');
+                }}
+                className="w-full py-3.5 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+              >
+                <Phone className="w-4 h-4" />
+                <span>دخول برقم الموبايل (OTP)</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleModalGuestLogin}
+                className="w-full py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-extrabold text-xs flex items-center justify-center gap-2 transition-colors"
+              >
+                <UserCheck className="w-4 h-4 text-[#FF6A00]" />
+                <span>دخول كضيف - جرب من غير تسجيل</span>
+              </button>
+            </div>
+
+            <div className="relative flex items-center py-1">
+              <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
+              <span className="shrink mx-3 text-[11px] font-bold text-slate-400">أو بكلمة السر</span>
+              <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
+            </div>
+
+            <form onSubmit={(e) => void handleLoginSubmit(e)} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
                   البريد الالكتروني او رقم الموبايل

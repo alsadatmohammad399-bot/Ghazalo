@@ -58,6 +58,7 @@ export function isPhoneAuthEmail(email?: string | null): boolean {
 
 export function isUserActivated(user: User | null | undefined): boolean {
   if (!user) return false;
+  if (user.phoneNumber) return true;
   if (isPhoneAuthEmail(user.email)) return true;
   return Boolean(user.emailVerified);
 }

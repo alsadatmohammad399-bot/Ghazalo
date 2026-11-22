@@ -676,6 +676,106 @@ async function startServer() {
     res.json({ ok: true, storeSlug: match.storeSlug });
   });
 
+  // Phone OTP fallback verification (used if Firebase SMS reCAPTCHA is unavailable in iframe preview)
+  const phoneOtpChallenges = new Map<
+    string,
+    { codeHash: string; expiresAt: number; attempts: number; lastSentAt: number }
+  >();
+
+  function normalizeEgyptE164(raw: string): string {
+    const ascii = String(raw || '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+    const digits = ascii.replace(/\D/g, '');
+    if (digits.startsWith('201') && digits.length === 12) return `+${digits}`;
+    if (digits.startsWith('01') && digits.length === 11) return `+20${digits.slice(1)}`;
+    if (digits.startsWith('1') && digits.length === 10) return `+20${digits}`;
+    return '';
+  }
+
+  function hashOtp(phone: string, code: string): string {
+    return crypto
+      .createHmac('sha256', TOKEN_SIGNING_SECRET)
+      .update(`${phone}:${code}`)
+      .digest('hex');
+  }
+
+  app.post('/api/phone-otp/send', (req: Request, res: Response) => {
+    const body = req.body as { phone?: string };
+    const e164 = normalizeEgyptE164(body?.phone || '');
+    if (!e164) {
+      res.status(400).json({ ok: false, error: 'يرجى إدخال رقم موبايل مصري صحيح (مثال: 01012345678).' });
+      return;
+    }
+
+    const existing = phoneOtpChallenges.get(e164);
+    if (existing && Date.now() - existing.lastSentAt < 15_000) {
+      res.status(429).json({ ok: false, error: 'يرجى الانتظار قليلاً قبل طلب كود جديد.' });
+      return;
+    }
+
+    const code = String(crypto.randomInt(100000, 1000000));
+    phoneOtpChallenges.set(e164, {
+      codeHash: hashOtp(e164, code),
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      attempts: 0,
+      lastSentAt: Date.now(),
+    });
+
+    res.json({
+      ok: true,
+      phone: e164,
+      expiresInSeconds: 600,
+      ...(!process.env.SMS_PROVIDER_KEY ? { previewCode: code } : {}),
+    });
+  });
+
+  app.post('/api/phone-otp/verify', (req: Request, res: Response) => {
+    const body = req.body as { phone?: string; code?: string };
+    const e164 = normalizeEgyptE164(body?.phone || '');
+    const rawCode = String(body?.code || '')
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(/\D/g, '');
+
+    if (!e164 || rawCode.length !== 6) {
+      res.status(400).json({ ok: false, error: 'أدخل رقم الموبايل وكود التحقق المكون من 6 أرقام.' });
+      return;
+    }
+
+    const challenge = phoneOtpChallenges.get(e164);
+    if (!challenge) {
+      res.status(400).json({ ok: false, error: 'لم يتم إرسال كود لهذا الرقم بعد، اطلب كوداً جديداً.' });
+      return;
+    }
+    if (Date.now() > challenge.expiresAt) {
+      phoneOtpChallenges.delete(e164);
+      res.status(400).json({ ok: false, error: 'انتهت صلاحية الكود، اطلب كوداً جديداً.' });
+      return;
+    }
+    if (challenge.attempts >= 5) {
+      phoneOtpChallenges.delete(e164);
+      res.status(429).json({ ok: false, error: 'تم تجاوز عدد المحاولات المسموح، اطلب كوداً جديداً.' });
+      return;
+    }
+
+    const candidateHash = hashOtp(e164, rawCode);
+    const matched =
+      candidateHash.length === challenge.codeHash.length &&
+      crypto.timingSafeEqual(Buffer.from(candidateHash), Buffer.from(challenge.codeHash));
+
+    if (!matched) {
+      challenge.attempts += 1;
+      res.status(401).json({ ok: false, error: 'كود التحقق غير صحيح.' });
+      return;
+    }
+
+    phoneOtpChallenges.delete(e164);
+    const token = signToken({ role: 'merchant', phone: e164 });
+    res.json({
+      ok: true,
+      phone: e164,
+      token,
+    });
+  });
+
   app.get('/api/public-stores/:slug', (req: Request, res: Response) => {
     const rawSlug = decodeURIComponent(String(req.params.slug || '')).trim().toLowerCase();
     const norm = normalizeSlugServer(rawSlug);
