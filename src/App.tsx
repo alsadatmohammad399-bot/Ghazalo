@@ -1,4 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import {
+  BrowserRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { Globe, Lock, LogOut, Mail, MessageCircle, RefreshCw } from 'lucide-react';
 import { auth } from './firebase';
@@ -44,6 +51,7 @@ import { CashierPage } from './pages/CashierPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { ShareQrPage } from './pages/ShareQrPage';
 import { AdminPage } from './pages/AdminPage';
+import { MenuPage } from './pages/MenuPage';
 import {
   ADMIN_EMAIL,
   ADMIN_PORTAL_KEY,
@@ -142,29 +150,22 @@ function parseRouteTarget(): {
   return { isAdminRoute, shopTarget, dashboardTarget, authRoute, tableLabel, shortcutMode };
 }
 
-function replacePathSafely(nextPath: string): void {
-  try {
-    if (window.location.pathname + window.location.search !== nextPath) {
-      window.history.replaceState({}, '', nextPath);
-    }
-  } catch {
-    // ignore history restriction
-  }
+interface AppShellProps {
+  darkMode: boolean;
+  setDarkMode: React.Dispatch<React.SetStateAction<boolean>>;
+  forceZeroFeesGlobally: boolean;
+  setForceZeroFeesGlobally: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-function pushPathSafely(nextPath: string): void {
-  try {
-    if (window.location.pathname + window.location.search !== nextPath) {
-      window.history.pushState({}, '', nextPath);
-    }
-  } catch {
-    // ignore history restriction
-  }
-}
-
-function AppShell() {
+function AppShell({
+  darkMode,
+  setDarkMode,
+  forceZeroFeesGlobally,
+  setForceZeroFeesGlobally,
+}: AppShellProps) {
   const { isEn, toggleLang } = useUiLang();
-  const [darkMode, setDarkMode] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
   const [view, setView] = useState<AppView>('landing');
   const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -172,8 +173,30 @@ function AppShell() {
   const [authReady, setAuthReady] = useState(false);
   const [bootSplash, setBootSplash] = useState(() => !parseRouteTarget().shopTarget);
 
-  const [forceZeroFeesGlobally, setForceZeroFeesGlobally] = useState<boolean>(
-    () => getPlatformSettingsLocal().forceZeroFeesGlobally
+  const replacePathSafely = useCallback(
+    (nextPath: string) => {
+      try {
+        if (location.pathname + location.search !== nextPath) {
+          navigate(nextPath, { replace: true });
+        }
+      } catch {
+        // ignore router restriction
+      }
+    },
+    [location.pathname, location.search, navigate]
+  );
+
+  const pushPathSafely = useCallback(
+    (nextPath: string) => {
+      try {
+        if (location.pathname + location.search !== nextPath) {
+          navigate(nextPath);
+        }
+      } catch {
+        // ignore router restriction
+      }
+    },
+    [location.pathname, location.search, navigate]
   );
 
   useEffect(() => {
@@ -208,13 +231,6 @@ function AppShell() {
   const [publicProducts, setPublicProducts] = useState<Product[]>([]);
   const [isFallbackMenu, setIsFallbackMenu] = useState(false);
 
-  // Apply Dark Mode class on <html>
-  useEffect(() => {
-    const root = document.documentElement;
-    if (darkMode) root.classList.add('dark');
-    else root.classList.remove('dark');
-  }, [darkMode]);
-
   const handleSetThemeMode = (mode: 'light' | 'dark' | 'system') => {
     if (mode === 'system') {
       setDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -224,32 +240,6 @@ function AppShell() {
   };
 
   const [pendingShortcutMode, setPendingShortcutMode] = useState<'cashier' | 'dashboard' | null>(null);
-
-  // Fetch global platform configuration (Global "الغاء كل الرسوم والضرايب لكل المطاعم" toggle)
-  useEffect(() => {
-    const syncPlatformConfig = async () => {
-      try {
-        const res = await fetch('/api/platform-config');
-        if (res.ok) {
-          const cfg = (await res.json()) as { forceZeroFeesGlobally?: boolean };
-          const val = Boolean(cfg.forceZeroFeesGlobally);
-          setForceZeroFeesGlobally(val);
-          savePlatformSettingsLocal({ forceZeroFeesGlobally: val });
-          return;
-        }
-      } catch {
-        // fallback below
-      }
-      try {
-        const fsCfg = await getPlatformConfig();
-        setForceZeroFeesGlobally(Boolean(fsCfg.forceZeroFeesGlobally));
-        savePlatformSettingsLocal({ forceZeroFeesGlobally: Boolean(fsCfg.forceZeroFeesGlobally) });
-      } catch {
-        // ignore offline error
-      }
-    };
-    void syncPlatformConfig();
-  }, []);
 
   const hydrateStoreSession = useCallback(
     async (
@@ -332,9 +322,7 @@ function AppShell() {
     };
 
     applyRouteFromLocation();
-    window.addEventListener('popstate', applyRouteFromLocation);
-    return () => window.removeEventListener('popstate', applyRouteFromLocation);
-  }, [hydrateStoreSession]);
+  }, [hydrateStoreSession, location.pathname, location.search]);
 
   // Subscribe / Resolve Public Customer Menu when viewing via /menu/:slug (no login or localStorage required)
   useEffect(() => {
@@ -1126,10 +1114,82 @@ function AppShell() {
   );
 }
 
+function AppRouter() {
+  const [darkMode, setDarkMode] = useState(false);
+  const [forceZeroFeesGlobally, setForceZeroFeesGlobally] = useState<boolean>(
+    () => getPlatformSettingsLocal().forceZeroFeesGlobally
+  );
+
+  // Apply Dark Mode class on <html>
+  useEffect(() => {
+    const root = document.documentElement;
+    if (darkMode) root.classList.add('dark');
+    else root.classList.remove('dark');
+  }, [darkMode]);
+
+  // Fetch global platform configuration (Global "الغاء كل الرسوم والضرايب لكل المطاعم" toggle)
+  useEffect(() => {
+    const syncPlatformConfig = async () => {
+      try {
+        const res = await fetch('/api/platform-config');
+        if (res.ok) {
+          const cfg = (await res.json()) as { forceZeroFeesGlobally?: boolean };
+          const val = Boolean(cfg.forceZeroFeesGlobally);
+          setForceZeroFeesGlobally(val);
+          savePlatformSettingsLocal({ forceZeroFeesGlobally: val });
+          return;
+        }
+      } catch {
+        // fallback below
+      }
+      try {
+        const fsCfg = await getPlatformConfig();
+        setForceZeroFeesGlobally(Boolean(fsCfg.forceZeroFeesGlobally));
+        savePlatformSettingsLocal({ forceZeroFeesGlobally: Boolean(fsCfg.forceZeroFeesGlobally) });
+      } catch {
+        // ignore offline error
+      }
+    };
+    void syncPlatformConfig();
+  }, []);
+
+  const appShellNode = (
+    <AppShell
+      darkMode={darkMode}
+      setDarkMode={setDarkMode}
+      forceZeroFeesGlobally={forceZeroFeesGlobally}
+      setForceZeroFeesGlobally={setForceZeroFeesGlobally}
+    />
+  );
+
+  const menuPageNode = (
+    <MenuPage
+      forceZeroFeesGlobally={forceZeroFeesGlobally}
+      darkMode={darkMode}
+      onToggleDarkMode={() => setDarkMode((d) => !d)}
+    />
+  );
+
+  return (
+    <Routes>
+      <Route path="/" element={appShellNode} />
+      <Route path="/login" element={appShellNode} />
+      <Route path="/signup" element={appShellNode} />
+      <Route path="/admin/*" element={appShellNode} />
+      <Route path="/dashboard/*" element={appShellNode} />
+      <Route path="/menu/:slug" element={menuPageNode} />
+      <Route path="/:slug/menu" element={menuPageNode} />
+      <Route path="*" element={menuPageNode} />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppShell />
+      <BrowserRouter>
+        <AppRouter />
+      </BrowserRouter>
       <OfflineIndicator />
     </ErrorBoundary>
   );
