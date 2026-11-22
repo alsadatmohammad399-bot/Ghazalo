@@ -5,9 +5,11 @@ import {
   Bell,
   Boxes,
   Check,
+  Copy,
   CreditCard,
   Edit3,
   ExternalLink,
+  Globe,
   Home,
   ImagePlus,
   LayoutGrid,
@@ -59,6 +61,13 @@ import {
   shopToDemoRecord,
   upsertLocalRestaurant,
 } from '../utils/storeRegistry';
+import {
+  getShopDisplayName,
+  translateTemplateMeta,
+  translateThemeColor,
+  tx,
+  useUiLang,
+} from '../utils/uiLang';
 import {
   SUBSCRIPTION_PRICING,
   SUPPORT_CONTACT,
@@ -116,7 +125,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [reportsModalOpen, setReportsModalOpen] = useState(false);
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState(false);
-  const [uiLang, setUiLang] = useState<'عربي' | 'English'>('عربي');
+  const [selectedSubscriptionPlan, setSelectedSubscriptionPlan] = useState<'monthly' | 'yearly'>('yearly');
+  const [menuLinkCopied, setMenuLinkCopied] = useState(false);
+  const { isEn, setLang } = useUiLang();
   const [themePref, setThemePref] = useState<'فاتح' | 'داكن' | 'النظام'>(darkMode ? 'داكن' : 'فاتح');
 
   // Product Form State
@@ -217,8 +228,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   }, [settingsModalOpen, shop]);
 
   const storeSlug = useMemo(() => deriveShopSlug(shop), [shop]);
-  const brandedMenuUrl = `https://${storeSlug}.ghazalo.com/menu`;
-  const menuUrl = `${window.location.origin}/?shop=${storeSlug || shop.id}`;
+  const brandedMenuUrl = `/menu/${storeSlug}`;
+  const menuUrl = `${window.location.origin}/menu/${storeSlug}`;
+  const handleCopyMenuUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(menuUrl);
+      setMenuLinkCopied(true);
+      setTimeout(() => setMenuLinkCopied(false), 2200);
+    } catch {
+      // ignore clipboard restriction
+    }
+  };
   const shopAccess = useMemo(() => getShopAccessState(shop), [shop]);
   const isPaidSubscription =
     shopAccess.reason === 'monthly' ||
@@ -486,11 +506,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       }
       setAiMessage(
         updatedCount > 0
-          ? `تمت إضافة صور حقيقية لـ ${updatedCount} صنف بنجاح.`
-          : 'جميع أصنافك تمتلك صوراً حقيقية بالفعل.'
+          ? tx(
+              isEn,
+              `تمت إضافة صور حقيقية لـ ${updatedCount} صنف بنجاح.`,
+              `Added real dish photos to ${updatedCount} items successfully.`
+            )
+          : tx(isEn, 'جميع أصنافك تمتلك صوراً حقيقية بالفعل.', 'All menu items already have photos.')
       );
     } catch {
-      setAiMessage('تعذر تحديث الصور حالياً، يرجى المحاولة مرة أخرى.');
+      setAiMessage(
+        tx(
+          isEn,
+          'تعذر تحديث الصور حالياً، يرجى المحاولة مرة أخرى.',
+          'Could not update photos right now. Please try again.'
+        )
+      );
     } finally {
       setAiBusy(false);
     }
@@ -554,7 +584,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       setEditLogoUrl(compressed);
       setEditShowLogoOnItems(true);
     } catch (err: unknown) {
-      setLogoError(err instanceof Error ? err.message : 'تعذر رفع اللوجو');
+      setLogoError(
+        err instanceof Error ? err.message : tx(isEn, 'تعذر رفع اللوجو', 'Failed to upload logo')
+      );
     }
   };
 
@@ -567,7 +599,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       const compressed = await compressCoverFile(file);
       setEditCoverImage(compressed);
     } catch (err: unknown) {
-      setCoverError(err instanceof Error ? err.message : 'تعذر رفع صورة الخلفية');
+      setCoverError(
+        err instanceof Error
+          ? err.message
+          : tx(isEn, 'تعذر رفع صورة الخلفية', 'Failed to upload cover photo')
+      );
     }
   };
 
@@ -679,13 +715,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           }
         }
         setAiMessage(
-          `تم استخراج ${data.items.length} صنف من ${selectedFiles.length} ملف بالذكاء الاصطناعي بنجاح`
+          tx(
+            isEn,
+            `تم استخراج ${data.items.length} صنف من ${selectedFiles.length} ملف بالذكاء الاصطناعي بنجاح`,
+            `Successfully extracted ${data.items.length} items from ${selectedFiles.length} file(s) with AI`
+          )
         );
       } else {
-        setAiMessage('لم يتم العثور على أصناف في الملفات المرفوعة');
+        setAiMessage(
+          tx(
+            isEn,
+            'لم يتم العثور على أصناف في الملفات المرفوعة',
+            'No menu items were found in the uploaded files'
+          )
+        );
       }
     } catch (err: unknown) {
-      setAiMessage(err instanceof Error ? err.message : 'حدث خطأ');
+      setAiMessage(
+        err instanceof Error ? err.message : tx(isEn, 'حدث خطأ', 'An error occurred')
+      );
     } finally {
       setAiBusy(false);
     }
@@ -731,7 +779,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           // saved locally
         }
       }
-      setDeliverySavedToast('تم حفظ اعدادات التوصيل بنجاح');
+      setDeliverySavedToast(
+        tx(isEn, 'تم حفظ اعدادات التوصيل بنجاح', 'Delivery settings saved successfully')
+      );
       setTimeout(() => setDeliverySavedToast(''), 3000);
     } finally {
       setSavingSettings(false);
@@ -757,8 +807,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     }
   };
 
+  const displayShopName = getShopDisplayName(shop, isEn);
+
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-50/50 dark:bg-slate-950 pb-20">
+    <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-slate-50/50 dark:bg-slate-950 pb-20">
       {/* Top Ghazalo Subscription / 7-Day Trial Banner */}
       <div className="bg-gradient-to-l from-[#FF6A00] via-orange-500 to-amber-500 text-white px-4 py-2.5 shadow-xs">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2.5 text-xs sm:text-sm font-extrabold">
@@ -766,26 +818,42 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <Sparkles className="w-4 h-4 shrink-0" />
             {isPaidSubscription ? (
               <span>
-                مفعل حتى تاريخ {shopAccess.expirationDateFormatted} (متبقي {daysRemaining} يوم)
+                {tx(
+                  isEn,
+                  `مفعل حتى تاريخ ${shopAccess.expirationDateFormatted} (متبقي ${daysRemaining} يوم)`,
+                  `Active until ${shopAccess.expirationDateFormatted} (${daysRemaining} days left)`
+                )}
               </span>
             ) : (
-              <span>متبقي لك {daysRemaining} ايام من التجربة المجانية</span>
+              <span>
+                {tx(
+                  isEn,
+                  `متبقي لك ${daysRemaining} ايام من التجربة المجانية`,
+                  `${daysRemaining} days left in your free trial`
+                )}
+              </span>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setSubscriptionModalOpen(true)}
+              onClick={() => {
+                setSelectedSubscriptionPlan('monthly');
+                setSubscriptionModalOpen(true);
+              }}
               className="px-3 py-1 rounded-full bg-white text-[#FF6A00] hover:bg-orange-50 text-xs font-extrabold transition-colors"
             >
-              تفعيل شهري
+              {tx(isEn, 'تفعيل شهري', 'Monthly')}
             </button>
             <button
               type="button"
-              onClick={() => setSubscriptionModalOpen(true)}
+              onClick={() => {
+                setSelectedSubscriptionPlan('yearly');
+                setSubscriptionModalOpen(true);
+              }}
               className="px-3 py-1 rounded-full bg-slate-900 text-white hover:bg-slate-800 text-xs font-extrabold transition-colors"
             >
-              تفعيل سنوي
+              {tx(isEn, 'تفعيل سنوي', 'Yearly')}
             </button>
             <a
               href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
@@ -796,7 +864,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               className="px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-extrabold inline-flex items-center gap-1 transition-colors"
             >
               <MessageCircle className="w-3.5 h-3.5" />
-              تواصل للتفعيل
+              {tx(isEn, 'تواصل للتفعيل', 'Activate via WhatsApp')}
             </a>
           </div>
         </div>
@@ -805,13 +873,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       {/* 1-Day Expiration Urgent Alert */}
       {shopAccess.isExpiringSoon && (
         <div className="bg-amber-100 dark:bg-amber-950/60 border-b border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200 px-4 py-2 text-center text-xs sm:text-sm font-extrabold flex flex-wrap items-center justify-center gap-2">
-          <span>باقي يوم واحد، فعل دلوقتي عشان المنيو ميوقفش</span>
+          <span>
+            {tx(
+              isEn,
+              'باقي يوم واحد، فعل دلوقتي عشان المنيو ميوقفش',
+              'Only 1 day left! Activate now so your menu stays live'
+            )}
+          </span>
           <button
             type="button"
             onClick={() => setSubscriptionModalOpen(true)}
             className="px-3 py-1 rounded-full bg-[#FF6A00] text-white text-xs font-extrabold"
           >
-            فعل الاشتراك الآن
+            {tx(isEn, 'فعل الاشتراك الآن', 'Activate Now')}
           </button>
         </div>
       )}
@@ -823,15 +897,30 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             type="button"
             onClick={() => setDrawerOpen(true)}
             className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-400 flex items-center justify-center"
-            aria-label="القائمة"
+            aria-label={tx(isEn, 'القائمة', 'Menu')}
           >
             <Menu className="w-5 h-5" />
           </button>
-          <span className="font-extrabold text-base sm:text-lg">لوحة التحكم</span>
+          <span className="font-extrabold text-base sm:text-lg">
+            {tx(isEn, 'لوحة التحكم', 'Dashboard')}
+          </span>
         </div>
 
         <div className="flex items-center gap-2 relative">
-          <PWAInstallButton variant="compact" label="تثبيت التطبيق" />
+          <button
+            type="button"
+            onClick={() => setLang(isEn ? 'ar' : 'en')}
+            className="px-3 h-9 rounded-full bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-[#FF6A00] dark:text-orange-300 font-extrabold text-xs inline-flex items-center gap-1.5"
+            title={tx(isEn, 'تغيير اللغة إلى الإنجليزية', 'Switch to Arabic')}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>{isEn ? 'عربي' : 'EN'}</span>
+          </button>
+
+          <PWAInstallButton
+            variant="compact"
+            label={tx(isEn, 'تثبيت التطبيق', 'Install App')}
+          />
           <button
             type="button"
             onClick={() => void handleToggleOpen()}
@@ -841,31 +930,43 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
             }`}
           >
-            {shop.isOpen ? 'مفتوح' : 'مغلق'}
+            {shop.isOpen ? tx(isEn, 'مفتوح', 'Open') : tx(isEn, 'مغلق', 'Closed')}
           </button>
 
           <button
             type="button"
             onClick={() => setBellOpen((prev) => !prev)}
             className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-400 flex items-center justify-center relative"
-            aria-label="الإشعارات"
+            aria-label={tx(isEn, 'الإشعارات', 'Notifications')}
           >
             <Bell className="w-5 h-5" />
-            <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-[#FF6A00] text-white text-[11px] font-extrabold flex items-center justify-center tabular-nums">
+            <span
+              className={`absolute -top-1 ${
+                isEn ? '-right-1' : '-left-1'
+              } w-5 h-5 rounded-full bg-[#FF6A00] text-white text-[11px] font-extrabold flex items-center justify-center tabular-nums`}
+            >
               {Math.max(1, newOrders.length)}
             </span>
           </button>
 
           {bellOpen && (
-            <div className="absolute left-0 top-12 w-72 bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-xl z-40 space-y-2">
+            <div
+              className={`absolute ${
+                isEn ? 'right-0' : 'left-0'
+              } top-12 w-72 bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-xl z-40 space-y-2`}
+            >
               <div className="flex items-center justify-between font-extrabold text-sm">
-                <span>الإشعارات</span>
+                <span>{tx(isEn, 'الإشعارات', 'Notifications')}</span>
                 <button type="button" onClick={() => setBellOpen(false)}>
                   <X className="w-4 h-4" />
                 </button>
               </div>
               <div className="rounded-2xl bg-orange-50/70 dark:bg-slate-800 p-3 text-xs font-bold text-slate-700 dark:text-slate-200">
-                مرحباً بك في غزالة Ghazalo! متجرك جاهز لاستقبال الطلبات بدون أي عمولة.
+                {tx(
+                  isEn,
+                  'مرحباً بك في غزالة Ghazalo! متجرك جاهز لاستقبال الطلبات بدون أي عمولة.',
+                  'Welcome to Ghazalo! Your store is ready to receive commission-free orders.'
+                )}
               </div>
               {newOrders.slice(0, 3).map((ord) => (
                 <div
@@ -876,7 +977,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   }}
                   className="cursor-pointer rounded-2xl bg-amber-50 dark:bg-amber-950/30 p-3 text-xs font-bold"
                 >
-                  طلب جديد #{ord.orderNumber} - {formatMoney(ord.total, shop.country)}
+                  {tx(isEn, 'طلب جديد', 'New Order')} #{ord.orderNumber} -{' '}
+                  {formatMoney(ord.total, shop.country)}
                 </div>
               ))}
             </div>
@@ -889,10 +991,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
-              أهلاً بيك في {shop.nameAr}
+              {tx(isEn, `أهلاً بيك في ${displayShopName}`, `Welcome to ${displayShopName}`)}
             </h1>
             <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-              تابع المبيعات والطلبات من مكان واحد
+              {tx(
+                isEn,
+                'تابع المبيعات والطلبات من مكان واحد',
+                'Track your sales, menu, and orders in one place'
+              )}
             </p>
           </div>
           <button
@@ -901,17 +1007,45 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             className="px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-xs font-extrabold text-[#FF6A00] hover:bg-orange-50 inline-flex items-center gap-1.5"
           >
             <Settings className="w-4 h-4" />
-            <span>اعدادات التوصيل والقالب</span>
+            <span>{tx(isEn, 'اعدادات التوصيل والقالب', 'Delivery & Theme Settings')}</span>
           </button>
         </div>
 
         {/* QR Card */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-orange-100 dark:border-slate-800 shadow-xs">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h2 className="text-base font-extrabold">رمز QR ورابط المنيو المباشر</h2>
-            <span dir="ltr" className="text-xs font-extrabold text-[#FF6A00] bg-orange-50 dark:bg-slate-800 px-3 py-1 rounded-full">
-              {brandedMenuUrl}
-            </span>
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-orange-100 dark:border-slate-800 shadow-xs space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <h2 className="text-base font-extrabold">
+                {tx(isEn, 'رمز QR ورابط المنيو المباشر', 'QR Code & Direct Menu Link')}
+              </h2>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                {tx(
+                  isEn,
+                  'شارك رابط المنيو أو رمز QR مباشرة مع عملائك',
+                  'Share your menu link or QR code directly with customers'
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                dir="ltr"
+                className="text-xs font-extrabold text-[#FF6A00] bg-orange-50 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-orange-200/70 dark:border-slate-700"
+              >
+                {brandedMenuUrl}
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleCopyMenuUrl()}
+                className="px-3.5 py-1.5 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+              >
+                {menuLinkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>
+                  {menuLinkCopied
+                    ? tx(isEn, 'تم النسخ!', 'Copied!')
+                    : tx(isEn, 'نسخ لينك المنيو', 'Copy Menu Link')}
+                </span>
+              </button>
+            </div>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="shrink-0">
@@ -923,28 +1057,28 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 onClick={() => void downloadQrPng(menuUrl, `${shop.nameAr}-qr.png`)}
                 className="py-3 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm transition-colors"
               >
-                تحميل QR
+                {tx(isEn, 'تحميل QR', 'Download QR')}
               </button>
               <button
                 type="button"
                 onClick={onOpenStorefront}
                 className="py-3 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50 border border-orange-200 dark:border-slate-700 font-extrabold text-sm transition-colors"
               >
-                عرض المنيو
+                {tx(isEn, 'عرض المنيو', 'View Menu')}
               </button>
               <button
                 type="button"
                 onClick={onOpenShareQr}
                 className="py-3 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50 border border-orange-200 dark:border-slate-700 font-extrabold text-sm transition-colors"
               >
-                رموز الطاولات
+                {tx(isEn, 'رموز الطاولات', 'Table QRs')}
               </button>
               <button
                 type="button"
                 onClick={onOpenCashier}
                 className="py-3 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm transition-colors"
               >
-                الكاشير POS
+                {tx(isEn, 'الكاشير POS', 'Cashier POS')}
               </button>
             </div>
           </div>
@@ -953,14 +1087,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1">
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">طلبات اليوم</div>
+            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              {tx(isEn, 'طلبات اليوم', "Today's Orders")}
+            </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
               {orders.length}
             </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1">
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">مبيعات اليوم</div>
+            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              {tx(isEn, 'مبيعات اليوم', "Today's Sales")}
+            </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
               {formatMoney(todaySales, shop.country, 0)}
             </div>
@@ -970,7 +1108,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             onClick={() => setProductsModalOpen(true)}
             className="col-span-2 lg:col-span-1 cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1 hover:border-orange-300 transition-colors"
           >
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">الأصناف النشطة</div>
+            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              {tx(isEn, 'الأصناف النشطة', 'Active Items')}
+            </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
               {activeProductsCount}
             </div>
@@ -980,27 +1120,33 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         {/* Chart: الأصناف حسب التصنيف */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-orange-100 dark:border-slate-800 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-extrabold">الأصناف حسب التصنيف</h2>
+            <h2 className="text-base font-extrabold">
+              {tx(isEn, 'الأصناف حسب التصنيف', 'Items by Category')}
+            </h2>
             <button
               type="button"
               onClick={() => setProductsModalOpen(true)}
               className="text-xs font-extrabold text-[#FF6A00] dark:text-orange-400 hover:underline"
             >
-              إدارة الأصناف
+              {tx(isEn, 'إدارة الأصناف', 'Manage Items')}
             </button>
           </div>
 
           {categoryBreakdown.length === 0 ? (
             <div className="text-center py-6 space-y-3">
               <p className="text-sm font-bold text-slate-500 dark:text-slate-400">
-                المتجر فارغ حالياً. أضف أصنافك يدوياً أو ارفع صورة المنيو بالذكاء الاصطناعي.
+                {tx(
+                  isEn,
+                  'المتجر فارغ حالياً. أضف أصنافك يدوياً أو ارفع صورة المنيو بالذكاء الاصطناعي.',
+                  'Your store is empty. Add items manually or upload a menu photo with AI.'
+                )}
               </p>
               <button
                 type="button"
                 onClick={() => setProductsModalOpen(true)}
                 className="px-5 py-2.5 rounded-2xl bg-[#FF6A00] text-white font-bold text-xs"
               >
-                إضافة أصناف الآن
+                {tx(isEn, 'إضافة أصناف الآن', 'Add Items Now')}
               </button>
             </div>
           ) : (
@@ -1030,70 +1176,82 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
         {/* Quick Steps */}
         <div className="space-y-3">
-          <h2 className="text-base font-extrabold">خطوات سريعة</h2>
+          <h2 className="text-base font-extrabold">{tx(isEn, 'خطوات سريعة', 'Quick Actions')}</h2>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
             <button
               type="button"
               onClick={onOpenCashier}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-right hover:border-orange-300 transition-colors space-y-1.5"
+              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-start hover:border-orange-300 transition-colors space-y-1.5"
             >
               <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center">
                 <Monitor className="w-5 h-5" />
               </div>
-              <div className="font-extrabold text-base">الكاشير</div>
-              <div className="text-xs font-semibold text-slate-500">بيع من الصالة</div>
+              <div className="font-extrabold text-base">{tx(isEn, 'الكاشير', 'Cashier')}</div>
+              <div className="text-xs font-semibold text-slate-500">
+                {tx(isEn, 'بيع من الصالة', 'In-store POS')}
+              </div>
             </button>
 
             <button
               type="button"
               onClick={onOpenOrders}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-right hover:border-orange-300 transition-colors space-y-1.5"
+              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-start hover:border-orange-300 transition-colors space-y-1.5"
             >
               <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
                 <ShoppingBag className="w-5 h-5" />
               </div>
-              <div className="font-extrabold text-base">الطلبات</div>
-              <div className="text-xs font-semibold text-slate-500">متابعة طلبات اليوم</div>
+              <div className="font-extrabold text-base">{tx(isEn, 'الطلبات', 'Orders')}</div>
+              <div className="text-xs font-semibold text-slate-500">
+                {tx(isEn, 'متابعة طلبات اليوم', "Track today's orders")}
+              </div>
             </button>
 
             <button
               type="button"
               onClick={() => setProductsModalOpen(true)}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-right hover:border-orange-300 transition-colors space-y-1.5"
+              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-start hover:border-orange-300 transition-colors space-y-1.5"
             >
               <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
                 <Boxes className="w-5 h-5" />
               </div>
-              <div className="font-extrabold text-base">الأصناف والمنيو</div>
-              <div className="text-xs font-semibold text-slate-500">الأسعار ورفع الصور</div>
+              <div className="font-extrabold text-base">
+                {tx(isEn, 'الأصناف والمنيو', 'Menu & Items')}
+              </div>
+              <div className="text-xs font-semibold text-slate-500">
+                {tx(isEn, 'الأسعار ورفع الصور', 'Prices & dish photos')}
+              </div>
             </button>
 
             <button
               type="button"
               onClick={() => setOffersModalOpen(true)}
-              className="bg-orange-50/80 dark:bg-orange-950/30 rounded-3xl p-5 border border-orange-200 dark:border-orange-800 text-right hover:border-[#FF6A00] transition-colors space-y-1.5"
+              className="bg-orange-50/80 dark:bg-orange-950/30 rounded-3xl p-5 border border-orange-200 dark:border-orange-800 text-start hover:border-[#FF6A00] transition-colors space-y-1.5"
             >
               <div className="w-10 h-10 rounded-2xl glass-btn-primary flex items-center justify-center">
                 <Tag className="w-5 h-5" />
               </div>
               <div className="font-extrabold text-base text-orange-950 dark:text-orange-200">
-                قائمة العروض ({offerProducts.length})
+                {tx(isEn, `قائمة العروض (${offerProducts.length})`, `Offers (${offerProducts.length})`)}
               </div>
               <div className="text-xs font-semibold text-[#FF6A00] dark:text-orange-300">
-                إضافة وإدارة الخصومات
+                {tx(isEn, 'إضافة وإدارة الخصومات', 'Manage deals & discounts')}
               </div>
             </button>
 
             <button
               type="button"
               onClick={() => setSettingsModalOpen(true)}
-              className="col-span-2 lg:col-span-1 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-right hover:border-orange-300 transition-colors space-y-1.5"
+              className="col-span-2 lg:col-span-1 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-start hover:border-orange-300 transition-colors space-y-1.5"
             >
               <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
                 <Palette className="w-5 h-5" />
               </div>
-              <div className="font-extrabold text-base">القوالب والتوصيل</div>
-              <div className="text-xs font-semibold text-slate-500">الشكل وسعر التوصيل</div>
+              <div className="font-extrabold text-base">
+                {tx(isEn, 'القوالب والتوصيل', 'Templates & Delivery')}
+              </div>
+              <div className="text-xs font-semibold text-slate-500">
+                {tx(isEn, 'الشكل وسعر التوصيل', 'Look & delivery fee')}
+              </div>
             </button>
           </div>
         </div>
@@ -1104,10 +1262,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         {/* Needs Attention + Recent Orders */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 space-y-3">
-            <h2 className="text-base font-extrabold">يحتاج انتباهك</h2>
+            <h2 className="text-base font-extrabold">
+              {tx(isEn, 'يحتاج انتباهك', 'Needs Attention')}
+            </h2>
             {newOrders.length === 0 ? (
               <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                لا شيء ينتظرك الآن
+                {tx(isEn, 'لا شيء ينتظرك الآن', 'Nothing pending right now')}
               </p>
             ) : (
               <div className="space-y-2">
@@ -1117,7 +1277,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     onClick={onOpenOrders}
                     className="cursor-pointer rounded-2xl bg-amber-50 dark:bg-amber-950/30 p-3 flex items-center justify-between text-xs font-bold"
                   >
-                    <span>طلب جديد #{ord.orderNumber}</span>
+                    <span>
+                      {tx(isEn, 'طلب جديد', 'New Order')} #{ord.orderNumber}
+                    </span>
                     <span className="tabular-nums">{formatMoney(ord.total, shop.country)}</span>
                   </div>
                 ))}
@@ -1126,10 +1288,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 space-y-3">
-            <h2 className="text-base font-extrabold">آخر الطلبات</h2>
+            <h2 className="text-base font-extrabold">{tx(isEn, 'آخر الطلبات', 'Recent Orders')}</h2>
             {orders.length === 0 ? (
               <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                لا توجد طلبات بعد
+                {tx(isEn, 'لا توجد طلبات بعد', 'No orders yet')}
               </p>
             ) : (
               <div className="space-y-2">
@@ -1140,7 +1302,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     className="cursor-pointer rounded-2xl bg-orange-50/50 dark:bg-slate-800 p-3 flex items-center justify-between text-xs font-bold"
                   >
                     <span>
-                      #{ord.orderNumber} - {ord.customerName || 'عميل'}
+                      #{ord.orderNumber} - {ord.customerName || tx(isEn, 'عميل', 'Customer')}
                     </span>
                     <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
                       {formatMoney(ord.total, shop.country)}
@@ -1153,25 +1315,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
       </main>
 
-      {/* Floating WhatsApp Support Button Bottom Left */}
+      {/* Floating WhatsApp Support Button */}
       <a
         href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}`}
         target="_blank"
         rel="noreferrer"
-        aria-label="دعم واتساب"
-        className="fixed bottom-5 left-5 z-30 w-14 h-14 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white shadow-lg flex items-center justify-center transition-transform hover:scale-105"
+        aria-label={tx(isEn, 'دعم واتساب', 'WhatsApp Support')}
+        className={`fixed bottom-5 ${
+          isEn ? 'right-5' : 'left-5'
+        } z-30 w-14 h-14 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white shadow-lg flex items-center justify-center transition-transform hover:scale-105`}
       >
         <MessageCircle className="w-7 h-7" />
       </a>
 
-      {/* Right Side Drawer */}
+      {/* Side Drawer */}
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex">
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setDrawerOpen(false)} />
           <div className="relative z-10 w-80 max-w-[85vw] bg-white dark:bg-slate-900 h-full p-5 flex flex-col justify-between overflow-y-auto shadow-2xl">
             <div className="space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
-                <span className="font-extrabold text-lg">{shop.nameAr}</span>
+                <span className="font-extrabold text-lg">{displayShopName}</span>
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
@@ -1188,10 +1352,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setProductsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Utensils className="w-4 h-4 text-[#FF6A00]" />
-                  المنيو والأصناف
+                  {tx(isEn, 'المنيو والأصناف', 'Menu & Items')}
                 </button>
                 <button
                   type="button"
@@ -1199,26 +1363,26 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setOffersModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Tag className="w-4 h-4 text-[#FF6A00]" />
-                  قائمة العروض ({offerProducts.length})
+                  {tx(isEn, `قائمة العروض (${offerProducts.length})`, `Offers (${offerProducts.length})`)}
                 </button>
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-start"
                 >
                   <Home className="w-4 h-4" />
-                  الرئيسية
+                  {tx(isEn, 'الرئيسية', 'Home')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <LayoutGrid className="w-4 h-4 text-[#FF6A00]" />
-                  نظرة عامة
+                  {tx(isEn, 'نظرة عامة', 'Overview')}
                 </button>
                 <button
                   type="button"
@@ -1226,10 +1390,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setBellOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Bell className="w-4 h-4 text-[#FF6A00]" />
-                  الإشعارات
+                  {tx(isEn, 'الإشعارات', 'Notifications')}
                 </button>
                 <button
                   type="button"
@@ -1237,10 +1401,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     onOpenShareQr();
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Share2 className="w-4 h-4 text-[#FF6A00]" />
-                  مشاركة المنيو
+                  {tx(isEn, 'مشاركة المنيو', 'Share Menu & QR')}
                 </button>
                 <button
                   type="button"
@@ -1248,10 +1412,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     onOpenOrders();
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <ShoppingBag className="w-4 h-4 text-[#FF6A00]" />
-                  الطلبات
+                  {tx(isEn, 'الطلبات', 'Orders')}
                 </button>
                 <button
                   type="button"
@@ -1259,10 +1423,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setReportsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <BarChart3 className="w-4 h-4 text-[#FF6A00]" />
-                  التقارير
+                  {tx(isEn, 'التقارير', 'Reports')}
                 </button>
                 <button
                   type="button"
@@ -1270,10 +1434,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setSettingsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Settings className="w-4 h-4 text-[#FF6A00]" />
-                  الإعدادات واعدادات التوصيل
+                  {tx(isEn, 'الإعدادات واعدادات التوصيل', 'Settings & Delivery')}
                 </button>
                 {isAdminUser && (
                   <button
@@ -1282,10 +1446,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       setDrawerOpen(false);
                       onOpenAdmin();
                     }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-right"
+                    className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-start"
                   >
                     <QrCode className="w-4 h-4" />
-                    تفعيل المتاجر (Admin)
+                    {tx(isEn, 'تفعيل المتاجر (Admin)', 'Admin Stores Portal')}
                   </button>
                 )}
               </div>
@@ -1308,9 +1472,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   setDrawerOpen(false);
                   setSettingsModalOpen(true);
                 }}
-                className="w-full text-right px-2 py-1.5 hover:text-[#FF6A00]"
+                className="w-full text-start px-2 py-1.5 hover:text-[#FF6A00]"
               >
-                الإعدادات
+                {tx(isEn, 'الإعدادات', 'Settings')}
               </button>
               <button
                 type="button"
@@ -1318,9 +1482,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   setDrawerOpen(false);
                   setSubscriptionModalOpen(true);
                 }}
-                className="w-full text-right px-2 py-1.5 hover:text-[#FF6A00]"
+                className="w-full text-start px-2 py-1.5 hover:text-[#FF6A00]"
               >
-                الاشتراك والدفع
+                {tx(isEn, 'الاشتراك والدفع', 'Subscription & Billing')}
               </button>
               <button
                 type="button"
@@ -1328,51 +1492,68 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   setDrawerOpen(false);
                   setBellOpen(true);
                 }}
-                className="w-full text-right px-2 py-1.5 hover:text-[#FF6A00]"
+                className="w-full text-start px-2 py-1.5 hover:text-[#FF6A00]"
               >
-                الإشعارات
+                {tx(isEn, 'الإشعارات', 'Notifications')}
               </button>
 
               <div className="flex items-center justify-between px-2 py-1">
-                <span>اللغة</span>
+                <span>{tx(isEn, 'اللغة', 'Language')}</span>
                 <div className="inline-flex gap-1 bg-orange-50 dark:bg-slate-800 p-1 rounded-xl">
-                  {(['عربي', 'English'] as const).map((l) => (
-                    <button
-                      key={l}
-                      type="button"
-                      onClick={() => setUiLang(l)}
-                      className={`px-2 py-0.5 rounded-lg text-[11px] ${
-                        uiLang === l ? 'bg-[#FF6A00] text-white' : ''
-                      }`}
-                    >
-                      {l}
-                    </button>
-                  ))}
+                  {(
+                    [
+                      { code: 'ar' as const, label: 'عربي' },
+                      { code: 'en' as const, label: 'English' },
+                    ] as const
+                  ).map((item) => {
+                    const active = item.code === (isEn ? 'en' : 'ar');
+                    return (
+                      <button
+                        key={item.code}
+                        type="button"
+                        onClick={() => setLang(item.code)}
+                        className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-colors ${
+                          active ? 'bg-[#FF6A00] text-white' : 'text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="flex items-center justify-between px-2 py-1">
-                <span>المظهر</span>
+                <span>{tx(isEn, 'المظهر', 'Theme')}</span>
                 <div className="inline-flex gap-1 bg-orange-50 dark:bg-slate-800 p-1 rounded-xl">
-                  {(['فاتح', 'داكن', 'النظام'] as const).map((m) => (
+                  {(
+                    [
+                      { id: 'فاتح' as const, label: tx(isEn, 'فاتح', 'Light'), mode: 'light' as const },
+                      { id: 'داكن' as const, label: tx(isEn, 'داكن', 'Dark'), mode: 'dark' as const },
+                      { id: 'النظام' as const, label: tx(isEn, 'النظام', 'Auto'), mode: 'system' as const },
+                    ] as const
+                  ).map((m) => (
                     <button
-                      key={m}
+                      key={m.id}
                       type="button"
                       onClick={() => {
-                        setThemePref(m);
-                        onSetThemeMode(m === 'فاتح' ? 'light' : m === 'داكن' ? 'dark' : 'system');
+                        setThemePref(m.id);
+                        onSetThemeMode(m.mode);
                       }}
                       className={`px-2 py-0.5 rounded-lg text-[11px] ${
-                        themePref === m ? 'bg-[#FF6A00] text-white' : ''
+                        themePref === m.id ? 'bg-[#FF6A00] text-white' : ''
                       }`}
                     >
-                      {m}
+                      {m.label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <PWAInstallButton variant="drawer" label="تثبيت التطبيق (Android / iOS / PC)" />
+              <PWAInstallButton
+                variant="drawer"
+                label={tx(isEn, 'تثبيت التطبيق (Android / iOS / PC)', 'Install App (Android / iOS / PC)')}
+              />
 
               <button
                 type="button"
@@ -1380,7 +1561,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-amber-50"
               >
                 <LogOut className="w-4 h-4" />
-                تسجيل الخروج
+                {tx(isEn, 'تسجيل الخروج', 'Sign Out')}
               </button>
             </div>
           </div>
@@ -1392,7 +1573,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-5 sm:p-6 max-h-[90vh] flex flex-col justify-between shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
-              <h3 className="text-lg font-extrabold">إدارة الأصناف والأسعار</h3>
+              <h3 className="text-lg font-extrabold">
+                {tx(isEn, 'إدارة الأصناف والأسعار', 'Manage Menu Items & Prices')}
+              </h3>
               <button
                 type="button"
                 onClick={() => setProductsModalOpen(false)}
@@ -1402,16 +1585,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </button>
             </div>
 
-            <div className="overflow-y-auto space-y-4 flex-1 pr-1">
+            <div className="overflow-y-auto space-y-4 flex-1 pe-1">
               {/* Gemini AI Quick Extract */}
               <div className="bg-orange-50/70 dark:bg-orange-950/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border border-orange-100 dark:border-orange-900">
                 <div className="space-y-0.5">
                   <div className="font-extrabold text-sm flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-[#FF6A00]" />
-                    استيراد سريع بالذكاء الاصطناعي
+                    {tx(isEn, 'استيراد سريع بالذكاء الاصطناعي', 'Quick AI Menu Import')}
                   </div>
                   <div className="text-xs font-semibold text-slate-500">
-                    ارفع صورة أو أكثر للمنيو أو ملف PDF أو Excel لإضافة الأصناف تلقائياً
+                    {tx(
+                      isEn,
+                      'ارفع صورة أو أكثر للمنيو أو ملف PDF أو Excel لإضافة الأصناف تلقائياً',
+                      'Upload menu photos, PDF, or Excel files to auto-extract items'
+                    )}
                   </div>
                 </div>
                 <input
@@ -1430,7 +1617,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     className="px-3.5 py-2 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-[#FF6A00] dark:text-orange-300 font-bold text-xs inline-flex items-center gap-1.5"
                   >
                     <ImagePlus className="w-4 h-4" />
-                    تعبئة صور حقيقية للأصناف
+                    {tx(isEn, 'تعبئة صور حقيقية للأصناف', 'Auto-fill Dish Photos')}
                   </button>
                   <button
                     type="button"
@@ -1439,7 +1626,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     className="px-4 py-2 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-bold text-xs inline-flex items-center gap-1.5"
                   >
                     {aiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    {aiBusy ? 'جاري الاستخراج...' : 'رفع صور المنيو'}
+                    {aiBusy
+                      ? tx(isEn, 'جاري الاستخراج...', 'Extracting...')
+                      : tx(isEn, 'رفع صور المنيو', 'Upload Menu Files')}
                   </button>
                 </div>
                 {aiMessage && (
@@ -1454,14 +1643,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 onSubmit={handleAddProduct}
                 className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-orange-100 dark:border-slate-700 space-y-3"
               >
-                <div className="font-extrabold text-sm">إضافة صنف يدوي</div>
+                <div className="font-extrabold text-sm">
+                  {tx(isEn, 'إضافة صنف يدوي', 'Add Item Manually')}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <input
                     type="text"
                     required
                     value={prodName}
                     onChange={(e) => setProdName(e.target.value)}
-                    placeholder="اسم الصنف"
+                    placeholder={tx(isEn, 'اسم الصنف', 'Item name')}
                     className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
@@ -1469,7 +1660,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     required
                     value={prodCategory}
                     onChange={(e) => setProdCategory(e.target.value)}
-                    placeholder="التصنيف (مثال: مشويات)"
+                    placeholder={tx(isEn, 'التصنيف (مثال: مشويات)', 'Category (e.g. Grills)')}
                     className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
@@ -1478,7 +1669,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     min={0}
                     value={prodPrice}
                     onChange={(e) => setProdPrice(e.target.value)}
-                    placeholder={prodVariants.trim() ? 'السعر الأساسي (تلقائي)' : 'السعر'}
+                    placeholder={
+                      prodVariants.trim()
+                        ? tx(isEn, 'السعر الأساسي (تلقائي)', 'Base price (auto)')
+                        : tx(isEn, 'السعر', 'Price')
+                    }
                     className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                   />
                 </div>
@@ -1487,14 +1682,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     type="text"
                     value={prodDesc}
                     onChange={(e) => setProdDesc(e.target.value)}
-                    placeholder="وصف أو تفاصيل العرض كما هي في المنيو"
+                    placeholder={tx(
+                      isEn,
+                      'وصف أو تفاصيل العرض كما هي في المنيو',
+                      'Description or meal details'
+                    )}
                     className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
                     type="text"
                     value={prodBarcode}
                     onChange={(e) => setProdBarcode(e.target.value)}
-                    placeholder="الباركود (اختياري)"
+                    placeholder={tx(isEn, 'الباركود (اختياري)', 'Barcode (optional)')}
                     className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                 </div>
@@ -1502,7 +1701,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   type="text"
                   value={prodVariants}
                   onChange={(e) => setProdVariants(e.target.value)}
-                  placeholder="خيارات وأسعار (اختياري، افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000 أو نص كيلو - 215، كيلو - 420)"
+                  placeholder={tx(
+                    isEn,
+                    'خيارات وأسعار (اختياري، افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000 أو نص كيلو - 215، كيلو - 420)',
+                    'Options & prices (optional, comma-separated: Small - 80, Large - 140)'
+                  )}
                   className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                 />
                 <button
@@ -1511,7 +1714,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   className="px-5 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-bold text-xs inline-flex items-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
-                  {addingProd ? 'جاري الإضافة...' : 'إضافة الصنف'}
+                  {addingProd
+                    ? tx(isEn, 'جاري الإضافة...', 'Adding...')
+                    : tx(isEn, 'إضافة الصنف', 'Add Item')}
                 </button>
               </form>
 
@@ -1519,7 +1724,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <div className="space-y-2">
                 {sortedProducts.length === 0 ? (
                   <p className="text-center text-sm font-bold text-slate-500 py-6">
-                    لا توجد أصناف مضافة حتى الآن.
+                    {tx(isEn, 'لا توجد أصناف مضافة حتى الآن.', 'No items added yet.')}
                   </p>
                 ) : (
                   sortedProducts.map((p) => {
@@ -1546,7 +1751,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                             {shop.logoUrl && shop.showLogoOnItems && (
                               <img
                                 src={shop.logoUrl}
-                                alt="شعار"
+                                alt={tx(isEn, 'شعار', 'Logo')}
                                 className="w-4 h-4 rounded-full object-cover border border-white absolute top-0.5 right-0.5 bg-white"
                               />
                             )}
@@ -1555,7 +1760,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                             <div className="font-extrabold truncate">{p.name}</div>
                             <div className="text-slate-500 font-semibold">
                               {p.category} · {formatMoney(p.price, shop.country)}
-                              {p.isOffer && p.originalPrice ? ` (بدلاً من ${p.originalPrice})` : ''}
+                              {p.isOffer && p.originalPrice
+                                ? tx(isEn, ` (بدلاً من ${p.originalPrice})`, ` (was ${p.originalPrice})`)
+                                : ''}
                             </div>
                             {p.description && (
                               <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
@@ -1586,7 +1793,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                                 ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
                                 : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-orange-100 dark:border-slate-700'
                             }`}
-                            aria-label="تعديل"
+                            aria-label={tx(isEn, 'تعديل', 'Edit')}
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
@@ -1600,7 +1807,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                             }`}
                           >
                             <Tag className="w-3 h-3" />
-                            عرض
+                            {tx(isEn, 'عرض', 'Offer')}
                           </button>
                           <button
                             type="button"
@@ -1611,13 +1818,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                                 : 'bg-slate-200 text-slate-600'
                             }`}
                           >
-                            {p.available !== false ? 'متاح' : 'نفد'}
+                            {p.available !== false
+                              ? tx(isEn, 'متاح', 'In Stock')
+                              : tx(isEn, 'نفد', 'Out')}
                           </button>
                           <button
                             type="button"
                             onClick={() => void handleDeleteProductItem(p.id)}
                             className="p-1.5 text-slate-400 hover:text-amber-600"
-                            aria-label="حذف"
+                            aria-label={tx(isEn, 'حذف', 'Delete')}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -1631,7 +1840,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               type="text"
                               value={editProdName}
                               onChange={(e) => setEditProdName(e.target.value)}
-                              placeholder="اسم الصنف"
+                              placeholder={tx(isEn, 'اسم الصنف', 'Item name')}
                               className="sm:col-span-2 px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                             />
                             <input
@@ -1639,7 +1848,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               min={0}
                               value={editProdPrice}
                               onChange={(e) => setEditProdPrice(e.target.value)}
-                              placeholder="السعر"
+                              placeholder={tx(isEn, 'السعر', 'Price')}
                               className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                             />
                           </div>
@@ -1647,14 +1856,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                             type="text"
                             value={editProdDesc}
                             onChange={(e) => setEditProdDesc(e.target.value)}
-                            placeholder="الوصف أو نص العرض"
+                            placeholder={tx(isEn, 'الوصف أو نص العرض', 'Description or offer text')}
                             className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                           />
                           <input
                             type="text"
                             value={editProdVariants}
                             onChange={(e) => setEditProdVariants(e.target.value)}
-                            placeholder="الخيارات والأسعار (افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000)"
+                            placeholder={tx(
+                              isEn,
+                              'الخيارات والأسعار (افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000)',
+                              'Options & prices (comma-separated: Small - 80, Large - 140)'
+                            )}
                             className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                           />
                           <div className="flex items-center justify-end gap-2">
@@ -1663,7 +1876,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               onClick={() => setEditingProdId(null)}
                               className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-bold"
                             >
-                              إلغاء
+                              {tx(isEn, 'إلغاء', 'Cancel')}
                             </button>
                             <button
                               type="button"
@@ -1672,7 +1885,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                               className="px-4 py-1.5 rounded-xl bg-[#FF6A00] text-white font-bold inline-flex items-center gap-1"
                             >
                               <Check className="w-3.5 h-3.5" />
-                              {savingProdEdit ? 'جاري الحفظ...' : 'حفظ التعديل'}
+                              {savingProdEdit
+                                ? tx(isEn, 'جاري الحفظ...', 'Saving...')
+                                : tx(isEn, 'حفظ التعديل', 'Save Changes')}
                             </button>
                           </div>
                         </div>
@@ -1694,7 +1909,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <Tag className="w-5 h-5 text-[#FF6A00]" />
-                <h3 className="text-lg font-extrabold">إدارة قائمة العروض والخصومات</h3>
+                <h3 className="text-lg font-extrabold">
+                  {tx(isEn, 'إدارة قائمة العروض والخصومات', 'Manage Offers & Discounts')}
+                </h3>
               </div>
               <button
                 type="button"
@@ -1705,14 +1922,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </button>
             </div>
 
-            <div className="overflow-y-auto space-y-4 flex-1 pr-1">
+            <div className="overflow-y-auto space-y-4 flex-1 pe-1">
               {/* Create Standalone Offer Box */}
               <form
                 onSubmit={handleAddOffer}
                 className="bg-orange-50/60 dark:bg-slate-800 rounded-2xl p-4 border border-orange-200 dark:border-slate-700 space-y-3"
               >
                 <div className="font-extrabold text-sm text-orange-950 dark:text-orange-200">
-                  إضافة عرض جديد لقائمة العروض
+                  {tx(isEn, 'إضافة عرض جديد لقائمة العروض', 'Add a New Offer')}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <input
@@ -1720,14 +1937,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     required
                     value={offerName}
                     onChange={(e) => setOfferName(e.target.value)}
-                    placeholder="اسم العرض (مثال: بوكس المشويات العائلي)"
+                    placeholder={tx(
+                      isEn,
+                      'اسم العرض (مثال: بوكس المشويات العائلي)',
+                      'Offer title (e.g. Family Grill Box)'
+                    )}
                     className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                   <input
                     type="text"
                     value={offerCategory}
                     onChange={(e) => setOfferCategory(e.target.value)}
-                    placeholder="القسم (مثال: عروض خاصة)"
+                    placeholder={tx(isEn, 'القسم (مثال: عروض خاصة)', 'Category (e.g. Special Offers)')}
                     className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                 </div>
@@ -1738,7 +1959,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     min={1}
                     value={offerOriginalPrice}
                     onChange={(e) => setOfferOriginalPrice(e.target.value)}
-                    placeholder="السعر قبل الخصم"
+                    placeholder={tx(isEn, 'السعر قبل الخصم', 'Original price')}
                     className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                   />
                   <input
@@ -1747,14 +1968,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     min={0}
                     value={offerSalePrice}
                     onChange={(e) => setOfferSalePrice(e.target.value)}
-                    placeholder="سعر العرض بعد الخصم"
+                    placeholder={tx(isEn, 'سعر العرض بعد الخصم', 'Sale price')}
                     className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
                   />
                   <input
                     type="text"
                     value={offerLabel}
                     onChange={(e) => setOfferLabel(e.target.value)}
-                    placeholder="شارة (مثال: عرض اليوم)"
+                    placeholder={tx(isEn, 'شارة (مثال: عرض اليوم)', 'Badge (e.g. Hot Deal)')}
                     className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                 </div>
@@ -1764,18 +1985,28 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   className="px-5 py-2.5 rounded-full glass-btn-primary font-extrabold text-xs inline-flex items-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
-                  {addingOffer ? 'جاري إضافة العرض...' : 'نشر العرض في المنيو'}
+                  {addingOffer
+                    ? tx(isEn, 'جاري إضافة العرض...', 'Publishing offer...')
+                    : tx(isEn, 'نشر العرض في المنيو', 'Publish Offer')}
                 </button>
               </form>
 
               {/* Active Offers List */}
               <div className="space-y-2">
                 <div className="font-extrabold text-sm">
-                  العروض النشطة حالياً ({offerProducts.length})
+                  {tx(
+                    isEn,
+                    `العروض النشطة حالياً (${offerProducts.length})`,
+                    `Active Offers (${offerProducts.length})`
+                  )}
                 </div>
                 {offerProducts.length === 0 ? (
                   <div className="text-center text-xs font-bold text-slate-500 py-4 bg-white dark:bg-slate-800 rounded-2xl border border-orange-100 dark:border-slate-700">
-                    لا توجد عروض مفعلة بعد. أضف عرضاً جديداً أو اختر صنفاً من بالأسفل.
+                    {tx(
+                      isEn,
+                      'لا توجد عروض مفعلة بعد. أضف عرضاً جديداً أو اختر صنفاً من بالأسفل.',
+                      'No active offers yet. Create one above or promote an item below.'
+                    )}
                   </div>
                 ) : (
                   offerProducts.map((p) => (
@@ -1787,12 +2018,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         <div className="font-extrabold truncate">
                           {p.name}{' '}
                           <span className="text-[#FF6A00] dark:text-orange-300">
-                            · {p.offerLabel || 'عرض خاص'}
+                            · {p.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
                           </span>
                         </div>
                         <div className="font-bold text-slate-600 dark:text-slate-300 tabular-nums">
                           {p.originalPrice ? (
-                            <span className="line-through opacity-60 ml-2">
+                            <span className="line-through opacity-60 me-2">
                               {formatMoney(p.originalPrice, shop.country, 0)}
                             </span>
                           ) : null}
@@ -1806,7 +2037,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         onClick={() => void handleToggleProductOffer(p)}
                         className="px-3 py-1.5 rounded-full glass-btn text-amber-900 dark:text-amber-200 font-bold shrink-0"
                       >
-                        إيقاف العرض
+                        {tx(isEn, 'إيقاف العرض', 'Disable Offer')}
                       </button>
                     </div>
                   ))
@@ -1817,9 +2048,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               {sortedProducts.filter((p) => !p.isOffer).length > 0 && (
                 <div className="space-y-2">
                   <div className="font-extrabold text-sm">
-                    أو أضف أصنافاً من المنيو إلى قائمة العروض:
+                    {tx(
+                      isEn,
+                      'أو أضف أصنافاً من المنيو إلى قائمة العروض:',
+                      'Or promote existing menu items:'
+                    )}
                   </div>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pe-1">
                     {sortedProducts
                       .filter((p) => !p.isOffer)
                       .map((p) => (
@@ -1838,7 +2073,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                             onClick={() => void handleToggleProductOffer(p)}
                             className="px-3 py-1.5 rounded-full glass-btn-primary font-bold shrink-0"
                           >
-                            + إضافة للعروض
+                            {tx(isEn, '+ إضافة للعروض', '+ Add to Offers')}
                           </button>
                         </div>
                       ))}
@@ -1858,7 +2093,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">إعدادات المتجر والتوصيل والقالب</h3>
+              <h3 className="text-lg font-extrabold">
+                {tx(isEn, 'إعدادات المتجر والتوصيل والقالب', 'Store, Delivery & Template Settings')}
+              </h3>
               <button
                 type="button"
                 onClick={() => setSettingsModalOpen(false)}
@@ -1868,10 +2105,37 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </button>
             </div>
 
+            {/* Quick Interface Language Switch inside Settings */}
+            <div className="flex items-center justify-between rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/30 dark:bg-slate-800/50 px-4 py-2.5">
+              <span className="text-xs font-extrabold">{tx(isEn, 'لغة لوحة التحكم', 'Interface Language')}</span>
+              <div className="inline-flex gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border border-orange-100 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setLang('ar')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold ${
+                    !isEn ? 'bg-[#FF6A00] text-white' : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  عربي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLang('en')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold ${
+                    isEn ? 'bg-[#FF6A00] text-white' : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  English
+                </button>
+              </div>
+            </div>
+
             {/* Section 5: اعدادات التوصيل */}
             <div className="rounded-2xl border-2 border-orange-200 dark:border-orange-900/60 bg-orange-50/40 dark:bg-slate-800/80 p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-extrabold text-sm text-[#FF6A00]">اعدادات التوصيل</h4>
+                <h4 className="font-extrabold text-sm text-[#FF6A00]">
+                  {tx(isEn, 'اعدادات التوصيل', 'Delivery Settings')}
+                </h4>
                 <button
                   type="button"
                   onClick={() => setEditFreeDelivery((v) => !v)}
@@ -1881,30 +2145,34 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                   }`}
                 >
-                  التوصيل مجاني: {editFreeDelivery ? 'ON' : 'OFF'}
+                  {tx(isEn, 'التوصيل مجاني', 'Free Delivery')}: {editFreeDelivery ? 'ON' : 'OFF'}
                 </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold mb-1">سعر التوصيل (جنيه)</label>
+                  <label className="block text-xs font-bold mb-1">
+                    {tx(isEn, 'سعر التوصيل (جنيه)', 'Delivery Fee (EGP)')}
+                  </label>
                   <input
                     type="number"
                     min={0}
                     disabled={editFreeDelivery}
                     value={editFreeDelivery ? '0' : editDeliveryFee}
                     onChange={(e) => setEditDeliveryFee(e.target.value)}
-                    placeholder="مثال: 20"
+                    placeholder={tx(isEn, 'مثال: 20', 'e.g. 20')}
                     className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold tabular-nums disabled:opacity-60"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold mb-1">وقت التوصيل المتوقع</label>
+                  <label className="block text-xs font-bold mb-1">
+                    {tx(isEn, 'وقت التوصيل المتوقع', 'Estimated Delivery Time')}
+                  </label>
                   <input
                     type="text"
                     value={editDeliveryTime}
                     onChange={(e) => setEditDeliveryTime(e.target.value)}
-                    placeholder="30-45 دقيقة"
+                    placeholder={tx(isEn, '30-45 دقيقة', '30-45 mins')}
                     className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold"
                   />
                 </div>
@@ -1912,14 +2180,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
               <div>
                 <label className="block text-xs font-bold mb-1">
-                  الحد الأدنى للطلب للتوصيل المجاني (اختياري)
+                  {tx(
+                    isEn,
+                    'الحد الأدنى للطلب للتوصيل المجاني (اختياري)',
+                    'Minimum Order for Free Delivery (optional)'
+                  )}
                 </label>
                 <input
                   type="number"
                   min={0}
                   value={editFreeDeliveryMinOrder}
                   onChange={(e) => setEditFreeDeliveryMinOrder(e.target.value)}
-                  placeholder="مثال: 200 (لو الطلب فوق 200 جنيه التوصيل مجاني)"
+                  placeholder={tx(
+                    isEn,
+                    'مثال: 200 (لو الطلب فوق 200 جنيه التوصيل مجاني)',
+                    'e.g. 200 (free delivery on orders above 200)'
+                  )}
                   className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold tabular-nums"
                 />
               </div>
@@ -1930,7 +2206,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 onClick={() => void handleSaveDeliveryOnly()}
                 className="w-full py-2.5 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-xs transition-colors"
               >
-                {savingSettings ? 'جاري الحفظ...' : 'حفظ اعدادات التوصيل'}
+                {savingSettings
+                  ? tx(isEn, 'جاري الحفظ...', 'Saving...')
+                  : tx(isEn, 'حفظ اعدادات التوصيل', 'Save Delivery Settings')}
               </button>
               {deliverySavedToast && (
                 <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 text-center">
@@ -1942,21 +2220,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             {/* Section 5B: Fees & Taxes (All OFF by default) */}
             <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
-                <h4 className="font-extrabold text-sm">الرسوم والضرائب (معطلة افتراضياً)</h4>
+                <h4 className="font-extrabold text-sm">
+                  {tx(isEn, 'الرسوم والضرائب (معطلة افتراضياً)', 'Fees & Taxes (OFF by default)')}
+                </h4>
                 <span className="text-[11px] font-bold text-[#FF6A00]">
-                  سعر الأكل + التوصيل = الإجمالي
+                  {tx(isEn, 'سعر الأكل + التوصيل = الإجمالي', 'Subtotal + Delivery = Total')}
                 </span>
               </div>
 
               {forceZeroFeesGlobally && (
                 <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-3 py-2 text-[11px] font-extrabold text-amber-900 dark:text-amber-200">
-                  تنبيه: تم إلغاء جميع الرسوم والضرائب لكل المطاعم على مستوى المنصة من لوحة الأدمن.
+                  {tx(
+                    isEn,
+                    'تنبيه: تم إلغاء جميع الرسوم والضرائب لكل المطاعم على مستوى المنصة من لوحة الأدمن.',
+                    'Note: All fees & taxes are globally disabled across the platform by Admin.'
+                  )}
                 </div>
               )}
 
               {/* Service Fee Toggle */}
               <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
-                <span>تفعيل رسوم الخدمة</span>
+                <span>{tx(isEn, 'تفعيل رسوم الخدمة', 'Enable Service Fee')}</span>
                 <div className="flex items-center gap-2">
                   {editEnableServiceFee && (
                     <input
@@ -1985,7 +2269,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
               {/* VAT Toggle */}
               <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
-                <span>تفعيل الضريبة / VAT</span>
+                <span>{tx(isEn, 'تفعيل الضريبة / VAT', 'Enable VAT / Tax')}</span>
                 <div className="flex items-center gap-2">
                   {editEnableVat && (
                     <input
@@ -2014,7 +2298,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
               {/* Packaging Fee Toggle */}
               <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
-                <span>تفعيل رسوم التغليف</span>
+                <span>{tx(isEn, 'تفعيل رسوم التغليف', 'Enable Packaging Fee')}</span>
                 <div className="flex items-center gap-2">
                   {editEnablePackagingFee && (
                     <input
@@ -2022,7 +2306,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       min={0}
                       value={editPackagingFee}
                       onChange={(e) => setEditPackagingFee(e.target.value)}
-                      placeholder="ج"
+                      placeholder={tx(isEn, 'ج', 'EGP')}
                       className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-center tabular-nums"
                     />
                   )}
@@ -2042,7 +2326,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-bold mb-1">اسم النشاط</label>
+              <label className="block text-xs font-bold mb-1">
+                {tx(isEn, 'اسم النشاط', 'Restaurant Name')}
+              </label>
               <input
                 type="text"
                 value={editNameAr}
@@ -2052,7 +2338,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold mb-1">رقم واتساب الطلبات</label>
+                <label className="block text-xs font-bold mb-1">
+                  {tx(isEn, 'رقم واتساب الطلبات', 'Orders WhatsApp Number')}
+                </label>
                 <input
                   type="text"
                   dir="ltr"
@@ -2063,7 +2351,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold mb-1">العنوان</label>
+                <label className="block text-xs font-bold mb-1">
+                  {tx(isEn, 'العنوان', 'Address')}
+                </label>
                 <input
                   type="text"
                   value={editAddress}
@@ -2075,31 +2365,38 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
             {/* Template Switcher */}
             <div className="space-y-2 pt-1">
-              <label className="block text-xs font-extrabold">شكل وقالب المنيو</label>
+              <label className="block text-xs font-extrabold">
+                {tx(isEn, 'شكل وقالب المنيو', 'Menu Template')}
+              </label>
               <div className="grid grid-cols-2 gap-2">
-                {MENU_TEMPLATES.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => setEditTemplate(tpl.id)}
-                    className={`p-2.5 rounded-2xl border text-right text-xs transition-colors ${
-                      editTemplate === tpl.id
-                        ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] font-extrabold'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 font-bold'
-                    }`}
-                  >
-                    <div>{tpl.name}</div>
-                    <div className="text-[11px] font-medium text-slate-500 truncate">
-                      {tpl.tagline}
-                    </div>
-                  </button>
-                ))}
+                {MENU_TEMPLATES.map((tpl) => {
+                  const tplMeta = translateTemplateMeta(tpl.id, tpl.name, tpl.tagline, isEn);
+                  return (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => setEditTemplate(tpl.id)}
+                      className={`p-2.5 rounded-2xl border text-start text-xs transition-colors ${
+                        editTemplate === tpl.id
+                          ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] font-extrabold'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 font-bold'
+                      }`}
+                    >
+                      <div>{tplMeta.name}</div>
+                      <div className="text-[11px] font-medium text-slate-500 truncate">
+                        {tplMeta.tagline}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {/* Color Picker */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-extrabold">لون الهوية</label>
+              <label className="block text-xs font-extrabold">
+                {tx(isEn, 'لون الهوية', 'Brand Accent Color')}
+              </label>
               <div className="flex flex-wrap gap-2">
                 {['برتقالي', 'أخضر', 'أحمر', 'أزرق مخضر', 'أسود', 'لون آخر'].map((c) => (
                   <button
@@ -2116,7 +2413,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       style={{ backgroundColor: getShopThemeHex(c) }}
                       className="w-3 h-3 rounded-full"
                     />
-                    {c}
+                    {translateThemeColor(c, isEn)}
                   </button>
                 ))}
               </div>
@@ -2125,7 +2422,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             {/* Brand Logo Editor */}
             <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-extrabold">لوجو المطعم على الأصناف</span>
+                <span className="text-xs font-extrabold">
+                  {tx(isEn, 'لوجو المطعم على الأصناف', 'Store Logo on Dish Cards')}
+                </span>
                 <input
                   ref={logoInputRef}
                   type="file"
@@ -2140,7 +2439,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     className="px-3 py-1.5 rounded-full glass-btn-primary text-xs font-bold inline-flex items-center gap-1"
                   >
                     <ImagePlus className="w-3.5 h-3.5" />
-                    {editLogoUrl ? 'تغيير' : 'رفع لوجو'}
+                    {editLogoUrl ? tx(isEn, 'تغيير', 'Change') : tx(isEn, 'رفع لوجو', 'Upload Logo')}
                   </button>
                   {editLogoUrl && (
                     <button
@@ -2148,7 +2447,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       onClick={() => setEditLogoUrl('')}
                       className="px-2.5 py-1.5 rounded-full glass-btn text-xs font-bold text-amber-800"
                     >
-                      حذف
+                      {tx(isEn, 'حذف', 'Remove')}
                     </button>
                   )}
                 </div>
@@ -2159,11 +2458,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <div className="flex items-center gap-2">
                     <img
                       src={editLogoUrl}
-                      alt="شعار"
+                      alt={tx(isEn, 'شعار', 'Logo')}
                       className="w-9 h-9 rounded-full object-cover border border-white bg-white shadow-xs"
                     />
                     <span className="text-xs font-semibold">
-                      شارة دائرية على زاوية كل صنف
+                      {tx(isEn, 'شارة دائرية على زاوية كل صنف', 'Circular badge on each item corner')}
                     </span>
                   </div>
                   <button
@@ -2175,7 +2474,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         : 'bg-slate-200 dark:bg-slate-700'
                     }`}
                   >
-                    {editShowLogoOnItems ? 'مفعل' : 'متوقف'}
+                    {editShowLogoOnItems ? tx(isEn, 'مفعل', 'Active') : tx(isEn, 'متوقف', 'Paused')}
                   </button>
                 </div>
               )}
@@ -2185,9 +2484,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-xs font-extrabold">خلفية المطعم (ورا الاسم واللوجو)</div>
+                  <div className="text-xs font-extrabold">
+                    {tx(isEn, 'خلفية المطعم (ورا الاسم واللوجو)', 'Store Cover Banner')}
+                  </div>
                   <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    صورة تظهر خلف اسم مطعمك واللوجو في أعلى المنيو
+                    {tx(
+                      isEn,
+                      'صورة تظهر خلف اسم مطعمك واللوجو في أعلى المنيو',
+                      'Displayed behind your logo & name at the top of the menu'
+                    )}
                   </div>
                 </div>
                 <input
@@ -2204,7 +2509,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     className="px-3 py-1.5 rounded-full glass-btn-primary text-xs font-bold inline-flex items-center gap-1"
                   >
                     <ImagePlus className="w-3.5 h-3.5" />
-                    {editCoverImage ? 'تغيير' : 'رفع خلفية'}
+                    {editCoverImage
+                      ? tx(isEn, 'تغيير', 'Change')
+                      : tx(isEn, 'رفع خلفية', 'Upload Cover')}
                   </button>
                   {editCoverImage && (
                     <button
@@ -2212,7 +2519,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       onClick={() => setEditCoverImage('')}
                       className="px-2.5 py-1.5 rounded-full glass-btn text-xs font-bold text-amber-800"
                     >
-                      حذف
+                      {tx(isEn, 'حذف', 'Remove')}
                     </button>
                   )}
                 </div>
@@ -2223,7 +2530,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <>
                     <img
                       src={editCoverImage}
-                      alt="خلفية المطعم"
+                      alt={tx(isEn, 'خلفية المطعم', 'Restaurant Cover')}
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/40 to-slate-950/15" />
@@ -2238,7 +2545,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   {editLogoUrl ? (
                     <img
                       src={editLogoUrl}
-                      alt="شعار"
+                      alt={tx(isEn, 'شعار', 'Logo')}
                       className="w-10 h-10 rounded-xl object-cover border-2 border-white bg-white shadow-xs shrink-0"
                     />
                   ) : (
@@ -2255,14 +2562,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         editCoverImage ? 'text-white' : 'text-slate-900 dark:text-white'
                       }`}
                     >
-                      {editNameAr || shop.nameAr}
+                      {editNameAr || displayShopName}
                     </div>
                     <div
                       className={`text-[10px] font-bold ${
                         editCoverImage ? 'text-orange-200' : 'text-[#FF6A00] dark:text-orange-300'
                       }`}
                     >
-                      معاينة الخلفية واللوجو
+                      {tx(isEn, 'معاينة الخلفية واللوجو', 'Cover & Logo Preview')}
                     </div>
                   </div>
                 </div>
@@ -2274,7 +2581,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               disabled={savingSettings}
               className="w-full py-3 rounded-full glass-btn-primary font-extrabold text-sm"
             >
-              {savingSettings ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+              {savingSettings
+                ? tx(isEn, 'جاري الحفظ...', 'Saving...')
+                : tx(isEn, 'حفظ التعديلات', 'Save Changes')}
             </button>
           </form>
         </div>
@@ -2285,7 +2594,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">ملخص التقارير</h3>
+              <h3 className="text-lg font-extrabold">{tx(isEn, 'ملخص التقارير', 'Reports Summary')}</h3>
               <button
                 type="button"
                 onClick={() => setReportsModalOpen(false)}
@@ -2296,23 +2605,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
             <div className="space-y-2.5 text-sm font-bold">
               <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
-                <span>إجمالي الطلبات</span>
+                <span>{tx(isEn, 'إجمالي الطلبات', 'Total Orders')}</span>
                 <span className="tabular-nums">{orders.length}</span>
               </div>
               <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
-                <span>طلبات الكاشير</span>
+                <span>{tx(isEn, 'طلبات الكاشير', 'Cashier POS Orders')}</span>
                 <span className="tabular-nums">
                   {orders.filter((o) => o.source === 'cashier').length}
                 </span>
               </div>
               <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
-                <span>طلبات المنيو</span>
+                <span>{tx(isEn, 'طلبات المنيو', 'Online Menu Orders')}</span>
                 <span className="tabular-nums">
                   {orders.filter((o) => o.source === 'menu').length}
                 </span>
               </div>
               <div className="flex justify-between p-3 rounded-2xl bg-orange-100 dark:bg-orange-950/60">
-                <span>إجمالي المبيعات</span>
+                <span>{tx(isEn, 'إجمالي المبيعات', 'Total Sales')}</span>
                 <span className="text-[#FF6A00] dark:text-orange-300 tabular-nums">
                   {formatMoney(todaySales, shop.country)}
                 </span>
@@ -2327,7 +2636,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">الاشتراك والتفعيل — غزالة Ghazalo</h3>
+              <h3 className="text-lg font-extrabold">
+                {tx(isEn, 'الاشتراك والتفعيل — غزالة Ghazalo', 'Subscription & Activation — Ghazalo')}
+              </h3>
               <button
                 type="button"
                 onClick={() => setSubscriptionModalOpen(false)}
@@ -2338,52 +2649,129 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
             <div className="bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800 rounded-2xl p-4 space-y-1">
               <div className="font-extrabold text-sm">
-                الحالة الحالية:{' '}
+                {tx(isEn, 'الحالة الحالية:', 'Current Status:')}{' '}
                 {isPaidSubscription
-                  ? `مفعل حتى تاريخ ${shopAccess.expirationDateFormatted}`
-                  : 'فترة تجريبية مجانية (7 أيام)'}
+                  ? tx(
+                      isEn,
+                      `مفعل حتى تاريخ ${shopAccess.expirationDateFormatted}`,
+                      `Active until ${shopAccess.expirationDateFormatted}`
+                    )
+                  : tx(isEn, 'فترة تجريبية مجانية (7 أيام)', '7-Day Free Trial')}
               </div>
               <div className="text-xs font-bold text-slate-600 dark:text-slate-300 tabular-nums">
-                الأيام المتبقية: {daysRemaining} يوم
+                {tx(isEn, `الأيام المتبقية: ${daysRemaining} يوم`, `Days remaining: ${daysRemaining} days`)}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2.5 text-center">
-              <div className="rounded-2xl border border-orange-200 dark:border-slate-700 p-3 space-y-0.5">
-                <div className="text-xs font-bold text-slate-500">اشتراك شهري (30 يوم)</div>
-                <div className="text-base font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                  {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / شهري
+              <button
+                type="button"
+                onClick={() => setSelectedSubscriptionPlan('monthly')}
+                aria-pressed={selectedSubscriptionPlan === 'monthly'}
+                className={`relative rounded-2xl p-3 space-y-1 transition-all cursor-pointer text-center ${
+                  selectedSubscriptionPlan === 'monthly'
+                    ? 'border-2 border-[#FF6A00] bg-orange-50/70 dark:bg-orange-950/35 shadow-sm'
+                    : 'border border-orange-200 dark:border-slate-700 hover:border-[#FF6A00]/60 bg-white dark:bg-slate-900/40'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-1">
+                  {selectedSubscriptionPlan === 'monthly' && (
+                    <span className="w-4 h-4 rounded-full bg-[#FF6A00] text-white inline-flex items-center justify-center shrink-0">
+                      <Check className="w-2.5 h-2.5" />
+                    </span>
+                  )}
+                  <span
+                    className={`text-xs font-bold ${
+                      selectedSubscriptionPlan === 'monthly'
+                        ? 'text-[#FF6A00] dark:text-orange-300'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {tx(isEn, 'اشتراك شهري (30 يوم)', 'Monthly Plan (30 days)')}
+                  </span>
                 </div>
-              </div>
-              <div className="rounded-2xl border-2 border-[#FF6A00] bg-orange-50/60 dark:bg-orange-950/30 p-3 space-y-1">
-                <div className="text-xs font-bold text-[#FF6A00] dark:text-orange-300">
-                  اشتراك سنوي (365 يوم)
+                <div className="text-base font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                  {SUBSCRIPTION_PRICING.MONTHLY_EGP} {tx(isEn, 'جنيه / شهري', 'EGP / mo')}
+                </div>
+                <div
+                  className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    selectedSubscriptionPlan === 'monthly'
+                      ? 'bg-[#FF6A00] text-white'
+                      : 'bg-orange-50 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                  }`}
+                >
+                  {selectedSubscriptionPlan === 'monthly'
+                    ? tx(isEn, 'الباقة المحددة', 'Selected Plan')
+                    : tx(isEn, 'تفعيل شهري', 'Select Monthly')}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedSubscriptionPlan('yearly')}
+                aria-pressed={selectedSubscriptionPlan === 'yearly'}
+                className={`relative rounded-2xl p-3 space-y-1 transition-all cursor-pointer text-center ${
+                  selectedSubscriptionPlan === 'yearly'
+                    ? 'border-2 border-[#FF6A00] bg-orange-50/70 dark:bg-orange-950/35 shadow-sm'
+                    : 'border border-orange-200 dark:border-slate-700 hover:border-[#FF6A00]/60 bg-white dark:bg-slate-900/40'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-1">
+                  {selectedSubscriptionPlan === 'yearly' && (
+                    <span className="w-4 h-4 rounded-full bg-[#FF6A00] text-white inline-flex items-center justify-center shrink-0">
+                      <Check className="w-2.5 h-2.5" />
+                    </span>
+                  )}
+                  <span
+                    className={`text-xs font-bold ${
+                      selectedSubscriptionPlan === 'yearly'
+                        ? 'text-[#FF6A00] dark:text-orange-300'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {tx(isEn, 'اشتراك سنوي (365 يوم)', 'Yearly Plan (365 days)')}
+                  </span>
                 </div>
                 <div className="text-base font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                  {SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / سنوي
+                  {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / yr')}
                 </div>
                 <div className="inline-block px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[10px] font-extrabold">
-                  وفّر {SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه
+                  {tx(
+                    isEn,
+                    `وفّر ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه`,
+                    `Save ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} EGP`
+                  )}
                 </div>
-              </div>
+              </button>
             </div>
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              لتجديد اشتراكك وتفعيل المنيو فوراً، تواصل مباشرة مع إدارة غزالة عبر واتساب أو الإيميل:
+              {tx(
+                isEn,
+                `لتجديد اشتراكك وتفعيل المنيو فوراً (${selectedSubscriptionPlan === 'monthly' ? 'اشتراك شهري 600 جنيه' : 'اشتراك سنوي 3000 جنيه'})، تواصل مباشرة مع إدارة غزالة عبر واتساب أو الإيميل:`,
+                `To renew and activate immediately (${selectedSubscriptionPlan === 'monthly' ? 'Monthly 600 EGP' : 'Yearly 3000 EGP'}), contact Ghazalo team via WhatsApp or Email:`
+              )}
             </p>
             <div className="space-y-2">
               <a
                 href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
-                  `مرحباً إدارة غزالة، أرغب في تفعيل اشتراك مطعم ${shop.nameAr} (${storeSlug})`
+                  `مرحباً إدارة غزالة، أرغب في تفعيل ${
+                    selectedSubscriptionPlan === 'monthly'
+                      ? `الاشتراك الشهري (${SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / 30 يوم)`
+                      : `الاشتراك السنوي (${SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / 365 يوم)`
+                  } لمطعم ${shop.nameAr} (${storeSlug})`
                 )}`}
                 target="_blank"
                 rel="noreferrer"
                 className="w-full py-3 rounded-full glass-btn-primary font-bold text-sm flex items-center justify-center gap-2"
               >
                 <MessageCircle className="w-4 h-4" />
-                <span>تواصل للتفعيل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
+                <span>
+                  {tx(isEn, 'تواصل للتفعيل واتساب:', 'Activate via WhatsApp:')}{' '}
+                  {SUPPORT_CONTACT.PHONE_DISPLAY}
+                </span>
               </a>
               <a
                 href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${encodeURIComponent(
-                  `تفعيل اشتراك متجر ${shop.nameAr}`
+                  `تفعيل ${selectedSubscriptionPlan === 'monthly' ? 'اشتراك شهري' : 'اشتراك سنوي'} لمتجر ${shop.nameAr}`
                 )}`}
                 className="w-full py-3 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 font-bold text-xs flex items-center justify-center gap-2"
               >

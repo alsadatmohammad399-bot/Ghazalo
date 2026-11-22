@@ -235,17 +235,29 @@ export function getMenuTemplateConfig(id?: string | null): MenuTemplateConfig {
   return MENU_TEMPLATE_CONFIGS[normalizeMenuTemplateId(id)];
 }
 
+const ARABIC_TO_LATIN_MAP: Record<string, string> = {
+  أ: 'a', إ: 'e', آ: 'a', ا: 'a', ى: 'a', ب: 'b', ت: 't', ة: 'a', ث: 'th',
+  ج: 'g', ح: 'h', خ: 'kh', د: 'd', ذ: 'z', ر: 'r', ز: 'z', س: 's', ش: 'sh',
+  ص: 's', ض: 'd', ط: 't', ظ: 'z', ع: 'a', غ: 'gh', ف: 'f', ق: 'q', ك: 'k',
+  ل: 'l', م: 'm', ن: 'n', ه: 'h', و: 'w', ؤ: 'o', ي: 'y', ئ: 'e', ء: '',
+};
+
 export function normalizeStoreSlug(raw: string): string {
-  const cleaned = (raw || '')
+  const withoutOrigin = (raw || '')
     .trim()
-    .toLowerCase()
-    .replace(/https?:\/\//g, '')
-    .replace(/\.ghazalo\.com.*$/i, '')
+    .replace(/^https?:\/\/[^/]+/i, '')
+    .replace(/^\/?menu\//i, '')
+    .replace(/^\/?dashboard\//i, '');
+
+  const transliterated = Array.from(withoutOrigin.toLowerCase())
+    .map((ch) => (ARABIC_TO_LATIN_MAP[ch] !== undefined ? ARABIC_TO_LATIN_MAP[ch] : ch))
+    .join('');
+
+  return transliterated
     .replace(/[^a-z0-9-]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60);
-  return cleaned;
 }
 
 export const SUBSCRIPTION_PRICING = {

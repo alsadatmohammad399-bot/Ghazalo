@@ -1,30 +1,40 @@
 import React, { useState } from 'react';
 import {
-  ChevronDown,
-  Menu,
-  Moon,
-  Sun,
-  User,
-  X,
-  QrCode,
-  ShoppingBag,
-  Monitor,
-  Boxes,
-  TrendingUp,
-  ShieldCheck,
-  Users,
   Check,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  Menu,
   MessageCircle,
-  Sparkles,
-  Phone,
-  Mail,
-  ArrowLeft,
+  Moon,
+  Plus,
+  Minus,
+  ShieldCheck,
+  Sun,
+  X,
 } from 'lucide-react';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../firebase';
 import { GhazaloLogo } from '../components/BrandLogo';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { DEMO_PROJECTS } from '../data/demoProjects';
-import { QrCodeImage, downloadQrPng, downloadQrSvg, downloadQrPdf } from '../components/QrToolkit';
-import type { DemoProject } from '../types';
+import { SUPPORT_CONTACT, type DemoProject, type DemoRestaurantRecord } from '../types';
+import { phoneToAuthEmail, toAsciiDigits } from '../utils/authHelpers';
+import {
+  findLocalRestaurantByIdentifier,
+  findLocalUserByEmailOrPhone,
+  getLocalRestaurants,
+  getLocalUsers,
+  normalizeEgyptianPhone,
+  registerDemoAccount,
+  saveLocalRestaurants,
+  saveLocalUsers,
+  setAuthSessionStorage,
+} from '../utils/storeRegistry';
 
 interface LandingPageProps {
   darkMode: boolean;
@@ -35,128 +45,88 @@ interface LandingPageProps {
   onNavigateDashboard: () => void;
   onOpenAdminPanel?: () => void;
   onOpenDemoMenu: (demo: DemoProject, planName?: string) => void;
+  onOpenStoreMenu?: (storeSlug: string) => void;
+  onStoreLoginSuccess?: (payload: {
+    storeSlug: string;
+    shopId: string;
+    token: string;
+    record?: DemoRestaurantRecord | null;
+  }) => void;
 }
 
-const FEATURE_CARDS = [
+const FEATURES_LIST = [
   {
-    title: 'الطلب من الطاولة',
-    desc: 'العميل يمسح رمز QR على الطاولة ويطلب مباشرة دون انتظار الويتر.',
-    icon: QrCode,
-    bg: 'bg-orange-50 dark:bg-orange-950/40',
-    iconBg: 'bg-[#FF6A00] text-white',
-    border: 'border-orange-100 dark:border-orange-900/60',
+    emoji: '🍔',
+    title: 'الأكل بالصور والأسعار',
+    desc: 'منيو واضح وسهل، الزبون يلاقي كل حاجة في ثانية',
+    span: 'md:col-span-3',
   },
   {
-    title: 'كاشير لا يتوقف',
-    desc: 'نقطة بيع سريعة تدعم الصالة والتيك أواي والدليفري وحساب الطلب بدقة.',
-    icon: Monitor,
-    bg: 'bg-amber-50 dark:bg-amber-950/30',
-    iconBg: 'bg-amber-500 text-white',
-    border: 'border-amber-100 dark:border-amber-900/50',
+    emoji: '🛒',
+    title: 'طلب أونلاين يوصلك على الواتساب',
+    desc: 'الطلب يجيلك على واتسابك على طول، من غير عمولة',
+    span: 'md:col-span-3',
   },
   {
-    title: 'مخزون يخصم تلقائياً',
-    desc: 'راقب الكميات المتاحة وأوقف الأصناف المنتهية بضغطة زر لحظياً.',
-    icon: Boxes,
-    bg: 'bg-slate-50 dark:bg-slate-900/60',
-    iconBg: 'bg-slate-900 text-white',
-    border: 'border-slate-200 dark:border-slate-800',
+    emoji: '📅',
+    title: 'حجز ترابيزات بضغطة',
+    desc: 'الزبون يحجز ترابيزته من المنيو نفسه',
+    span: 'md:col-span-2',
   },
   {
-    title: 'الربح والخسارة',
-    desc: 'ملخص فوري لمبيعات اليوم وعدد الطلبات وأكثر الأقسام مبيعاً.',
-    icon: TrendingUp,
-    bg: 'bg-sky-50 dark:bg-sky-950/30',
-    iconBg: 'bg-sky-600 text-white',
-    border: 'border-sky-100 dark:border-sky-900/50',
+    emoji: '⭐',
+    title: 'تقييمات عملاءك وداتا ترجعلهم بيها',
+    desc: 'شوف ارقام عملاءك وابعتلهم عروض',
+    span: 'md:col-span-2',
   },
   {
-    title: 'صلاحيات ونقدية',
-    desc: 'فصل كامل بين كاشير الصالة وطلبات المنيو مع تسجيل المبالغ المدفوعة.',
-    icon: ShieldCheck,
-    bg: 'bg-orange-50/70 dark:bg-orange-950/30',
-    iconBg: 'bg-[#E55E00] text-white',
-    border: 'border-orange-100 dark:border-orange-900/50',
-  },
-  {
-    title: 'عملاء يعودون',
-    desc: 'قائمة سريعة وتجربة طلب سلسة تشجع عملاءك على تكرار الطلب بدون عمولة.',
-    icon: Users,
-    bg: 'bg-amber-50/70 dark:bg-amber-950/30',
-    iconBg: 'bg-orange-600 text-white',
-    border: 'border-orange-100 dark:border-orange-900/50',
+    emoji: '📱',
+    title: 'لوحة تحكم تغيّر منها الأسعار والعروض في ثانية',
+    desc: 'من موبايلك، غير سعر، ضيف صنف، وقف صنف',
+    span: 'md:col-span-2',
   },
 ];
 
-const PRICING_PLANS = [
+const HOW_IT_WORKS_STEPS = [
   {
-    id: 'starter',
-    name: 'بداية (7 أيام مجاناً)',
-    monthlyPrice: 0,
-    yearlyTotal: 0,
-    periodLabel: 'تجربة مجانية كاملة',
-    subtitle: 'ابدأ فوراً وصوّر المنيو لتجربة كل المزايا 7 أيام',
-    highlighted: false,
-    features: [
-      'تجربة كاملة لمدة 7 أيام بدون بطاقة',
-      'رفع عدة صور للمنيو بالذكاء الاصطناعي',
-      'إضافة صور حقيقية وترتيب ذكي للأصناف',
-      'قوالب متعددة وإضافة لوجو على الأصناف',
-    ],
+    num: '01',
+    title: 'سجل بالايميل او رقم الموبايل',
+    desc: 'افتح حساب مطعمك في أقل من دقيقة بدون بطاقة بنكية.',
   },
   {
-    id: 'monthly',
-    name: 'الباقة الشهرية المتكاملة',
-    monthlyPrice: 600,
-    yearlyTotal: 3000,
-    periodLabel: '/ شهرياً',
-    subtitle: 'اشتراك شهري شامل المنيو والكاشير والعروض',
-    highlighted: true,
-    features: [
-      'تجديد شهري مرن بـ 600 جنيه / شهري',
-      'استقبال طلبات غير محدود بدون عمولة',
-      'قائمة عروض خاصة وتصميم القالب باللوجو',
-      'نظام كاشير POS ورموز طاولات QR',
-    ],
+    num: '02',
+    title: 'ضيف اصنافك وصورك واسعارك',
+    desc: 'رتّب أقسام المنيو بالصور والأسعار والعروض بسهولة من موبايلك.',
   },
   {
-    id: 'yearly',
-    name: 'الباقة السنوية الشاملة',
-    monthlyPrice: 600,
-    yearlyTotal: 3000,
-    forceAnnual: true,
-    periodLabel: '/ سنوياً',
-    subtitle: 'سنة كاملة بـ 3,000 جنيه بدلاً من 7,200 جنيه — وفّر 4200 جنيه',
-    highlighted: false,
-    features: [
-      'وفّر 4200 جنيه سنوياً مقارنة بالاشتراك الشهري',
-      'تفعيل فوري لمدة 365 يوماً بعد التواصل مع الإدارة',
-      'أولوية في الدعم الفني والتحديثات',
-      'كافة القوالب والأزرار الزجاجية والعروض',
-    ],
+    num: '03',
+    title: 'خد لينك المنيو وانشره',
+    desc: 'مثال: /menu/kebda-masr — شاركه على واتساب وإنستجرام وعلى الترابيزات.',
+    exampleSlug: 'kebda-masr',
   },
 ];
 
-const FAQ_ITEMS = [
+const MOCKUP_MENU_ITEMS = [
   {
-    q: 'هل أحتاج أدخل المنيو صنف صنف؟',
-    a: 'لا إطلاقاً! ارفع عدة صور للمنيو الورقي أو ملف PDF أو Excel دفعة واحدة، وسيقوم الذكاء الاصطناعي بقراءة الأقسام وترتيبها وإضافة صور حقيقية للأصناف في دقائق.',
+    id: 'm1',
+    name: 'ساندوتش كبدة إسكندراني',
+    desc: 'عيش بلدي طازج مع فلفل حار وطحينة',
+    price: 65,
+    image: '/src/assets/images/dish_liver_sausage_1795092514076.jpg',
   },
   {
-    q: 'هل أحتاج بطاقة ائتمان؟',
-    a: 'لا، تبدأ تجربتك المجانية لمدة 7 أيام بدون إدخال أي بيانات بطاقة وبدون أي خصم تلقائي.',
+    id: 'm2',
+    name: 'طبق كفتة مشوية على الفحم',
+    desc: 'أرز بسمتي وسلطة طحينة وعيش سخن',
+    price: 140,
+    image: '/src/assets/images/dish_kebab_kofta_1795092513923.jpg',
   },
   {
-    q: 'ماذا يحدث بعد 7 أيام؟',
-    a: 'تبقى بياناتك وأصنافك محفوظة تماماً، ويتوقف المنيو لحين التواصل مع إدارة غزالو وتفعيل الاشتراك (600 جنيه شهرياً أو 3,000 جنيه سنوياً — وفّر 4200 جنيه).',
-  },
-  {
-    q: 'هل يمكن للعملاء الطلب من المنيو؟',
-    a: 'نعم، يدعم المنيو استقبال الطلبات للتوصيل أو الاستلام من الفرع أو الطلب من الطاولة مباشرة مع إرسال الطلب فوراً للوحة التحكم بدون أي عمولة.',
-  },
-  {
-    q: 'موظفيني ليسوا تقنيين هل هيعرفوا يستخدموه؟',
-    a: 'نعم، تم تصميم شاشة الكاشير ولوحة التحكم باللغة العربية بالكامل وبخطوات واضحة وبسيطة لا تحتاج لأي خبرة تقنية سابقة.',
+    id: 'm3',
+    name: 'موهيتو ليمون ونعناع فريش',
+    desc: 'مشروب بارد منعش',
+    price: 35,
+    image: '/src/assets/images/dish_mint_mojito_1795092514106.jpg',
   },
 ];
 
@@ -169,565 +139,890 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onNavigateDashboard,
   onOpenAdminPanel,
   onOpenDemoMenu,
+  onOpenStoreMenu,
+  onStoreLoginSuccess,
 }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [annualBilling, setAnnualBilling] = useState(false);
-  const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
-  const [contactModalOpen, setContactModalOpen] = useState(false);
-  const [qrToolOpen, setQrToolOpen] = useState(false);
-  const [qrToolUrl, setQrToolUrl] = useState('https://ghazalo.app/menu/demo');
-  const [legalModal, setLegalModal] = useState<'privacy' | 'terms' | 'refund' | null>(null);
+
+  // Interactive Phone Mockup Cart State
+  const [mockupCounts, setMockupCounts] = useState<Record<string, number>>({
+    m1: 1,
+    m2: 0,
+    m3: 1,
+  });
+
+  // Modals: Signup | Login | Forgot Password
+  const [signupModalOpen, setSignupModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<'trial' | 'monthly' | 'yearly'>('trial');
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [forgotModalOpen, setForgotModalOpen] = useState(false);
+
+  // Signup Form State
+  const [signupName, setSignupName] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPhone, setSignupPhone] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
+  const [showSignupPass, setShowSignupPass] = useState(false);
+  const [signupError, setSignupError] = useState('');
+  const [signupLoading, setSignupLoading] = useState(false);
+  const [signupSuccessData, setSignupSuccessData] = useState<{
+    storeSlug: string;
+    shopId: string;
+    token: string;
+    record?: DemoRestaurantRecord | null;
+  } | null>(null);
+  const [copiedNewLink, setCopiedNewLink] = useState(false);
+
+  // Login Form State (Email OR Phone ONLY)
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPass, setShowLoginPass] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Forgot Password State (2-Step: Email/Phone + 6-digit Admin Code)
+  const [forgotStep, setForgotStep] = useState<1 | 2>(1);
+  const [forgotIdentifier, setForgotIdentifier] = useState('');
+  const [forgotCode, setForgotCode] = useState('');
+  const [forgotNewPass, setForgotNewPass] = useState('');
+  const [forgotConfirmPass, setForgotConfirmPass] = useState('');
+  const [showForgotPass, setShowForgotPass] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
+  const [forgotBusy, setForgotBusy] = useState(false);
+
+  const mockupTotal = MOCKUP_MENU_ITEMS.reduce(
+    (sum, item) => sum + item.price * (mockupCounts[item.id] || 0),
+    0
+  );
+  const mockupQty = Object.values(mockupCounts).reduce((a, b) => a + b, 0);
+
+  const openSignupModal = (plan: 'trial' | 'monthly' | 'yearly' = 'trial') => {
+    setSelectedPlan(plan);
+    setSignupError('');
+    setSignupSuccessData(null);
+    setCopiedNewLink(false);
+    setSignupModalOpen(true);
+    setLoginModalOpen(false);
+  };
+
+  const openLoginModal = () => {
+    setLoginError('');
+    setLoginModalOpen(true);
+    setSignupModalOpen(false);
+  };
+
+  const openForgotModal = () => {
+    setForgotError('');
+    setForgotSuccess('');
+    setForgotStep(1);
+    setForgotIdentifier(loginIdentifier || '');
+    setForgotCode('');
+    setForgotNewPass('');
+    setForgotConfirmPass('');
+    setForgotModalOpen(true);
+  };
+
+  const openLiveDemo = () => {
+    if (onOpenStoreMenu) {
+      onOpenStoreMenu('kebda-masr');
+      return;
+    }
+    onOpenDemoMenu(DEMO_PROJECTS[0]);
+  };
+
+  const handleMockupWhatsapp = () => {
+    const picked = MOCKUP_MENU_ITEMS.filter((i) => (mockupCounts[i.id] || 0) > 0);
+    const lines =
+      picked.length > 0
+        ? picked.map((i) => `- ${i.name} × ${mockupCounts[i.id]} = ${i.price * mockupCounts[i.id]} ج`)
+        : ['- ساندوتش كبدة إسكندراني × 1 = 65 ج'];
+    const total = picked.length > 0 ? mockupTotal : 65;
+    const text = encodeURIComponent(
+      `طلب تجريبي من منيو كبدة مصر (/menu/kebda-masr):\n${lines.join('\n')}\nالإجمالي: ${total} جنيه`
+    );
+    window.location.href = `https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${text}`;
+  };
+
+  const handleSignupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSignupError('');
+
+    if (signupPassword.length < 6) {
+      setSignupError('كلمة السر يجب أن تكون 6 أحرف أو أرقام على الأقل.');
+      return;
+    }
+    if (signupPassword !== signupConfirmPassword) {
+      setSignupError('كلمة السر وتأكيد كلمة السر غير متطابقتين.');
+      return;
+    }
+
+    setSignupLoading(true);
+    try {
+      const normalizedPhone = normalizeEgyptianPhone(signupPhone);
+      const res = registerDemoAccount({
+        restaurantName: signupName,
+        email: signupEmail,
+        phone: normalizedPhone,
+        password: signupPassword,
+        plan: selectedPlan,
+      });
+
+      if (!res.ok || !res.user || !res.token) {
+        setSignupError(res.error || 'يرجى التأكد من البيانات المدخلة.');
+        return;
+      }
+
+      // Sync with backend credential store for admin password management & 6-digit recovery
+      try {
+        await fetch('/api/store-auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shopId: res.user.shopId,
+            storeSlug: res.user.storeSlug,
+            nameAr: res.user.restaurantName,
+            email: res.user.email,
+            phone: res.user.phone,
+            password: signupPassword,
+          }),
+        });
+      } catch {
+        // non-blocking localStorage demo works offline
+      }
+
+      setSignupSuccessData({
+        storeSlug: res.user.storeSlug,
+        shopId: res.user.shopId,
+        token: res.token,
+        record: res.record,
+      });
+    } finally {
+      setSignupLoading(false);
+    }
+  };
+
+  const handleEnterDashboardAfterSignup = () => {
+    if (!signupSuccessData) return;
+    setSignupModalOpen(false);
+    if (onStoreLoginSuccess) {
+      onStoreLoginSuccess({
+        storeSlug: signupSuccessData.storeSlug,
+        shopId: signupSuccessData.shopId,
+        token: signupSuccessData.token,
+        record: signupSuccessData.record,
+      });
+    } else {
+      onNavigateDashboard();
+    }
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    const idf = loginIdentifier.trim();
+    const pass = loginPassword;
+    if (!idf || !pass) {
+      setLoginError('يرجى إدخال البريد الإلكتروني أو رقم الموبايل وكلمة السر.');
+      return;
+    }
+
+    setLoginLoading(true);
+    try {
+      // 1) Check localStorage users & restaurants first
+      const userMatch = findLocalUserByEmailOrPhone(idf);
+      const restMatch = findLocalRestaurantByIdentifier(idf);
+
+      if (userMatch && userMatch.password === pass) {
+        const token = `ghz-token-${userMatch.storeSlug}-${Date.now()}`;
+        setAuthSessionStorage(userMatch.storeSlug, token);
+        setLoginModalOpen(false);
+        onStoreLoginSuccess?.({
+          storeSlug: userMatch.storeSlug,
+          shopId: userMatch.shopId,
+          token,
+          record: restMatch,
+        });
+        return;
+      }
+
+      if (restMatch && restMatch.password === pass) {
+        const token = `ghz-token-${restMatch.storeSlug}-${Date.now()}`;
+        setAuthSessionStorage(restMatch.storeSlug, token);
+        setLoginModalOpen(false);
+        onStoreLoginSuccess?.({
+          storeSlug: restMatch.storeSlug,
+          shopId: restMatch.shopId,
+          token,
+          record: restMatch,
+        });
+        return;
+      }
+
+      // 2) Check backend scrypt store-auth (if store password was updated by admin)
+      if (userMatch || restMatch) {
+        const slugToCheck = userMatch?.storeSlug || restMatch?.storeSlug || '';
+        if (slugToCheck) {
+          try {
+            const srvRes = await fetch('/api/store-auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ storeSlug: slugToCheck, password: pass }),
+            });
+            const srvData = (await srvRes.json()) as {
+              ok?: boolean;
+              token?: string;
+              storeSlug?: string;
+              shopId?: string;
+            };
+            if (srvRes.ok && srvData.ok && srvData.token) {
+              const finalSlug = srvData.storeSlug || slugToCheck;
+              setAuthSessionStorage(finalSlug, srvData.token);
+              setLoginModalOpen(false);
+              onStoreLoginSuccess?.({
+                storeSlug: finalSlug,
+                shopId: srvData.shopId || finalSlug,
+                token: srvData.token,
+                record: restMatch,
+              });
+              return;
+            }
+          } catch {
+            // fallback below
+          }
+        }
+      }
+
+      // 3) Fallback Firebase Email / Phone Auth
+      try {
+        const cleanEmail = idf.includes('@')
+          ? idf
+          : phoneToAuthEmail(toAsciiDigits(normalizeEgyptianPhone(idf)));
+        const cred = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+        const token = `fb-${cred.user.uid}-${Date.now()}`;
+        const slug = restMatch?.storeSlug || userMatch?.storeSlug || 'kebda-masr';
+        setAuthSessionStorage(slug, token);
+        setLoginModalOpen(false);
+        onStoreLoginSuccess?.({
+          storeSlug: slug,
+          shopId: restMatch?.shopId || slug,
+          token,
+          record: restMatch,
+        });
+        return;
+      } catch {
+        // show error below
+      }
+
+      setLoginError(
+        'البريد الإلكتروني / رقم الموبايل أو كلمة السر غير صحيحة. (للتجربة: kebda@menu.eg أو 01015861991 وكلمة السر 123456)'
+      );
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleForgotStep1 = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError('');
+    setForgotSuccess('');
+    const idf = forgotIdentifier.trim();
+    if (!idf) {
+      setForgotError('يرجى إدخال البريد الإلكتروني أو رقم الموبايل.');
+      return;
+    }
+
+    setForgotBusy(true);
+    try {
+      try {
+        await fetch('/api/store-auth/forgot-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier: idf }),
+        });
+      } catch {
+        // non-blocking
+      }
+      setForgotStep(2);
+      setForgotSuccess(
+        'أدخل كود الاستعادة المكون من 6 أرقام الصادر من الأدمن، أو تواصل عبر واتساب للحصول عليه فوراً.'
+      );
+    } finally {
+      setForgotBusy(false);
+    }
+  };
+
+  const handleForgotStep2 = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError('');
+    setForgotSuccess('');
+
+    const idf = forgotIdentifier.trim();
+    const code = toAsciiDigits(forgotCode.trim());
+    const newPass = forgotNewPass.trim();
+    const confirmPass = forgotConfirmPass.trim();
+
+    if (code.length !== 6) {
+      setForgotError('يرجى إدخال كود الاستعادة المكون من 6 أرقام.');
+      return;
+    }
+    if (newPass.length < 4) {
+      setForgotError('كلمة السر الجديدة يجب أن تكون 4 أحرف على الأقل.');
+      return;
+    }
+    if (newPass !== confirmPass) {
+      setForgotError('كلمة السر الجديدة وتأكيدها غير متطابقتين.');
+      return;
+    }
+
+    setForgotBusy(true);
+    try {
+      let backendOk = false;
+      let serverMsg = '';
+      try {
+        const res = await fetch('/api/store-auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier: idf, code, newPassword: newPass }),
+        });
+        const data = (await res.json()) as { ok?: boolean; error?: string };
+        if (res.ok && data.ok) {
+          backendOk = true;
+        } else {
+          serverMsg = data.error || '';
+        }
+      } catch {
+        // check localStorage below
+      }
+
+      const restMatch = findLocalRestaurantByIdentifier(idf);
+      const userMatch = findLocalUserByEmailOrPhone(idf);
+      const localCodeOk =
+        (restMatch &&
+          restMatch.resetCode === code &&
+          (!restMatch.resetCodeExpiresAt || Date.now() <= restMatch.resetCodeExpiresAt)) ||
+        (userMatch &&
+          userMatch.resetCode === code &&
+          (!userMatch.resetCodeExpiresAt || Date.now() <= userMatch.resetCodeExpiresAt));
+
+      if (backendOk || localCodeOk) {
+        if (restMatch) {
+          const nextRests = getLocalRestaurants().map((r) =>
+            r.shopId === restMatch.shopId || r.storeSlug === restMatch.storeSlug
+              ? { ...r, password: newPass, resetCode: undefined, resetCodeExpiresAt: undefined }
+              : r
+          );
+          saveLocalRestaurants(nextRests);
+        }
+        if (userMatch) {
+          const nextUsers = getLocalUsers().map((u) =>
+            u.id === userMatch.id || u.storeSlug === userMatch.storeSlug
+              ? { ...u, password: newPass, resetCode: undefined, resetCodeExpiresAt: undefined }
+              : u
+          );
+          saveLocalUsers(nextUsers);
+        }
+
+        setLoginIdentifier(idf);
+        setLoginPassword('');
+        setForgotSuccess('تم تغيير كلمة السر بنجاح! يمكنك تسجيل الدخول بكلمة السر الجديدة الآن.');
+        setTimeout(() => {
+          setForgotModalOpen(false);
+          setLoginModalOpen(true);
+        }, 1200);
+        return;
+      }
+
+      setForgotError(
+        serverMsg || 'كود الاستعادة غير صحيح أو منتهي الصلاحية. تواصل مع الدعم للحصول على كود من 6 أرقام.'
+      );
+    } finally {
+      setForgotBusy(false);
+    }
+  };
 
   return (
-    <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-orange-100/80 dark:border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-          <button
-            type="button"
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="text-right focus:outline-none"
-          >
-            <GhazaloLogo />
-          </button>
-
-          <nav className="hidden lg:flex items-center gap-6 text-sm font-bold text-slate-600 dark:text-slate-300">
-            <a href="#demos" className="hover:text-[#FF6A00] transition-colors whitespace-nowrap">
-              نماذج المنيو
-            </a>
-            <a href="#features" className="hover:text-[#FF6A00] transition-colors whitespace-nowrap">
-              المزايا
-            </a>
-            <a href="#pricing" className="hover:text-[#FF6A00] transition-colors whitespace-nowrap">
-              الأسعار
-            </a>
-            <a href="#faq" className="hover:text-[#FF6A00] transition-colors whitespace-nowrap">
-              الأسئلة الشائعة
-            </a>
-          </nav>
-
-          {/* Login / Admin quick actions + Install + icons */}
-          <div className="flex items-center gap-2 shrink-0">
-            <PWAInstallButton variant="compact" label="تحميل التطبيق" />
+    <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+      {/* Top Navbar: Buttons on Right, Nav Links Center, Logo "غزالو Ghazalo" on Left */}
+      <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+          {/* Right side in RTL: Action Buttons ("دخول" + "ابدأ مجاناً") */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => (isAuthenticated ? onNavigateDashboard() : openLoginModal())}
+              className="px-4 sm:px-5 h-10 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-[#FF6A00] text-slate-800 dark:text-slate-100 font-extrabold text-xs sm:text-sm transition-colors whitespace-nowrap shrink-0"
+            >
+              {isAuthenticated ? 'لوحة التحكم' : 'دخول'}
+            </button>
+            <button
+              type="button"
+              onClick={() => openSignupModal('trial')}
+              className="px-4 sm:px-6 h-10 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-xs sm:text-sm shadow-xs transition-colors whitespace-nowrap shrink-0"
+            >
+              ابدأ مجاناً
+            </button>
             {isAuthenticated && isAdminUser && onOpenAdminPanel && (
               <button
                 type="button"
                 onClick={onOpenAdminPanel}
-                className="px-3.5 h-9 rounded-full glass-btn-amber font-extrabold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="hidden sm:inline-flex px-3.5 h-10 rounded-full bg-slate-900 text-white font-bold text-xs items-center gap-1.5 whitespace-nowrap shrink-0"
               >
-                <ShieldCheck className="w-4 h-4" />
-                <span>بوابة الإدارة</span>
+                <ShieldCheck className="w-4 h-4 text-[#FF6A00]" />
+                <span>الإدارة</span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('login'))}
-              className="px-3.5 h-9 rounded-full glass-btn text-[#FF6A00] dark:text-orange-200 font-extrabold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
-            >
-              <User className="w-3.5 h-3.5" />
-              <span>{isAuthenticated ? 'لوحة التحكم' : 'تسجيل الدخول'}</span>
-            </button>
+          </div>
+
+          {/* Center nav links */}
+          <nav className="hidden lg:flex items-center gap-8 text-sm font-bold text-slate-600 dark:text-slate-300">
+            <a href="#why-ghazalo" className="hover:text-[#FF6A00] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0">
+              ليه غزالو؟
+            </a>
+            <a href="#how-it-works" className="hover:text-[#FF6A00] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0">
+              كيف يعمل؟
+            </a>
+            <a href="#pricing" className="hover:text-[#FF6A00] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0">
+              الأسعار
+            </a>
+          </nav>
+
+          {/* Left side in RTL: Logo "غزالو Ghazalo" + theme/mobile drawer controls */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={onToggleDarkMode}
               aria-label="تبديل المظهر"
-              className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors"
+              className="hidden sm:flex w-9 h-9 rounded-full border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-[#FF6A00] hover:text-[#FF6A00] items-center justify-center transition-colors"
             >
-              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
             <button
               type="button"
-              onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('login'))}
-              aria-label="حسابي"
-              className="hidden sm:flex w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-slate-700 items-center justify-center transition-colors"
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="text-left focus:outline-none whitespace-nowrap shrink-0"
             >
-              <User className="w-5 h-5" />
+              <GhazaloLogo />
             </button>
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
               aria-label="القائمة"
-              className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-slate-700 flex items-center justify-center transition-colors"
+              className="lg:hidden w-9 h-9 rounded-full border border-slate-200 dark:border-slate-800 text-[#FF6A00] flex items-center justify-center"
             >
               <Menu className="w-5 h-5" />
             </button>
           </div>
         </div>
-
-        {/* Sticky 2-button bar directly below header with glassmorphic styling */}
-        <div className="bg-orange-50/70 dark:bg-slate-900/90 border-t border-orange-100/80 dark:border-slate-800 py-2 px-4">
-          <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => setContactModalOpen(true)}
-              className="flex-1 sm:flex-none sm:px-7 h-10 rounded-full glass-btn-primary font-bold text-sm whitespace-nowrap"
-            >
-              تواصل معنا
-            </button>
-            <button
-              type="button"
-              onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('signup'))}
-              className="flex-1 sm:flex-none sm:px-7 h-10 rounded-full glass-btn text-[#FF6A00] dark:text-orange-200 font-bold text-sm whitespace-nowrap"
-            >
-              {isAuthenticated ? 'لوحة التحكم' : 'جرّب 7 أيام مجاناً'}
-            </button>
-          </div>
-        </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="bg-gradient-to-b from-orange-50/50 via-white to-white dark:from-slate-900 dark:via-slate-950 dark:to-slate-950 py-10 sm:py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-          <div className="lg:col-span-6 space-y-5 text-center lg:text-right">
-            <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white leading-tight [text-wrap:balance]">
-              استقبل طلباتك من المنيو الإلكتروني بدون عمولة
+      {/* HERO SECTION */}
+      <section className="py-10 sm:py-16 lg:py-20 bg-white dark:bg-slate-950">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+          {/* Copy Column */}
+          <div className="lg:col-span-6 space-y-6 text-center lg:text-right">
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 dark:text-white leading-[1.25] [text-wrap:balance]">
+              صاحب مطعم أو كافيه؟ المنيو بتاعك لسه PDF على الواتساب؟ 😬
             </h1>
-            <p className="text-base sm:text-lg font-medium text-slate-600 dark:text-slate-300 leading-relaxed max-w-xl mx-auto lg:mx-0">
-              ارفع صور المنيو والذكاء الاصطناعي هيعملها في دقائق بالترتيب والصور، ثم شاركها برمز QR
+            <p className="text-base sm:text-lg font-semibold text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl mx-auto lg:mx-0">
+              زبونك بيكبّر ويصغّر ومش لاقي الأسعار.. وفي الآخر يطلب من غيرك. مع Ghazalo، منيو مطعمك يبقى موقع كامل برابط شايل اسمك
             </p>
-            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
+
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3.5 pt-1">
               <button
                 type="button"
-                onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('signup'))}
-                className="px-7 py-3.5 rounded-full glass-btn-primary font-bold text-base whitespace-nowrap"
+                onClick={() => openSignupModal('trial')}
+                className="px-7 py-4 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm sm:text-base shadow-[0_12px_30px_rgba(255,106,0,0.28)] transition-all whitespace-nowrap shrink-0"
               >
-                ابدأ تجربة 7 أيام مجاناً
+                اعمل منيو مطعمك مجاناً - 7 ايام
               </button>
-              <a
-                href="#demos"
-                className="px-6 py-3.5 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 font-bold text-base whitespace-nowrap"
+              <button
+                type="button"
+                onClick={openLiveDemo}
+                className="px-7 py-4 rounded-full bg-white dark:bg-slate-900 hover:bg-orange-50/60 dark:hover:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-200 dark:border-slate-700 font-extrabold text-sm sm:text-base transition-colors whitespace-nowrap shrink-0"
               >
-                شاهد منيو تجريبي
-              </a>
+                شوف نموذج حي
+              </button>
             </div>
-          </div>
 
-          <div className="lg:col-span-6">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-2.5 border border-orange-100 dark:border-slate-800 shadow-sm">
-              <img
-                src="/src/assets/images/hero_qr_merchant_1795080804619.jpg"
-                alt="صاحب مطعم يحمل هاتفاً يعرض المنيو الإلكتروني وبجانبه رمز QR"
-                referrerPolicy="no-referrer"
-                className="w-full h-64 sm:h-96 object-cover rounded-2xl"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Section 2: Proof Numbers */}
-      <section className="py-6 sm:py-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-orange-50/70 dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-100 dark:border-slate-800 text-center">
-            <div className="text-3xl sm:text-4xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-              7,500+
-            </div>
-            <p className="mt-1.5 text-base font-bold text-slate-700 dark:text-slate-200">
-              طلب في آخر 30 يوم
-            </p>
-          </div>
-          <div className="bg-orange-50/70 dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-100 dark:border-slate-800 text-center">
-            <div className="text-3xl sm:text-4xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-              150,000+
-            </div>
-            <p className="mt-1.5 text-base font-bold text-slate-700 dark:text-slate-200">
-              زيارة للمنيوهات
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Section 3: 8 Project Types + Demo Menus */}
-      <section id="demos" className="py-12 sm:py-16 bg-orange-50/30 dark:bg-slate-900/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8">
-          <div className="text-center max-w-2xl mx-auto space-y-2">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white [text-wrap:balance]">
-              اختر نوع مشروعك وشاهد منيو تجريبي
-            </h2>
-            <p className="text-sm sm:text-base font-medium text-slate-600 dark:text-slate-300">
-              تصفح تجربة العميل الكاملة بالطلب والسلة لأي نشاط خلال ثوانٍ
+            <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400">
+              من غير بطاقة بنكية - جرب 7 ايام مجاني
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {DEMO_PROJECTS.map((demo) => (
-              <div
-                key={demo.id}
-                className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-4 hover:border-[#FF6A00] transition-colors"
-              >
-                <div className="space-y-3">
-                  <div className="overflow-hidden rounded-2xl bg-orange-50 dark:bg-slate-800">
-                    <img
-                      src={demo.image}
-                      alt={demo.title}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-44 object-cover"
-                    />
+          {/* Interactive Phone Mockup with Demo Menu: صور اكل، اسعار، زرار اطلب على واتساب */}
+          <div className="lg:col-span-6 flex justify-center">
+            <div className="w-full max-w-[340px] rounded-[2.5rem] border-[6px] border-slate-900 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-[0_24px_60px_rgba(15,23,42,0.14)] overflow-hidden">
+              {/* Phone Notch & Path URL Bar */}
+              <div className="bg-slate-900 px-5 pt-2.5 pb-3 text-white">
+                <div className="w-16 h-1.5 rounded-full bg-slate-700 mx-auto mb-2.5" />
+                <div
+                  dir="ltr"
+                  className="rounded-xl bg-slate-800 px-3 py-1.5 text-[11px] font-bold text-orange-300 flex items-center justify-between"
+                >
+                  <span>/menu/kebda-masr</span>
+                  <ExternalLink
+                    onClick={openLiveDemo}
+                    className="w-3.5 h-3.5 text-slate-300 hover:text-white cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {/* Demo Restaurant Banner */}
+              <div className="px-4 py-3.5 bg-orange-50/70 dark:bg-slate-800/70 border-b border-orange-100 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                  <div className="font-extrabold text-sm text-slate-900 dark:text-white">
+                    كبدة مصر · منيو مباشر
                   </div>
-                  <div>
-                    <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
-                      {demo.title}
-                    </h3>
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
-                      {demo.subtitle}
-                    </p>
+                  <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                    وسط البلد · توصيل 25 دقيقة
                   </div>
                 </div>
+                <span className="text-[11px] font-extrabold text-[#FF6A00]">مفتوح الآن</span>
+              </div>
+
+              {/* Food Items with Real Photos & Prices */}
+              <div className="p-3.5 space-y-2.5 bg-white dark:bg-slate-900">
+                {MOCKUP_MENU_ITEMS.map((item) => {
+                  const qty = mockupCounts[item.id] || 0;
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900"
+                    >
+                      <div className="w-16 h-16 rounded-xl overflow-hidden bg-orange-50 dark:bg-slate-800 shrink-0">
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
+                          {item.name}
+                        </div>
+                        <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
+                          {item.desc}
+                        </div>
+                        <div className="flex items-center justify-between mt-1.5">
+                          <span className="font-extrabold text-xs text-[#FF6A00] tabular-nums">
+                            {item.price} جنيه
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {qty > 0 && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setMockupCounts((prev) => ({
+                                      ...prev,
+                                      [item.id]: Math.max(0, (prev[item.id] || 0) - 1),
+                                    }))
+                                  }
+                                  aria-label="تقليل الكمية"
+                                  className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-center"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <span className="text-xs font-extrabold tabular-nums w-4 text-center">
+                                  {qty}
+                                </span>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMockupCounts((prev) => ({
+                                  ...prev,
+                                  [item.id]: (prev[item.id] || 0) + 1,
+                                }))
+                              }
+                              aria-label="إضافة للطلب"
+                              className="w-6 h-6 rounded-lg bg-[#FF6A00] text-white flex items-center justify-center"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* WhatsApp Order CTA Inside Phone */}
+              <div className="p-3.5 pt-1 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => onOpenDemoMenu(demo)}
-                  className="w-full py-2.5 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-bold text-sm transition-colors whitespace-nowrap"
+                  onClick={handleMockupWhatsapp}
+                  className="w-full py-3 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-xs flex items-center justify-between gap-2 transition-colors"
                 >
-                  افتح المنيو التجريبي
+                  <span className="inline-flex items-center gap-1.5">
+                    <MessageCircle className="w-4 h-4" />
+                    <span>اطلب على واتساب</span>
+                  </span>
+                  <span className="tabular-nums">
+                    {mockupQty > 0 ? `${mockupTotal} جنيه` : 'جرب الطلب'}
+                  </span>
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FEATURES SECTION: ليه غزالو؟ (5 Cards) */}
+      <section id="why-ghazalo" className="py-14 sm:py-20 bg-slate-50/70 dark:bg-slate-900/40 border-y border-slate-200/70 dark:border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-10">
+          <div className="text-center max-w-2xl mx-auto space-y-2">
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white [text-wrap:balance]">
+              ليه غزالو؟
+            </h2>
+            <p className="text-sm sm:text-base font-semibold text-slate-500 dark:text-slate-400">
+              كل اللي مطعمك محتاجه عشان تحوّل الزائر لطلب فعلي من غير عمولات
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-5">
+            {FEATURES_LIST.map((feat) => (
+              <div
+                key={feat.title}
+                className={`${feat.span} bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-7 border border-slate-200/90 dark:border-slate-800 space-y-3 hover:border-[#FF6A00]/60 transition-colors`}
+              >
+                <div className="text-3xl leading-none" aria-hidden="true">
+                  {feat.emoji}
+                </div>
+                <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
+                  {feat.title}
+                </h3>
+                <p className="text-sm sm:text-base font-medium text-slate-600 dark:text-slate-300 leading-relaxed">
+                  {feat.desc}
+                </p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Section 4: 6 Colored Feature Cards */}
-      <section id="features" className="py-12 sm:py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8">
-          <div className="text-center max-w-3xl mx-auto space-y-2">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white [text-wrap:balance]">
-              أكثر من منيو: الطلبات والكاشير والمخزون في نظام واحد
+      {/* HOW IT WORKS: 3 Steps */}
+      <section id="how-it-works" className="py-14 sm:py-20 bg-white dark:bg-slate-950">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 space-y-10">
+          <div className="text-center max-w-2xl mx-auto space-y-2">
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
+              إزاي تبدأ في 3 خطوات؟
             </h2>
+            <p className="text-sm sm:text-base font-semibold text-slate-500 dark:text-slate-400">
+              جهّز منيو مطعمك في دقائق واستقبل أول طلب على واتساب اليوم
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {FEATURE_CARDS.map((card) => {
-              const Icon = card.icon;
-              return (
-                <div
-                  key={card.title}
-                  className={`${card.bg} rounded-3xl p-6 border ${card.border} space-y-3`}
-                >
-                  <div className={`w-12 h-12 rounded-2xl ${card.iconBg} flex items-center justify-center shadow-xs`}>
-                    <Icon className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
-                    {card.title}
-                  </h3>
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-300 leading-relaxed">
-                    {card.desc}
-                  </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {HOW_IT_WORKS_STEPS.map((step) => (
+              <div
+                key={step.num}
+                className="rounded-3xl p-6 sm:p-7 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 space-y-3"
+              >
+                <div className="text-2xl font-extrabold text-[#FF6A00] tabular-nums">
+                  {step.num}
                 </div>
-              );
-            })}
+                <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
+                  {step.title}
+                </h3>
+                <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 leading-relaxed">
+                  {step.desc}
+                </p>
+                {step.exampleSlug && (
+                  <button
+                    type="button"
+                    onClick={openLiveDemo}
+                    dir="ltr"
+                    className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#FF6A00] hover:underline"
+                  >
+                    <span>/menu/{step.exampleSlug}</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Section 5: Pricing */}
-      <section id="pricing" className="py-12 sm:py-16 bg-orange-50/30 dark:bg-slate-900/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8">
-          <div className="text-center space-y-4">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
-              خطط أسعار تناسب حجم مشروعك
+      {/* PRICING SECTION */}
+      <section id="pricing" className="py-14 sm:py-20 bg-slate-50/70 dark:bg-slate-900/40 border-t border-slate-200/70 dark:border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 space-y-10">
+          <div className="text-center max-w-2xl mx-auto space-y-2">
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
+              أسعار واضحة من غير عمولة على الطلبات
             </h2>
+            <p className="text-sm sm:text-base font-semibold text-slate-500 dark:text-slate-400">
+              ابدأ مجاناً 7 أيام بكل المميزات وبعدها اختار الباقة المناسبة
+            </p>
+          </div>
 
-            {/* Toggle شهري / سنوي */}
-            <div className="inline-flex items-center gap-1 p-1.5 bg-white dark:bg-slate-900 rounded-2xl border border-orange-200 dark:border-slate-700">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+            {/* Card 1: Trial */}
+            <div className="rounded-3xl p-7 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 flex flex-col justify-between gap-6">
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">تجريبي</h3>
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    7 ايام مجاني
+                  </p>
+                </div>
+                <div className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+                  0 جنيه
+                </div>
+                <ul className="space-y-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>كل المميزات مفتوحة لمدة 7 أيام</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>منيو بالصور والأسعار + واتساب</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>حجز ترابيزات + تقييمات العملاء</span>
+                  </li>
+                </ul>
+              </div>
               <button
                 type="button"
-                onClick={() => setAnnualBilling(false)}
-                className={`px-5 py-2 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${
-                  !annualBilling
-                    ? 'bg-[#FF6A00] text-white'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]'
-                }`}
+                onClick={() => openSignupModal('trial')}
+                className="w-full py-3.5 px-5 rounded-full border-2 border-[#FF6A00] text-[#FF6A00] hover:bg-[#FF6A00] hover:text-white font-extrabold text-sm transition-colors"
               >
-                شهري
+                ابدأ 7 ايام مجاني
               </button>
+            </div>
+
+            {/* Card 2: Monthly */}
+            <div className="rounded-3xl p-7 bg-white dark:bg-slate-900 border-2 border-[#FF6A00] shadow-[0_14px_40px_rgba(255,106,0,0.1)] flex flex-col justify-between gap-6">
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">شهري</h3>
+                  <p className="text-xs font-bold text-[#FF6A00]">30 يوم</p>
+                </div>
+                <div className="flex items-baseline gap-1.5 tabular-nums">
+                  <span className="text-3xl font-extrabold text-slate-900 dark:text-white">600</span>
+                  <span className="text-sm font-bold text-slate-500 dark:text-slate-400">
+                    جنيه / شهرياً
+                  </span>
+                </div>
+                <ul className="space-y-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>7 أيام مجاني أولاً عند التسجيل</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>طلبات غير محدودة بدون عمولة</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>لوحة تحكم كاملة + كاشير POS</span>
+                  </li>
+                </ul>
+              </div>
               <button
                 type="button"
-                onClick={() => setAnnualBilling(true)}
-                className={`px-5 py-2 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${
-                  annualBilling
-                    ? 'bg-[#FF6A00] text-white'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]'
-                }`}
+                onClick={() => openSignupModal('monthly')}
+                className="w-full py-3.5 px-5 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm transition-colors"
               >
-                سنوي (وفّر 4200 جنيه)
+                ابدأ شهري
+              </button>
+            </div>
+
+            {/* Card 3: Yearly */}
+            <div className="rounded-3xl p-7 bg-slate-900 text-white border border-slate-800 flex flex-col justify-between gap-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xl font-extrabold">سنوي</h3>
+                    <p className="text-xs font-bold text-slate-300">365 يوم</p>
+                  </div>
+                  <span className="text-xs font-extrabold text-[#FF6A00]">الاوفر</span>
+                </div>
+                <div className="flex items-baseline gap-1.5 tabular-nums">
+                  <span className="text-3xl font-extrabold text-white">3,000</span>
+                  <span className="text-sm font-bold text-slate-300">جنيه / سنوياً</span>
+                </div>
+                <ul className="space-y-2.5 text-sm font-semibold text-slate-200">
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>وفّر 4,200 جنيه مقارنة بالشهري</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>كل المميزات + رموز طاولات QR</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#FF6A00] shrink-0" />
+                    <span>دعم فني مباشر على مدار السنة</span>
+                  </li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => openSignupModal('yearly')}
+                className="w-full py-3.5 px-5 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm transition-colors"
+              >
+                ابدأ سنوي
               </button>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch max-w-5xl mx-auto">
-            {PRICING_PLANS.map((plan) => {
-              const showAnnual = Boolean(plan.forceAnnual || (annualBilling && plan.yearlyTotal > 0));
-              const displayPrice =
-                plan.monthlyPrice === 0
-                  ? 0
-                  : showAnnual
-                    ? plan.yearlyTotal
-                    : plan.monthlyPrice;
-              const periodText =
-                plan.monthlyPrice === 0
-                  ? 'لأول 7 أيام'
-                  : showAnnual
-                    ? '/ سنوياً (365 يوم)'
-                    : '/ شهرياً (30 يوم)';
-
-              return (
-                <div
-                  key={plan.id}
-                  className={`rounded-3xl p-6 flex flex-col justify-between gap-6 border transition-transform ${
-                    plan.highlighted
-                      ? 'bg-slate-900 text-white border-[#FF6A00] shadow-lg'
-                      : 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-orange-100 dark:border-slate-800 shadow-xs'
-                  }`}
-                >
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-xl font-extrabold">{plan.name}</h3>
-                        {plan.highlighted && (
-                          <span className="text-xs font-bold text-[#FF6A00]">الأكثر طلباً</span>
-                        )}
-                      </div>
-                      <p
-                        className={`text-xs font-medium ${
-                          plan.highlighted ? 'text-slate-300' : 'text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        {plan.subtitle}
-                      </p>
-                    </div>
-
-                    <div className="flex items-baseline gap-1.5 tabular-nums">
-                      <span className="text-3xl font-extrabold">
-                        {displayPrice === 0 ? 'مجاناً' : `${displayPrice.toLocaleString('en-US')} ج`}
-                      </span>
-                      <span
-                        className={`text-xs font-semibold ${
-                          plan.highlighted ? 'text-orange-300' : 'text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        {periodText}
-                      </span>
-                    </div>
-
-                    <ul className="space-y-2.5 text-sm font-medium">
-                      {plan.features.map((feat) => (
-                        <li key={feat} className="flex items-start gap-2">
-                          <Check
-                            className={`w-4 h-4 mt-1 shrink-0 ${
-                              plan.highlighted ? 'text-[#FF6A00]' : 'text-[#FF6A00]'
-                            }`}
-                          />
-                          <span>{feat}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="space-y-2.5 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => onNavigateAuth('signup')}
-                      className={`w-full py-3 px-4 rounded-full font-bold text-sm transition-colors whitespace-nowrap ${
-                        plan.highlighted
-                          ? 'bg-[#FF6A00] hover:bg-[#E55E00] text-white shadow-md'
-                          : 'glass-btn-primary'
-                      }`}
-                    >
-                      ابدأ تجربة 7 أيام مجاناً
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenDemoMenu(DEMO_PROJECTS[0], plan.name)}
-                      className={`w-full py-3 px-4 rounded-full font-bold text-sm border transition-colors whitespace-nowrap ${
-                        plan.highlighted
-                          ? 'bg-white/10 hover:bg-white/20 text-white border-white/20 backdrop-blur-md'
-                          : 'glass-btn text-[#FF6A00] dark:text-orange-300'
-                      }`}
-                    >
-                      شاهد المنيو بهذه الباقة
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </div>
       </section>
 
-      {/* Section 6: FAQ */}
-      <section id="faq" className="py-12 sm:py-16">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 space-y-6">
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-center text-slate-900 dark:text-white">
-            الأسئلة الشائعة
-          </h2>
-
-          <div className="space-y-3">
-            {FAQ_ITEMS.map((item, idx) => {
-              const isOpen = openFaqIdx === idx;
-              return (
-                <div
-                  key={item.q}
-                  className="bg-white dark:bg-slate-900 rounded-3xl border border-orange-100 dark:border-slate-800 overflow-hidden"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setOpenFaqIdx(isOpen ? null : idx)}
-                    className="w-full px-6 py-4 flex items-center justify-between gap-4 text-right font-extrabold text-slate-900 dark:text-white"
-                  >
-                    <span>{item.q}</span>
-                    <ChevronDown
-                      className={`w-5 h-5 text-[#FF6A00] shrink-0 transition-transform ${
-                        isOpen ? 'rotate-180' : ''
-                      }`}
-                    />
-                  </button>
-                  {isOpen && (
-                    <div className="px-6 pb-5 text-sm font-medium text-slate-600 dark:text-slate-300 leading-relaxed">
-                      {item.a}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* App Install Banner: Android / iOS / PC */}
-      <section className="py-4 px-4 sm:px-6">
+      {/* PWA Install Strip */}
+      <section className="py-6 px-4 sm:px-6 bg-white dark:bg-slate-950">
         <div className="max-w-5xl mx-auto">
           <PWAInstallButton variant="card" />
         </div>
       </section>
 
-      {/* Last Section: Big Orange CTA Card */}
-      <section className="py-8 sm:py-14 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto bg-[#FF6A00] rounded-3xl p-8 sm:p-12 text-center text-white space-y-5 shadow-md">
-          <h2 className="text-2xl sm:text-4xl font-extrabold [text-wrap:balance]">
-            صوّر المنيو الآن، وابدأ اليوم
-          </h2>
-          <div>
-            <button
-              type="button"
-              onClick={() => (isAuthenticated ? onNavigateDashboard() : onNavigateAuth('signup'))}
-              className="px-8 py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-base shadow-sm transition-colors whitespace-nowrap"
-            >
-              ابدأ تجربة 7 أيام مجاناً بكل المزايا
-            </button>
-          </div>
-          <p className="text-sm font-semibold text-orange-50">
-            بدون بطاقة، بدون خصم تلقائي، بياناتك محفوظة
-          </p>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-orange-50/40 dark:bg-slate-900 border-t border-orange-100 dark:border-slate-800 py-12 px-4 sm:px-6">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-          <div className="space-y-3">
+      {/* FOOTER */}
+      <footer className="bg-white dark:bg-slate-950 border-t border-slate-200/80 dark:border-slate-800 py-10 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
+          <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-right">
             <GhazaloLogo />
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-400 leading-relaxed">
-              منصة Ghazalo العربية للمطاعم والمتاجر لإنشاء المنيو الإلكتروني واستقبال الطلبات بدون عمولة.
-            </p>
+            <span className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
+              غزالو - منيو مطعمك في رابط واحد
+            </span>
           </div>
 
-          <div className="space-y-2.5 text-sm font-bold">
-            <div className="text-slate-900 dark:text-white mb-3">المنتج</div>
-            <a href="#features" className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]">
-              المزايا
-            </a>
-            <button
-              type="button"
-              onClick={() => onNavigateAuth('signup')}
-              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
-            >
-              رفع المنيو بالذكاء الاصطناعي
-            </button>
-            <a href="#pricing" className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]">
-              الأسعار
-            </a>
-            <a href="#demos" className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]">
-              نماذج المنيو
-            </a>
-            <button
-              type="button"
-              onClick={() => setQrToolOpen(true)}
-              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
-            >
-              أداة QR
-            </button>
-            <a href="#faq" className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]">
-              الأسئلة الشائعة
-            </a>
-          </div>
-
-          <div className="space-y-2.5 text-sm font-bold">
-            <div className="text-slate-900 dark:text-white mb-3">القانونية</div>
-            <button
-              type="button"
-              onClick={() => setLegalModal('privacy')}
-              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
-            >
-              سياسة الخصوصية
-            </button>
-            <button
-              type="button"
-              onClick={() => setLegalModal('terms')}
-              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
-            >
-              شروط الاستخدام
-            </button>
-            <button
-              type="button"
-              onClick={() => setLegalModal('refund')}
-              className="block text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
-            >
-              سياسة الاسترجاع
-            </button>
-          </div>
-
-          <div className="space-y-2.5 text-sm font-bold">
-            <div className="text-slate-900 dark:text-white mb-3">تواصل معنا</div>
-            <button
-              type="button"
-              onClick={() => setContactModalOpen(true)}
-              className="block text-[#FF6A00] dark:text-orange-400 hover:underline"
-            >
-              تواصل معنا مباشرة
-            </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <a
-              href="mailto:mohamed.ghazal.s203@gmail.com"
-              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
-            >
-              <Mail className="w-4 h-4 text-[#FF6A00] shrink-0" />
-              <span dir="ltr">mohamed.ghazal.s203@gmail.com</span>
-            </a>
-            <a
-              href="https://wa.me/201015861991"
+              href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
+              className="px-6 py-3 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm inline-flex items-center gap-2 transition-colors"
             >
-              <MessageCircle className="w-4 h-4 text-[#FF6A00] shrink-0" />
-              <span>واتساب: 01015861991</span>
+              <MessageCircle className="w-4 h-4" />
+              <span>كلمنا واتساب</span>
             </a>
-            <a
-              href="tel:+201015861991"
-              className="flex items-center gap-2 text-slate-600 dark:text-slate-300 hover:text-[#FF6A00] tabular-nums"
-              dir="ltr"
+            <button
+              type="button"
+              onClick={() => openLoginModal()}
+              className="px-5 py-3 rounded-full border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-200 hover:border-[#FF6A00]"
             >
-              <Phone className="w-4 h-4 text-[#FF6A00] shrink-0" />
-              <span>01015861991</span>
-            </a>
+              دخول المطاعم
+            </button>
           </div>
         </div>
       </footer>
 
-      {/* Side Drawer Menu */}
+      {/* Mobile Drawer */}
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setDrawerOpen(false)} />
-          <div className="relative z-10 w-80 max-w-[85vw] bg-white dark:bg-slate-900 h-full p-6 flex flex-col justify-between shadow-xl">
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs"
+            onClick={() => setDrawerOpen(false)}
+          />
+          <div className="relative z-10 w-72 max-w-[85vw] bg-white dark:bg-slate-900 h-full p-6 flex flex-col justify-between shadow-xl">
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <GhazaloLogo />
@@ -739,199 +1034,518 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="space-y-2 text-base font-bold">
+              <div className="space-y-2 text-sm font-bold">
                 <a
-                  href="#demos"
+                  href="#why-ghazalo"
                   onClick={() => setDrawerOpen(false)}
                   className="block px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800"
                 >
-                  نماذج المنيو التجريبية
+                  ليه غزالو؟
                 </a>
                 <a
-                  href="#features"
+                  href="#how-it-works"
                   onClick={() => setDrawerOpen(false)}
                   className="block px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800"
                 >
-                  المزايا والكاشير
+                  كيف يعمل؟
                 </a>
                 <a
                   href="#pricing"
                   onClick={() => setDrawerOpen(false)}
                   className="block px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800"
                 >
-                  الأسعار والباقات
+                  الأسعار
                 </a>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDrawerOpen(false);
-                    setQrToolOpen(true);
-                  }}
-                  className="w-full text-right px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800"
-                >
-                  أداة QR المجانية
-                </button>
               </div>
             </div>
             <div className="space-y-2.5">
-              <PWAInstallButton variant="drawer" label="تثبيت التطبيق على جهازك" />
               <button
                 type="button"
                 onClick={() => {
                   setDrawerOpen(false);
-                  onNavigateAuth('signup');
+                  openSignupModal('trial');
                 }}
-                className="w-full py-3 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
+                className="w-full py-3 rounded-full bg-[#FF6A00] text-white font-extrabold text-sm"
               >
-                جرّب 7 أيام مجاناً
+                ابدأ مجاناً
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setDrawerOpen(false);
-                  onNavigateAuth('login');
+                  openLoginModal();
                 }}
-                className="w-full py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm"
+                className="w-full py-3 rounded-full border border-slate-200 dark:border-slate-700 font-extrabold text-sm"
               >
-                تسجيل الدخول
+                دخول
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Contact Modal */}
-      {contactModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-5 border border-orange-100 dark:border-slate-800 shadow-xl">
+      {/* SIGNUP MODAL (Email + Phone ONLY, NO store-name slug input) */}
+      {signupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full max-h-[92vh] overflow-y-auto p-6 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5">
             <div className="flex items-center justify-between">
-              <h3 className="text-xl font-extrabold">تواصل معنا</h3>
+              <GhazaloLogo />
               <button
                 type="button"
-                onClick={() => setContactModalOpen(false)}
-                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                onClick={() => setSignupModalOpen(false)}
+                className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                aria-label="إغلاق"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-              فريق Ghazalo جاهز لمساعدتك في رفع منيوك وإعداد الكاشير خلال دقائق.
-            </p>
-            <div className="space-y-3">
+
+            {signupSuccessData ? (
+              <div className="space-y-5 text-center py-2">
+                <div className="w-16 h-16 rounded-3xl bg-orange-50 dark:bg-orange-950/50 text-[#FF6A00] mx-auto flex items-center justify-center">
+                  <CheckCircle2 className="w-9 h-9" />
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                    مبروك! لينك المنيو بتاعك:
+                  </h3>
+                  <div
+                    dir="ltr"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-sm font-extrabold text-[#FF6A00]"
+                  >
+                    <span>/menu/{signupSuccessData.storeSlug}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}/menu/${signupSuccessData.storeSlug}`;
+                        void navigator.clipboard.writeText(url);
+                        setCopiedNewLink(true);
+                        setTimeout(() => setCopiedNewLink(false), 2000);
+                      }}
+                      className="text-slate-600 dark:text-slate-300 hover:text-[#FF6A00]"
+                      title="نسخ الرابط"
+                    >
+                      {copiedNewLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={handleEnterDashboardAfterSignup}
+                    className="w-full py-4 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-base shadow-[0_10px_28px_rgba(255,106,0,0.28)] transition-colors"
+                  >
+                    ادخل لوحة التحكم
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSignupModalOpen(false);
+                      onOpenStoreMenu?.(signupSuccessData.storeSlug);
+                    }}
+                    className="w-full py-3 rounded-full border border-slate-200 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-200 hover:border-[#FF6A00]"
+                  >
+                    افتح المنيو الآن
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1">
+                  <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                    أنشئ منيو مطعمك مجاناً
+                  </h2>
+                  <p className="text-xs font-bold text-[#FF6A00]">هتاخد 7 ايام مجاني</p>
+                </div>
+
+                {signupError && (
+                  <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3 text-xs font-extrabold text-amber-900 dark:text-amber-200">
+                    {signupError}
+                  </div>
+                )}
+
+                <form onSubmit={(e) => void handleSignupSubmit(e)} className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                      اسم المطعم
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={signupName}
+                      onChange={(e) => setSignupName(e.target.value)}
+                      placeholder="مثال: كبدة مصر"
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                      البريد الالكتروني
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      dir="ltr"
+                      value={signupEmail}
+                      onChange={(e) => setSignupEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold text-left focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                      رقم الموبايل
+                    </label>
+                    <div
+                      dir="ltr"
+                      className="flex items-stretch rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden focus-within:ring-2 focus-within:ring-[#FF6A00]"
+                    >
+                      <span className="px-3.5 flex items-center bg-orange-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-extrabold text-[#FF6A00] select-none tabular-nums">
+                        +20
+                      </span>
+                      <input
+                        type="tel"
+                        required
+                        value={signupPhone}
+                        onChange={(e) => setSignupPhone(e.target.value)}
+                        placeholder="1012345678"
+                        className="flex-1 px-3.5 py-3 bg-transparent text-sm font-semibold tabular-nums text-left focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                      كلمة السر
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showSignupPass ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={signupPassword}
+                        onChange={(e) => setSignupPassword(e.target.value)}
+                        placeholder="••••••"
+                        className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSignupPass((v) => !v)}
+                        className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#FF6A00]"
+                      >
+                        {showSignupPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                      تأكيد كلمة السر
+                    </label>
+                    <input
+                      type={showSignupPass ? 'text' : 'password'}
+                      required
+                      minLength={6}
+                      value={signupConfirmPassword}
+                      onChange={(e) => setSignupConfirmPassword(e.target.value)}
+                      placeholder="••••••"
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={signupLoading}
+                    className="w-full py-3.5 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm shadow-xs flex items-center justify-center gap-2 transition-colors"
+                  >
+                    {signupLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span>انشئ متجري مجاناً</span>
+                  </button>
+                </form>
+
+                <div className="text-center text-xs font-bold text-slate-500 pt-1">
+                  لديك حساب بالفعل؟{' '}
+                  <button
+                    type="button"
+                    onClick={openLoginModal}
+                    className="text-[#FF6A00] font-extrabold hover:underline"
+                  >
+                    دخول
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* LOGIN MODAL (Email OR Phone ONLY, NO store-name input) */}
+      {loginModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <GhazaloLogo />
+              <button
+                type="button"
+                onClick={() => setLoginModalOpen(false)}
+                className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                aria-label="إغلاق"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                تسجيل الدخول
+              </h2>
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                ادخل بالبريد الالكتروني او رقم الموبايل للمتابعة
+              </p>
+            </div>
+
+            {loginError && (
+              <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3 text-xs font-extrabold text-amber-900 dark:text-amber-200 leading-relaxed">
+                {loginError}
+              </div>
+            )}
+
+            <form onSubmit={(e) => void handleLoginSubmit(e)} className="space-y-4">
+              <div>
+                <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                  البريد الالكتروني او رقم الموبايل
+                </label>
+                <input
+                  type="text"
+                  required
+                  dir="ltr"
+                  value={loginIdentifier}
+                  onChange={(e) => setLoginIdentifier(e.target.value)}
+                  placeholder="01015861991 or name@example.com"
+                  className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold text-left focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                  كلمة السر
+                </label>
+                <div className="relative">
+                  <input
+                    type={showLoginPass ? 'text' : 'password'}
+                    required
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="••••••"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPass((v) => !v)}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#FF6A00]"
+                    aria-label={showLoginPass ? 'إخفاء كلمة السر' : 'إظهار كلمة السر'}
+                  >
+                    {showLoginPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <div className="pt-1.5">
+                  <button
+                    type="button"
+                    onClick={openForgotModal}
+                    className="text-xs font-extrabold text-[#FF6A00] hover:underline"
+                  >
+                    نسيت كلمة السر؟
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loginLoading}
+                className="w-full py-4 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm shadow-xs flex items-center justify-center gap-2 transition-colors"
+              >
+                {loginLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>دخول</span>
+              </button>
+            </form>
+
+            <div className="text-center text-xs font-bold text-slate-500 pt-1">
+              ليس لديك حساب؟{' '}
+              <button
+                type="button"
+                onClick={() => openSignupModal('trial')}
+                className="text-[#FF6A00] font-extrabold hover:underline"
+              >
+                ابدأ مجاناً
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FORGOT PASSWORD POPUP */}
+      {forgotModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-orange-950/50 text-[#FF6A00] flex items-center justify-center">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                    نسيت كلمة السر؟
+                  </h3>
+                  <p className="text-[11px] font-bold text-slate-500">
+                    الخطوة {forgotStep} من 2
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForgotModalOpen(false)}
+                className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {forgotError && (
+              <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3 text-xs font-extrabold text-amber-900 dark:text-amber-200">
+                {forgotError}
+              </div>
+            )}
+            {forgotSuccess && (
+              <div className="rounded-2xl bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800 p-3 text-xs font-extrabold text-orange-900 dark:text-orange-200">
+                {forgotSuccess}
+              </div>
+            )}
+
+            {forgotStep === 1 ? (
+              <form onSubmit={(e) => void handleForgotStep1(e)} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                    البريد الالكتروني او رقم الموبايل
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    dir="ltr"
+                    value={forgotIdentifier}
+                    onChange={(e) => setForgotIdentifier(e.target.value)}
+                    placeholder="01015861991 or name@example.com"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold text-left focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={forgotBusy}
+                  className="w-full py-3.5 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm flex items-center justify-center gap-2"
+                >
+                  {forgotBusy && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>ارسال كود الاستعادة</span>
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={(e) => void handleForgotStep2(e)} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                    كود الاستعادة 6 ارقام
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    inputMode="numeric"
+                    dir="ltr"
+                    value={forgotCode}
+                    onChange={(e) =>
+                      setForgotCode(toAsciiDigits(e.target.value).replace(/\D/g, '').slice(0, 6))
+                    }
+                    placeholder="123456"
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center text-lg font-extrabold tracking-widest focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                    كلمة سر جديدة
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showForgotPass ? 'text' : 'password'}
+                      required
+                      minLength={4}
+                      value={forgotNewPass}
+                      onChange={(e) => setForgotNewPass(e.target.value)}
+                      placeholder="••••••"
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPass((v) => !v)}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    >
+                      {showForgotPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                    تأكيد كلمة السر
+                  </label>
+                  <input
+                    type={showForgotPass ? 'text' : 'password'}
+                    required
+                    minLength={4}
+                    value={forgotConfirmPass}
+                    onChange={(e) => setForgotConfirmPass(e.target.value)}
+                    placeholder="••••••"
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForgotStep(1)}
+                    className="px-4 py-3 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-bold"
+                  >
+                    رجوع
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={forgotBusy}
+                    className="flex-1 py-3.5 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm flex items-center justify-center gap-2"
+                  >
+                    {forgotBusy && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span>تغيير كلمة السر</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            <div className="rounded-2xl bg-orange-50/70 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 p-3 text-center space-y-2">
+              <div className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                تواصل مع الدعم لاستعادة الحساب
+              </div>
               <a
-                href="https://wa.me/201015861991"
+                href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
+                  `مرحباً دعم غزالو، أحتاج كود استعادة لحسابي: ${forgotIdentifier || loginIdentifier || ''}`
+                )}`}
                 target="_blank"
                 rel="noreferrer"
-                className="w-full py-3.5 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-bold text-sm flex items-center justify-center gap-2"
+                className="w-full py-2.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5"
               >
-                <MessageCircle className="w-5 h-5" />
-                <span>تواصل واتساب: 01015861991</span>
-              </a>
-              <a
-                href="mailto:mohamed.ghazal.s203@gmail.com"
-                className="w-full py-3.5 px-4 rounded-2xl bg-orange-50 dark:bg-slate-800 hover:bg-orange-100 dark:hover:bg-slate-700 text-[#FF6A00] dark:text-orange-200 font-bold text-sm flex items-center justify-center gap-2"
-              >
-                <Mail className="w-5 h-5" />
-                <span dir="ltr">mohamed.ghazal.s203@gmail.com</span>
-              </a>
-              <a
-                href="tel:+201015861991"
-                className="w-full py-3 px-4 rounded-2xl border border-orange-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 tabular-nums"
-              >
-                <Phone className="w-4 h-4 text-[#FF6A00]" />
-                <span>اتصال مباشر: 01015861991</span>
+                <MessageCircle className="w-4 h-4" />
+                <span>تواصل واتساب ({SUPPORT_CONTACT.PHONE_DISPLAY})</span>
               </a>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Free QR Tool Modal */}
-      {qrToolOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-5 border border-orange-100 dark:border-slate-800 shadow-xl text-center">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-extrabold">أداة إنشاء رمز QR</h3>
-              <button
-                type="button"
-                onClick={() => setQrToolOpen(false)}
-                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <input
-              type="url"
-              dir="ltr"
-              value={qrToolUrl}
-              onChange={(e) => setQrToolUrl(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-orange-50/30 dark:bg-slate-800 text-sm font-semibold"
-              placeholder="https://..."
-            />
-            <div className="flex justify-center">
-              <QrCodeImage value={qrToolUrl || 'https://ghazalo.app'} size={190} />
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => void downloadQrPng(qrToolUrl)}
-                className="py-2.5 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
-              >
-                PNG
-              </button>
-              <button
-                type="button"
-                onClick={() => void downloadQrSvg(qrToolUrl)}
-                className="py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm"
-              >
-                SVG
-              </button>
-              <button
-                type="button"
-                onClick={() => void downloadQrPdf(qrToolUrl, 'Ghazalo QR')}
-                className="py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm"
-              >
-                PDF
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Legal Modal */}
-      {legalModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-extrabold">
-                {legalModal === 'privacy'
-                  ? 'سياسة الخصوصية'
-                  : legalModal === 'terms'
-                    ? 'شروط الاستخدام'
-                    : 'سياسة الاسترجاع'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setLegalModal(null)}
-                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300 leading-relaxed">
-              {legalModal === 'privacy'
-                ? 'نلتزم في منصة Ghazalo بحماية بيانات نشاطك التجاري وطلبات عملائك بأعلى معايير الأمان، ولا تتم مشاركة بياناتك مع أي طرف ثالث.'
-                : legalModal === 'terms'
-                  ? 'يُمنح كل متجر فترة تجريبية مجانية لمدة 7 أيام كاملة بدون قيود، ويتم تجديد الاشتراك يدوياً أو عبر التواصل مع الإدارة حسب الباقة المختارة.'
-                  : 'يمكنك إلغاء الاشتراك أو طلب استرجاع المبلغ خلال 14 يوماً من تاريخ التفعيل في حال عدم رضاك عن الخدمة.'}
-            </p>
-            <button
-              type="button"
-              onClick={() => setLegalModal(null)}
-              className="w-full py-3 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
-            >
-              فهمت
-            </button>
           </div>
         </div>
       )}

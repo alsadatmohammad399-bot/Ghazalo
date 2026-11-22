@@ -1,11 +1,13 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   ArrowRight,
   Barcode,
   CheckCircle2,
   Clock,
   CreditCard,
   Edit3,
+  Globe,
   Grid,
   List,
   Loader2,
@@ -25,6 +27,7 @@ import { createOrder, updateOrderStatus } from '../services/firestoreService';
 import { calculateOrderTotals, formatCompactMoney, formatMoney } from '../utils/calculations';
 import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
 import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
+import { getShopDisplayName, tx, useUiLang } from '../utils/uiLang';
 import type { CartItem, Order, OrderStatus, Product, Shop, ShopTable } from '../types';
 
 interface CashierPageProps {
@@ -38,12 +41,7 @@ interface CashierPageProps {
   onOrderStatusChange?: (orderId: string, status: OrderStatus) => void;
 }
 
-const ORDER_TYPE_OPTIONS = [
-  { id: 'dine_in', label: 'محلي' },
-  { id: 'pickup', label: 'تيك أواي' },
-  { id: 'delivery', label: 'دليفري' },
-  { id: 'table', label: 'طاولة' },
-] as const;
+const ALL_CATEGORIES_KEY = '__all__';
 
 export const CashierPage: React.FC<CashierPageProps> = ({
   shop,
@@ -55,9 +53,11 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   onOrderCreated,
   onOrderStatusChange,
 }) => {
+  const { isEn, toggleLang } = useUiLang();
+  const displayShopName = getShopDisplayName(shop, isEn);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('الكل');
+  const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORIES_KEY);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
@@ -89,13 +89,13 @@ export const CashierPage: React.FC<CashierPageProps> = ({
 
   const categories = useMemo(() => {
     const unique = Array.from(new Set(sortedProducts.map((p) => p.category).filter(Boolean)));
-    return ['الكل', ...sortMenuCategories(unique)];
+    return [ALL_CATEGORIES_KEY, ...sortMenuCategories(unique)];
   }, [sortedProducts]);
 
   const filteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return sortedProducts.filter((p) => {
-      const catOk = selectedCategory === 'الكل' || p.category === selectedCategory;
+      const catOk = selectedCategory === ALL_CATEGORIES_KEY || p.category === selectedCategory;
       const qOk =
         !q ||
         p.name.toLowerCase().includes(q) ||
@@ -189,7 +189,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
 
   const addItemWithOption = (product: Product, option?: ParsedProductOption) => {
     if (product.available === false) {
-      showToast('هذا الصنف غير متاح حالياً');
+      showToast(tx(isEn, 'هذا الصنف غير متاح حالياً', 'This item is currently unavailable'));
       return;
     }
     const cartKey = option ? `${product.id}__${option.label}` : product.id;
@@ -210,7 +210,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
 
   const handleProductTap = (product: Product) => {
     if (product.available === false) {
-      showToast('هذا الصنف غير متاح حالياً');
+      showToast(tx(isEn, 'هذا الصنف غير متاح حالياً', 'This item is currently unavailable'));
       return;
     }
     const options = getProductOptions(product);
@@ -296,7 +296,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         orderType,
         status: targetStatus,
         paymentMethod,
-        customerName: customerInput.trim() || 'عميل كاشير',
+        customerName: customerInput.trim() || tx(isEn, 'عميل كاشير', 'Walk-in Customer'),
         customerPhone: '',
         address: orderType === 'delivery' ? deliveryAddress.trim() : '',
         driverName: orderType === 'delivery' ? driverName.trim() : '',
@@ -341,8 +341,8 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       setMobileCartOpen(false);
       showToast(
         targetStatus === 'held'
-          ? `تم تعليق الطلب #${order.orderNumber}`
-          : `تم تسجيل الفاتورة #${order.orderNumber} بنجاح`
+          ? tx(isEn, `تم تعليق الطلب #${order.orderNumber}`, `Order #${order.orderNumber} held`)
+          : tx(isEn, `تم تسجيل الفاتورة #${order.orderNumber} بنجاح`, `Invoice #${order.orderNumber} recorded`)
       );
       if (autoPrint) {
         setTimeout(() => window.print(), 120);
@@ -362,10 +362,17 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   const paidNum = Number(paidAmount) || 0;
   const changeDue = paidNum > totals.total ? paidNum - totals.total : 0;
 
+  const orderTypeOptions = [
+    { id: 'dine_in' as const, label: tx(isEn, 'محلي', 'Dine-in') },
+    { id: 'pickup' as const, label: tx(isEn, 'تيك أواي', 'Takeaway') },
+    { id: 'delivery' as const, label: tx(isEn, 'دليفري', 'Delivery') },
+    { id: 'table' as const, label: tx(isEn, 'طاولة', 'Table') },
+  ];
+
   // Reusable POS Checkout Ticket Body (used in desktop right column & mobile modal)
   const renderTicketBody = () => (
     <div className="space-y-3.5">
-      {/* Tabs: السلة & بيانات العميل */}
+      {/* Tabs: Cart & Details */}
       <div className="grid grid-cols-2 gap-1.5 bg-orange-50/70 dark:bg-slate-800 p-1 rounded-2xl">
         <button
           type="button"
@@ -376,7 +383,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               : 'text-slate-600 dark:text-slate-300'
           }`}
         >
-          الأصناف ({totalCount})
+          {tx(isEn, `الأصناف (${totalCount})`, `Items (${totalCount})`)}
         </button>
         <button
           type="button"
@@ -387,7 +394,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               : 'text-slate-600 dark:text-slate-300'
           }`}
         >
-          بيانات العميل والخصم
+          {tx(isEn, 'بيانات العميل والخصم', 'Customer & Discount')}
         </button>
       </div>
 
@@ -395,7 +402,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         <>
           {/* Order Type Buttons */}
           <div className="grid grid-cols-4 gap-1.5">
-            {ORDER_TYPE_OPTIONS.map((opt) => (
+            {orderTypeOptions.map((opt) => (
               <button
                 key={opt.id}
                 type="button"
@@ -417,7 +424,9 @@ export const CashierPage: React.FC<CashierPageProps> = ({
               onClick={() => setTablePickerOpen(true)}
               className="w-full py-2 px-3 rounded-xl bg-orange-50 dark:bg-orange-950/60 border border-orange-200 dark:border-orange-800 text-orange-900 dark:text-orange-200 font-bold text-xs"
             >
-              {selectedTable ? `الطاولة المختارة: ${selectedTable}` : 'اضغط لاختيار الطاولة'}
+              {selectedTable
+                ? tx(isEn, `الطاولة المختارة: ${selectedTable}`, `Selected Table: ${selectedTable}`)
+                : tx(isEn, 'اضغط لاختيار الطاولة', 'Tap to choose table')}
             </button>
           )}
 
@@ -427,14 +436,14 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 type="text"
                 value={deliveryAddress}
                 onChange={(e) => setDeliveryAddress(e.target.value)}
-                placeholder="عنوان التوصيل"
+                placeholder={tx(isEn, 'عنوان التوصيل', 'Delivery Address')}
                 className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
               />
               <input
                 type="text"
                 value={driverName}
                 onChange={(e) => setDriverName(e.target.value)}
-                placeholder="اسم الطيار / السائق"
+                placeholder={tx(isEn, 'اسم الطيار / السائق', 'Driver Name')}
                 className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
               />
             </div>
@@ -445,7 +454,11 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             <div className="rounded-2xl border border-dashed border-orange-200 dark:border-slate-700 py-8 px-4 text-center space-y-1.5">
               <ShoppingCart className="w-8 h-8 text-orange-300 mx-auto" />
               <p className="text-xs font-bold text-slate-500">
-                اضغط على أي صنف أو امسح الباركود لإضافته للفاتورة
+                {tx(
+                  isEn,
+                  'اضغط على أي صنف أو امسح الباركود لإضافته للفاتورة',
+                  'Tap any item or scan a barcode to add it to the order'
+                )}
               </p>
             </div>
           ) : (
@@ -461,7 +474,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                         {product.name}
                       </div>
                       <div className="text-[11px] font-bold text-[#FF6A00] dark:text-orange-300 tabular-nums truncate">
-                        {formatCompactMoney(unitPrice, shop.country)}
+                        {formatCompactMoney(unitPrice, shop.country, isEn)}
                         {note ? ` · ${note}` : ''}
                       </div>
                     </div>
@@ -489,7 +502,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                           setEditingItemId(editingItemId === cartKey ? null : cartKey)
                         }
                         className="w-7 h-7 rounded-xl bg-white dark:bg-slate-900 text-slate-600 flex items-center justify-center"
-                        aria-label="تعديل السعر"
+                        aria-label={tx(isEn, 'تعديل السعر', 'Edit price')}
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
@@ -497,7 +510,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                         type="button"
                         onClick={() => removeItem(cartKey)}
                         className="w-7 h-7 rounded-xl bg-white dark:bg-slate-900 text-amber-600 flex items-center justify-center"
-                        aria-label="حذف"
+                        aria-label={tx(isEn, 'حذف', 'Remove')}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -506,7 +519,9 @@ export const CashierPage: React.FC<CashierPageProps> = ({
 
                   {editingItemId === cartKey && (
                     <div className="flex items-center gap-2 pt-1">
-                      <label className="text-[11px] font-bold">سعر الوحدة:</label>
+                      <label className="text-[11px] font-bold">
+                        {tx(isEn, 'سعر الوحدة:', 'Unit Price:')}
+                      </label>
                       <input
                         type="number"
                         value={unitPrice}
@@ -529,33 +544,39 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       ) : (
         <div className="space-y-2.5">
           <div>
-            <label className="block text-xs font-bold mb-1">اسم العميل / الهاتف</label>
+            <label className="block text-xs font-bold mb-1">
+              {tx(isEn, 'اسم العميل / الهاتف', 'Customer Name / Phone')}
+            </label>
             <input
               type="text"
               value={customerInput}
               onChange={(e) => setCustomerInput(e.target.value)}
-              placeholder="مثال: أحمد - 010..."
+              placeholder={tx(isEn, 'مثال: أحمد - 010...', 'e.g. Ahmed - 010...')}
               className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold mb-1">خصم يدوي</label>
+            <label className="block text-xs font-bold mb-1">
+              {tx(isEn, 'خصم يدوي', 'Manual Discount')}
+            </label>
             <input
               type="number"
               min={0}
               value={manualDiscount || ''}
               onChange={(e) => setManualDiscount(Math.max(0, Number(e.target.value) || 0))}
-              placeholder="قيمة الخصم"
+              placeholder={tx(isEn, 'قيمة الخصم', 'Discount amount')}
               className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold tabular-nums"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold mb-1">ملاحظات للمطبخ</label>
+            <label className="block text-xs font-bold mb-1">
+              {tx(isEn, 'ملاحظات للمطبخ', 'Kitchen Notes')}
+            </label>
             <textarea
               rows={2}
               value={orderNotes}
               onChange={(e) => setOrderNotes(e.target.value)}
-              placeholder="بدون بصل، زيادة صوص..."
+              placeholder={tx(isEn, 'بدون بصل، زيادة صوص...', 'No onions, extra sauce...')}
               className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
             />
           </div>
@@ -566,9 +587,9 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       <div className="space-y-2.5 pt-2 border-t border-orange-100 dark:border-slate-800">
         <div className="grid grid-cols-3 gap-1.5">
           {[
-            { id: 'نقداً', label: 'كاش' },
-            { id: 'فيزا / بطاقة', label: 'فيزا' },
-            { id: 'فودافون كاش', label: 'محفظة' },
+            { id: 'نقداً', label: tx(isEn, 'كاش', 'Cash') },
+            { id: 'فيزا / بطاقة', label: tx(isEn, 'فيزا', 'Card') },
+            { id: 'فودافون كاش', label: tx(isEn, 'محفظة', 'Wallet') },
           ].map((pm) => (
             <button
               key={pm.id}
@@ -593,7 +614,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             onClick={() => setApplyTaxAndService((v) => !v)}
             className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-orange-50/50 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 text-xs font-bold"
           >
-            <span>رسوم الخدمة والضريبة (اختياري)</span>
+            <span>{tx(isEn, 'رسوم الخدمة والضريبة (اختياري)', 'Service Fee & Tax (Optional)')}</span>
             <span
               className={`px-2 py-0.5 rounded-lg text-[11px] font-extrabold ${
                 applyTaxAndService
@@ -601,7 +622,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                   : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
               }`}
             >
-              {applyTaxAndService ? 'مفعل' : 'بدون رسوم (0)'}
+              {applyTaxAndService ? tx(isEn, 'مفعل', 'Enabled') : tx(isEn, 'بدون رسوم (0)', 'No Fees (0)')}
             </span>
           </button>
         )}
@@ -609,10 +630,11 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         {/* Cash Tendered */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[11px] font-bold">
-            <span>المدفوع من العميل</span>
+            <span>{tx(isEn, 'المدفوع من العميل', 'Cash Tendered')}</span>
             {changeDue > 0 && (
               <span className="text-[#FF6A00] dark:text-orange-400 font-extrabold tabular-nums">
-                الباقي للعميل: {formatCompactMoney(changeDue, shop.country)}
+                {tx(isEn, 'الباقي للعميل:', 'Change Due:')}{' '}
+                {formatCompactMoney(changeDue, shop.country, isEn)}
               </span>
             )}
           </div>
@@ -628,14 +650,14 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                     : 'bg-white dark:bg-slate-800 border-orange-200 dark:border-slate-700'
                 }`}
               >
-                {i === 0 && amt === totals.total && totals.total > 0 ? 'بالضبط' : amt}
+                {i === 0 && amt === totals.total && totals.total > 0 ? tx(isEn, 'بالضبط', 'Exact') : amt}
               </button>
             ))}
             <input
               type="number"
               value={paidAmount}
               onChange={(e) => setPaidAmount(e.target.value)}
-              placeholder="مبلغ"
+              placeholder={tx(isEn, 'مبلغ', 'Amount')}
               className="col-span-1 px-1.5 py-1.5 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] font-bold text-center tabular-nums"
             />
           </div>
@@ -645,45 +667,47 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       {/* Totals Breakdown */}
       <div className="bg-orange-50/70 dark:bg-slate-800 rounded-2xl p-3 space-y-1 text-xs font-bold">
         <div className="flex justify-between">
-          <span>سعر الأكل</span>
-          <span className="tabular-nums">{formatCompactMoney(totals.subtotal, shop.country)}</span>
+          <span>{tx(isEn, 'سعر الأكل', 'Subtotal')}</span>
+          <span className="tabular-nums">{formatCompactMoney(totals.subtotal, shop.country, isEn)}</span>
         </div>
         {totals.discount > 0 && (
           <div className="flex justify-between text-amber-700">
-            <span>الخصم</span>
-            <span className="tabular-nums">-{formatCompactMoney(totals.discount, shop.country)}</span>
+            <span>{tx(isEn, 'الخصم', 'Discount')}</span>
+            <span className="tabular-nums">-{formatCompactMoney(totals.discount, shop.country, isEn)}</span>
           </div>
         )}
         {orderType === 'delivery' && (
           <div className="flex justify-between text-slate-700 dark:text-slate-300">
-            <span>التوصيل</span>
+            <span>{tx(isEn, 'التوصيل', 'Delivery')}</span>
             <span className="tabular-nums">
-              {totals.freeDeliveryApplied ? 'مجاناً' : formatCompactMoney(totals.deliveryFee, shop.country)}
+              {totals.freeDeliveryApplied
+                ? tx(isEn, 'مجاناً', 'Free')
+                : formatCompactMoney(totals.deliveryFee, shop.country, isEn)}
             </span>
           </div>
         )}
         {totals.serviceFee > 0 && (
           <div className="flex justify-between text-slate-600 dark:text-slate-300">
-            <span>الخدمة ({totals.serviceFeePct}%)</span>
+            <span>{tx(isEn, `الخدمة (${totals.serviceFeePct}%)`, `Service (${totals.serviceFeePct}%)`)}</span>
             <span className="tabular-nums">{totals.serviceFee.toFixed(2)}</span>
           </div>
         )}
         {totals.vat > 0 && (
           <div className="flex justify-between text-slate-600 dark:text-slate-300">
-            <span>الضريبة ({totals.vatPct}%)</span>
+            <span>{tx(isEn, `الضريبة (${totals.vatPct}%)`, `Tax (${totals.vatPct}%)`)}</span>
             <span className="tabular-nums">{totals.vat.toFixed(2)}</span>
           </div>
         )}
         {totals.packagingFee > 0 && (
           <div className="flex justify-between text-slate-600 dark:text-slate-300">
-            <span>التغليف</span>
+            <span>{tx(isEn, 'التغليف', 'Packaging')}</span>
             <span className="tabular-nums">{totals.packagingFee.toFixed(2)}</span>
           </div>
         )}
         <div className="flex justify-between text-base font-extrabold pt-1.5 border-t border-orange-200 dark:border-slate-700">
-          <span>الإجمالي</span>
+          <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
           <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
-            {formatCompactMoney(totals.total, shop.country)}
+            {formatCompactMoney(totals.total, shop.country, isEn)}
           </span>
         </div>
       </div>
@@ -697,7 +721,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           className="col-span-2 py-3 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] disabled:opacity-40 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 tabular-nums"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-          <span>دفع وطباعة ({totals.total})</span>
+          <span>{tx(isEn, `دفع وطباعة (${totals.total})`, `Pay & Print (${totals.total})`)}</span>
         </button>
         <button
           type="button"
@@ -706,7 +730,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           className="py-3 rounded-2xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 disabled:opacity-40 font-extrabold text-xs inline-flex items-center justify-center gap-1"
         >
           <PauseCircle className="w-3.5 h-3.5" />
-          تعليق
+          {tx(isEn, 'تعليق', 'Hold')}
         </button>
         <button
           type="button"
@@ -715,14 +739,14 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           className="py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 disabled:opacity-40 font-bold text-xs inline-flex items-center justify-center gap-1"
         >
           <Printer className="w-3.5 h-3.5" />
-          إيصال
+          {tx(isEn, 'إيصال', 'Receipt')}
         </button>
       </div>
     </div>
   );
 
   return (
-    <div dir="rtl" className="min-h-screen bg-orange-50/30 dark:bg-slate-950 pb-24 lg:pb-6">
+    <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-orange-50/30 dark:bg-slate-950 pb-24 lg:pb-6">
       {/* Top POS Bar */}
       <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 h-14 flex items-center justify-between gap-2 no-print">
         <div className="flex items-center gap-2 min-w-0">
@@ -730,12 +754,14 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             type="button"
             onClick={onBackDashboard}
             className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center shrink-0"
-            aria-label="رجوع"
+            aria-label={tx(isEn, 'رجوع', 'Back')}
           >
-            <ArrowRight className="w-5 h-5" />
+            {isEn ? <ArrowLeft className="w-5 h-5" /> : <ArrowRight className="w-5 h-5" />}
           </button>
           <div className="min-w-0">
-            <div className="font-extrabold text-sm truncate">كاشير {shop.nameAr} · POS</div>
+            <div className="font-extrabold text-sm truncate">
+              {tx(isEn, `كاشير ${displayShopName} · POS`, `${displayShopName} POS`)}
+            </div>
           </div>
           <span
             className={`hidden sm:inline-flex px-2.5 py-0.5 rounded-xl text-[11px] font-extrabold tabular-nums ${
@@ -744,12 +770,22 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
             }`}
           >
-            {shop.isOpen ? 'نقطة البيع نشطة' : 'مغلق'}
+            {shop.isOpen ? tx(isEn, 'نقطة البيع نشطة', 'POS Active') : tx(isEn, 'مغلق', 'Closed')}
           </span>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <PWAInstallButton variant="compact" label="تثبيت POS" />
+          <button
+            type="button"
+            onClick={toggleLang}
+            className="h-9 px-2.5 rounded-xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold inline-flex items-center gap-1"
+            aria-label={tx(isEn, 'تغيير اللغة إلى الإنجليزية', 'Switch to Arabic')}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>{isEn ? 'عربي' : 'EN'}</span>
+          </button>
+
+          <PWAInstallButton variant="compact" label={tx(isEn, 'تثبيت POS', 'Install POS')} />
 
           <button
             type="button"
@@ -757,7 +793,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             className="px-3 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 font-extrabold text-xs inline-flex items-center gap-1.5 relative"
           >
             <Clock className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">المعلقة والواردة</span>
+            <span className="hidden sm:inline">{tx(isEn, 'المعلقة والواردة', 'Held & Incoming')}</span>
             <span className="tabular-nums">({heldOrdersCount})</span>
           </button>
 
@@ -765,11 +801,15 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             type="button"
             onClick={() => setMobileCartOpen(true)}
             className="lg:hidden w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center relative"
-            aria-label="السلة"
+            aria-label={tx(isEn, 'السلة', 'Cart')}
           >
             <ShoppingCart className="w-4 h-4" />
             {totalCount > 0 && (
-              <span className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-[#FF6A00] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+              <span
+                className={`absolute -top-1 ${
+                  isEn ? '-right-1' : '-left-1'
+                } w-4 h-4 rounded-full bg-[#FF6A00] text-white text-[10px] font-bold flex items-center justify-center tabular-nums`}
+              >
                 {totalCount}
               </span>
             )}
@@ -783,7 +823,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 ? 'bg-[#FF6A00] text-white'
                 : 'bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300'
             }`}
-            aria-label="عرض القائمة"
+            aria-label={tx(isEn, 'عرض القائمة', 'List view')}
           >
             <List className="w-4 h-4" />
           </button>
@@ -795,7 +835,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 ? 'bg-[#FF6A00] text-white'
                 : 'bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300'
             }`}
-            aria-label="عرض الشبكة"
+            aria-label={tx(isEn, 'عرض الشبكة', 'Grid view')}
           >
             <Grid className="w-4 h-4" />
           </button>
@@ -814,17 +854,31 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         <div className="lg:col-span-7 xl:col-span-8 space-y-3.5">
           {/* Search + Barcode Scanner Bar */}
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2" />
+            <Search
+              className={`w-4 h-4 text-slate-400 absolute ${
+                isEn ? 'left-4' : 'right-4'
+              } top-1/2 -translate-y-1/2`}
+            />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleBarcodeOrEnter}
-              placeholder="ابحث بالاسم أو امسح الباركود واضغط Enter للإضافة الفورية..."
-              className="w-full pr-11 pl-10 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+              placeholder={tx(
+                isEn,
+                'ابحث بالاسم أو امسح الباركود واضغط Enter للإضافة الفورية...',
+                'Search by name or scan barcode and press Enter...'
+              )}
+              className={`w-full ${
+                isEn ? 'pl-11 pr-10' : 'pr-11 pl-10'
+              } py-3 rounded-2xl bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]`}
             />
-            <Barcode className="w-4 h-4 text-[#FF6A00] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Barcode
+              className={`w-4 h-4 text-[#FF6A00] absolute ${
+                isEn ? 'right-3.5' : 'left-3.5'
+              } top-1/2 -translate-y-1/2`}
+            />
           </div>
 
           {/* Categories Strip */}
@@ -840,7 +894,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                     : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-orange-100 dark:border-slate-800'
                 }`}
               >
-                {cat}
+                {cat === ALL_CATEGORIES_KEY ? tx(isEn, 'الكل', 'All') : cat}
               </button>
             ))}
           </div>
@@ -850,7 +904,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 border border-orange-100 dark:border-slate-800 text-center space-y-2">
               <Utensils className="w-10 h-10 text-orange-300 mx-auto" />
               <p className="text-base font-bold text-slate-600 dark:text-slate-300">
-                لا توجد أصناف مطابقة للبحث
+                {tx(isEn, 'لا توجد أصناف مطابقة للبحث', 'No matching items found')}
               </p>
             </div>
           ) : (
@@ -912,7 +966,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                         </div>
                         <div className="text-[11px] font-semibold text-slate-400">
                           {product.category}
-                          {isUnavailable ? ' · نفد' : ''}
+                          {isUnavailable ? tx(isEn, ' · نفد', ' · Out of stock') : ''}
                         </div>
                         {options.length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-0.5">
@@ -935,7 +989,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <span className="text-xs sm:text-sm font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                        {formatCompactMoney(product.price, shop.country)}
+                        {formatCompactMoney(product.price, shop.country, isEn)}
                       </span>
                       {qty === 0 || options.length > 0 ? (
                         <button
@@ -949,7 +1003,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                           }
                         >
                           <Plus className="w-4 h-4" />
-                          {options.length > 0 && <span>{qty > 0 ? `(${qty})` : 'خيارات'}</span>}
+                          {options.length > 0 && <span>{qty > 0 ? `(${qty})` : tx(isEn, 'خيارات', 'Options')}</span>}
                         </button>
                       ) : (
                         <div className="inline-flex items-center gap-1 bg-orange-50 dark:bg-orange-950 rounded-full px-1.5 py-0.5 border border-orange-200 dark:border-orange-800">
@@ -985,7 +1039,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           <div className="flex items-center justify-between pb-2.5 border-b border-orange-100 dark:border-slate-800">
             <div className="flex items-center gap-2 font-extrabold text-base">
               <Receipt className="w-4 h-4 text-[#FF6A00]" />
-              <span>فاتورة الكاشير الحالية</span>
+              <span>{tx(isEn, 'فاتورة الكاشير الحالية', 'Current POS Order')}</span>
             </div>
             {cartItems.length > 0 && (
               <button
@@ -993,7 +1047,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 onClick={clearCart}
                 className="text-xs font-bold text-amber-700 hover:underline"
               >
-                تفريغ السلة
+                {tx(isEn, 'تفريغ السلة', 'Clear Cart')}
               </button>
             )}
           </div>
@@ -1010,13 +1064,13 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         >
           {totalCount === 0 ? (
             <>
-              <span>السلة فارغة — افتح الفاتورة</span>
-              <span>0 {shop.country === 'السعودية' ? 'ر.س' : 'ج.م'}</span>
+              <span>{tx(isEn, 'السلة فارغة — افتح الفاتورة', 'Cart Empty — Open Order')}</span>
+              <span>{formatCompactMoney(0, shop.country, isEn)}</span>
             </>
           ) : (
             <>
-              <span>إغلاق السلة - {totalCount} صنف</span>
-              <span>{formatCompactMoney(totals.total, shop.country)}</span>
+              <span>{tx(isEn, `إغلاق السلة - ${totalCount} صنف`, `Checkout - ${totalCount} items`)}</span>
+              <span>{formatCompactMoney(totals.total, shop.country, isEn)}</span>
             </>
           )}
         </button>
@@ -1027,7 +1081,9 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         <div className="fixed inset-0 z-50 lg:hidden flex items-end justify-center bg-slate-900/40 backdrop-blur-xs no-print">
           <div className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-t-3xl p-5 max-h-[92vh] overflow-y-auto shadow-2xl space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-orange-100 dark:border-slate-800">
-              <h2 className="text-lg font-extrabold">إغلاق السلة والدفع</h2>
+              <h2 className="text-lg font-extrabold">
+                {tx(isEn, 'إغلاق السلة والدفع', 'Checkout & Payment')}
+              </h2>
               <div className="flex items-center gap-2">
                 {cartItems.length > 0 && (
                   <button
@@ -1035,7 +1091,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                     onClick={clearCart}
                     className="text-xs font-bold text-amber-700"
                   >
-                    مسح الكل
+                    {tx(isEn, 'مسح الكل', 'Clear All')}
                   </button>
                 )}
                 <button
@@ -1064,7 +1120,11 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           >
             <div className="flex items-center justify-between pb-2 border-b border-orange-100 dark:border-slate-800">
               <h3 className="font-extrabold text-base">
-                الطلبات المعلقة والواردة ({heldAndActiveOrders.length})
+                {tx(
+                  isEn,
+                  `الطلبات المعلقة والواردة (${heldAndActiveOrders.length})`,
+                  `Held & Incoming Orders (${heldAndActiveOrders.length})`
+                )}
               </h3>
               <button
                 type="button"
@@ -1077,7 +1137,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             <div className="overflow-y-auto space-y-2.5 flex-1">
               {heldAndActiveOrders.length === 0 ? (
                 <p className="text-center text-sm font-bold text-slate-500 py-8">
-                  لا توجد طلبات معلقة أو قيد التنفيذ حالياً.
+                  {tx(isEn, 'لا توجد طلبات معلقة أو قيد التنفيذ حالياً.', 'No held or active orders right now.')}
                 </p>
               ) : (
                 heldAndActiveOrders.map((ord) => (
@@ -1088,19 +1148,19 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                     <div className="flex items-center justify-between gap-2">
                       <div>
                         <div className="font-extrabold text-sm tabular-nums">
-                          #{ord.orderNumber} · {ord.customerName || 'عميل'}
+                          #{ord.orderNumber} · {ord.customerName || tx(isEn, 'عميل', 'Customer')}
                         </div>
                         <div className="text-[11px] font-bold text-slate-500">
                           {ord.status === 'held'
-                            ? 'معلق بالكاشير'
+                            ? tx(isEn, 'معلق بالكاشير', 'Held at POS')
                             : ord.status === 'new'
-                              ? 'طلب جديد من المنيو'
-                              : 'قيد التحضير'}
+                              ? tx(isEn, 'طلب جديد من المنيو', 'New Menu Order')
+                              : tx(isEn, 'قيد التحضير', 'Preparing')}
                           {ord.tableLabel ? ` · ${ord.tableLabel}` : ''}
                         </div>
                       </div>
                       <span className="font-extrabold text-sm text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                        {formatCompactMoney(ord.total, shop.country)}
+                        {formatCompactMoney(ord.total, shop.country, isEn)}
                       </span>
                     </div>
                     {ord.itemSummary && ord.itemSummary.length > 0 && (
@@ -1118,7 +1178,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                         className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-xs font-bold inline-flex items-center gap-1"
                       >
                         <Printer className="w-3.5 h-3.5" />
-                        طباعة
+                        {tx(isEn, 'طباعة', 'Print')}
                       </button>
                       <button
                         type="button"
@@ -1131,12 +1191,14 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                             }
                           }
                           onOrderStatusChange?.(ord.id, 'completed');
-                          showToast(`تم إتمام الطلب #${ord.orderNumber}`);
+                          showToast(
+                            tx(isEn, `تم إتمام الطلب #${ord.orderNumber}`, `Order #${ord.orderNumber} completed`)
+                          );
                         }}
                         className="px-3.5 py-1.5 rounded-xl bg-[#FF6A00] hover:bg-[#E55E00] text-white text-xs font-extrabold inline-flex items-center gap-1"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        إتمام الطلب
+                        {tx(isEn, 'إتمام الطلب', 'Complete')}
                       </button>
                     </div>
                   </div>
@@ -1152,7 +1214,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs no-print">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-5 space-y-4 border border-orange-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
-              <h3 className="font-extrabold text-base">اختر الطاولة</h3>
+              <h3 className="font-extrabold text-base">{tx(isEn, 'اختر الطاولة', 'Select Table')}</h3>
               <button
                 type="button"
                 onClick={() => setTablePickerOpen(false)}
@@ -1164,13 +1226,17 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             {tables.length === 0 ? (
               <div className="space-y-3 text-center">
                 <p className="text-xs font-bold text-slate-500">
-                  لا توجد طاولات مضافة بعد، يمكنك كتابة رقم الطاولة يدوياً:
+                  {tx(
+                    isEn,
+                    'لا توجد طاولات مضافة بعد، يمكنك كتابة رقم الطاولة يدوياً:',
+                    'No tables configured yet. Type the table number manually:'
+                  )}
                 </p>
                 <input
                   type="text"
                   value={selectedTable}
                   onChange={(e) => setSelectedTable(e.target.value)}
-                  placeholder="مثال: طاولة 5"
+                  placeholder={tx(isEn, 'مثال: طاولة 5', 'e.g. Table 5')}
                   className="w-full px-3 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 text-sm font-semibold"
                 />
                 <button
@@ -1178,7 +1244,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                   onClick={() => setTablePickerOpen(false)}
                   className="w-full py-2.5 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
                 >
-                  حفظ
+                  {tx(isEn, 'حفظ', 'Save')}
                 </button>
               </div>
             ) : (
@@ -1242,7 +1308,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                 >
                   <span>{opt.label}</span>
                   <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                    {formatMoney(opt.price, shop.country)}
+                    {formatMoney(opt.price, shop.country, isEn)}
                   </span>
                 </button>
               ))}
@@ -1252,13 +1318,18 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       )}
 
       {/* Printable 80mm Thermal POS Receipt */}
-      <div className="hidden print-only p-4 text-right max-w-[320px] mx-auto" dir="rtl">
+      <div
+        className={`hidden print-only p-4 ${isEn ? 'text-left' : 'text-right'} max-w-[320px] mx-auto`}
+        dir={isEn ? 'ltr' : 'rtl'}
+      >
         <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-400">
-          <h2 className="text-lg font-extrabold">{shop.nameAr}</h2>
+          <h2 className="text-lg font-extrabold">{displayShopName}</h2>
           {shop.address && <p className="text-[11px]">{shop.address}</p>}
           {shop.whatsapp && <p className="text-[11px]" dir="ltr">{shop.whatsapp}</p>}
           <p className="text-xs font-bold pt-1">
-            {lastReceiptOrder ? `فاتورة رقم #${lastReceiptOrder.orderNumber}` : 'إيصال مبيعات كاشير POS'}
+            {lastReceiptOrder
+              ? tx(isEn, `فاتورة رقم #${lastReceiptOrder.orderNumber}`, `Invoice #${lastReceiptOrder.orderNumber}`)
+              : tx(isEn, 'إيصال مبيعات كاشير POS', 'POS Sales Receipt')}
           </p>
         </div>
         {lastReceiptOrder && cartItems.length === 0 ? (
@@ -1272,42 +1343,42 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             </div>
             <div className="pt-2 space-y-1 text-xs">
               <div className="flex justify-between">
-                <span>سعر الأكل</span>
+                <span>{tx(isEn, 'سعر الأكل', 'Subtotal')}</span>
                 <span>{lastReceiptOrder.subtotal}</span>
               </div>
               {lastReceiptOrder.discount ? (
                 <div className="flex justify-between">
-                  <span>الخصم</span>
+                  <span>{tx(isEn, 'الخصم', 'Discount')}</span>
                   <span>-{lastReceiptOrder.discount}</span>
                 </div>
               ) : null}
               {(lastReceiptOrder.deliveryFee ?? 0) > 0 && (
                 <div className="flex justify-between">
-                  <span>التوصيل</span>
+                  <span>{tx(isEn, 'التوصيل', 'Delivery')}</span>
                   <span>{Number(lastReceiptOrder.deliveryFee).toFixed(2)}</span>
                 </div>
               )}
               {lastReceiptOrder.serviceFee > 0 && (
                 <div className="flex justify-between">
-                  <span>الخدمة</span>
+                  <span>{tx(isEn, 'الخدمة', 'Service')}</span>
                   <span>{lastReceiptOrder.serviceFee.toFixed(2)}</span>
                 </div>
               )}
               {lastReceiptOrder.vat > 0 && (
                 <div className="flex justify-between">
-                  <span>الضريبة</span>
+                  <span>{tx(isEn, 'الضريبة', 'Tax')}</span>
                   <span>{lastReceiptOrder.vat.toFixed(2)}</span>
                 </div>
               )}
               {(lastReceiptOrder.packagingFee ?? 0) > 0 && (
                 <div className="flex justify-between">
-                  <span>التغليف</span>
+                  <span>{tx(isEn, 'التغليف', 'Packaging')}</span>
                   <span>{Number(lastReceiptOrder.packagingFee).toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-slate-300">
-                <span>الإجمالي</span>
-                <span>{formatCompactMoney(lastReceiptOrder.total, shop.country)}</span>
+                <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
+                <span>{formatCompactMoney(lastReceiptOrder.total, shop.country, isEn)}</span>
               </div>
             </div>
           </>
@@ -1326,46 +1397,50 @@ export const CashierPage: React.FC<CashierPageProps> = ({
             </div>
             <div className="pt-2 space-y-1 text-xs">
               <div className="flex justify-between">
-                <span>سعر الأكل</span>
+                <span>{tx(isEn, 'سعر الأكل', 'Subtotal')}</span>
                 <span>{totals.subtotal}</span>
               </div>
               {totals.discount > 0 && (
                 <div className="flex justify-between">
-                  <span>الخصم</span>
+                  <span>{tx(isEn, 'الخصم', 'Discount')}</span>
                   <span>-{totals.discount}</span>
                 </div>
               )}
               {orderType === 'delivery' && (
                 <div className="flex justify-between">
-                  <span>التوصيل</span>
-                  <span>{totals.freeDeliveryApplied ? 'مجاناً' : totals.deliveryFee.toFixed(2)}</span>
+                  <span>{tx(isEn, 'التوصيل', 'Delivery')}</span>
+                  <span>
+                    {totals.freeDeliveryApplied
+                      ? tx(isEn, 'مجاناً', 'Free')
+                      : totals.deliveryFee.toFixed(2)}
+                  </span>
                 </div>
               )}
               {totals.serviceFee > 0 && (
                 <div className="flex justify-between">
-                  <span>رسوم الخدمة ({totals.serviceFeePct}%)</span>
+                  <span>{tx(isEn, `رسوم الخدمة (${totals.serviceFeePct}%)`, `Service (${totals.serviceFeePct}%)`)}</span>
                   <span>{totals.serviceFee.toFixed(2)}</span>
                 </div>
               )}
               {totals.vat > 0 && (
                 <div className="flex justify-between">
-                  <span>الضريبة ({totals.vatPct}%)</span>
+                  <span>{tx(isEn, `الضريبة (${totals.vatPct}%)`, `Tax (${totals.vatPct}%)`)}</span>
                   <span>{totals.vat.toFixed(2)}</span>
                 </div>
               )}
               {totals.packagingFee > 0 && (
                 <div className="flex justify-between">
-                  <span>التغليف</span>
+                  <span>{tx(isEn, 'التغليف', 'Packaging')}</span>
                   <span>{totals.packagingFee.toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-slate-300">
-                <span>الإجمالي</span>
-                <span>{formatCompactMoney(totals.total, shop.country)}</span>
+                <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
+                <span>{formatCompactMoney(totals.total, shop.country, isEn)}</span>
               </div>
               {paidNum > 0 && (
                 <div className="flex justify-between">
-                  <span>المدفوع / الباقي</span>
+                  <span>{tx(isEn, 'المدفوع / الباقي', 'Paid / Change')}</span>
                   <span>
                     {paidNum} / {changeDue}
                   </span>
@@ -1375,7 +1450,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           </>
         )}
         <p className="text-center text-[10px] pt-3 mt-2 border-t border-dashed border-slate-400">
-          شكراً لزيارتكم · Ghazalo POS
+          {tx(isEn, 'شكراً لزيارتكم · Ghazalo POS', 'Thank you · Ghazalo POS')}
         </p>
       </div>
     </div>

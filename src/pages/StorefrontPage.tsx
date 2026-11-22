@@ -18,8 +18,10 @@ import {
   ClipboardList,
   Info,
   Phone,
+  ArrowLeft,
   ArrowRight,
   Check,
+  Globe,
   Loader2,
   Tag,
   Sparkles,
@@ -40,6 +42,7 @@ import {
 import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
+import { getShopDisplayName, tx, useUiLang } from '../utils/uiLang';
 import {
   SUBSCRIPTION_PRICING,
   SUPPORT_CONTACT,
@@ -63,10 +66,12 @@ interface StorefrontPageProps {
   backLabel?: string;
 }
 
-const UPSELL_FALLBACKS: Array<{ id: string; name: string; price: number }> = [
-  { id: 'upsell-1', name: 'وجبة كبدة', price: 120 },
-  { id: 'upsell-2', name: 'ساندوتش سجق', price: 40 },
-  { id: 'upsell-3', name: 'طبق سجق', price: 100 },
+const ALL_CATEGORIES_KEY = '__all__';
+
+const UPSELL_FALLBACKS: Array<{ id: string; name: string; nameEn: string; price: number }> = [
+  { id: 'upsell-1', name: 'وجبة كبدة', nameEn: 'Liver Meal', price: 120 },
+  { id: 'upsell-2', name: 'ساندوتش سجق', nameEn: 'Sausage Sandwich', price: 40 },
+  { id: 'upsell-3', name: 'طبق سجق', nameEn: 'Sausage Plate', price: 100 },
 ];
 
 export const StorefrontPage: React.FC<StorefrontPageProps> = ({
@@ -79,12 +84,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   onToggleDarkMode,
   onOrderPlaced,
   onBack,
-  backLabel = 'العودة',
+  backLabel,
 }) => {
+  const { isEn, toggleLang } = useUiLang();
+  const displayShopName = getShopDisplayName(shop, isEn);
+  const resolvedBackLabel = backLabel || tx(isEn, 'العودة', 'Back');
   const themeHex = getShopThemeHex(shop.themeColor);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [selectedCategory, setSelectedCategory] = useState<string>('الكل');
+  const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORIES_KEY);
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const [cart, setCart] = useState<Record<string, CartItem>>({});
 
@@ -94,6 +102,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [ordersPageOpen, setOrdersPageOpen] = useState(false);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [shareToast, setShareToast] = useState('');
 
   // Checkout state
@@ -152,12 +161,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
   const categories = useMemo(() => {
     const unique = Array.from(new Set(activeProducts.map((p) => p.category).filter(Boolean)));
-    return ['الكل', ...sortMenuCategories(unique)];
+    return [ALL_CATEGORIES_KEY, ...sortMenuCategories(unique)];
   }, [activeProducts]);
 
   const filteredProducts = useMemo(() => {
     return activeProducts.filter((p) => {
-      const matchCat = selectedCategory === 'الكل' || p.category === selectedCategory;
+      const matchCat = selectedCategory === ALL_CATEGORIES_KEY || p.category === selectedCategory;
       const q = searchQuery.trim().toLowerCase();
       const matchQuery =
         !q ||
@@ -257,12 +266,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       id: fb.id,
       shopId: shop.id,
       shopOwnerId: shop.ownerId,
-      name: fb.name,
-      category: 'إضافات',
+      name: isEn ? fb.nameEn : fb.name,
+      category: tx(isEn, 'إضافات', 'Extras'),
       price: fb.price,
       available: true,
     }));
-  }, [activeProducts, cart, shop.id, shop.ownerId]);
+  }, [activeProducts, cart, shop.id, shop.ownerId, isEn]);
 
   const openProductDetail = (product: Product, initialOptionIdx = 0) => {
     setDetailProduct(product);
@@ -290,11 +299,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       const minP = Math.min(...priced);
       const maxP = Math.max(...priced);
       if (maxP > minP) {
-        return `من ${formatMoney(minP, shop.country)}`;
+        return `${tx(isEn, 'من', 'From')} ${formatMoney(minP, shop.country, undefined, isEn)}`;
       }
-      return formatMoney(minP, shop.country);
+      return formatMoney(minP, shop.country, undefined, isEn);
     }
-    return formatMoney(product.price, shop.country);
+    return formatMoney(product.price, shop.country, undefined, isEn);
   };
 
   const renderCardOptionChips = (product: Product, options: ParsedProductOption[]) => {
@@ -312,7 +321,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             className="px-2 py-0.5 rounded-lg bg-orange-50/90 dark:bg-orange-950/60 hover:bg-orange-100 dark:hover:bg-orange-900/70 border border-orange-200/80 dark:border-orange-800 text-[10px] font-extrabold text-[#FF6A00] dark:text-orange-300 tabular-nums transition-colors"
           >
             {opt.label}
-            {opt.hasExplicitPrice ? ` · ${formatMoney(opt.price, shop.country, 0)}` : ''}
+            {opt.hasExplicitPrice ? ` · ${formatMoney(opt.price, shop.country, 0, isEn)}` : ''}
           </button>
         ))}
         {options.length > 4 && (
@@ -399,10 +408,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   };
 
   const handleShareMenu = async () => {
-    const shareUrl = `${window.location.origin}/?shop=${shop.id}`;
+    const slug = shop.storeSlug || shop.id;
+    const shareUrl = `${window.location.origin}/menu/${encodeURIComponent(slug)}`;
     try {
       await navigator.clipboard.writeText(shareUrl);
-      setShareToast('تم نسخ رابط المنيو');
+      setShareToast(tx(isEn, 'تم نسخ رابط المنيو', 'Menu link copied'));
       setTimeout(() => setShareToast(''), 2500);
     } catch {
       setShareToast(shareUrl);
@@ -414,11 +424,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     setCheckoutError('');
 
     if (!customerName.trim() || !customerPhone.trim()) {
-      setCheckoutError('يرجى إدخال الاسم ورقم الهاتف.');
+      setCheckoutError(tx(isEn, 'يرجى إدخال الاسم ورقم الهاتف.', 'Please enter your name and phone number.'));
       return;
     }
     if (orderType === 'delivery' && !address.trim()) {
-      setCheckoutError('يرجى إدخال عنوان التوصيل.');
+      setCheckoutError(tx(isEn, 'يرجى إدخال عنوان التوصيل.', 'Please enter your delivery address.'));
       return;
     }
 
@@ -488,7 +498,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       setPlacedOrder(created);
       setCheckoutOpen(false);
     } catch (err: unknown) {
-      setCheckoutError(err instanceof Error ? err.message : 'تعذر إرسال الطلب.');
+      setCheckoutError(
+        err instanceof Error ? err.message : tx(isEn, 'تعذر إرسال الطلب.', 'Could not place order.')
+      );
     } finally {
       setSubmitting(false);
     }
@@ -498,47 +510,120 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
   if (!isDemo && !shopAccess.isActive) {
     const waText = encodeURIComponent(
-      `مرحباً إدارة غزالة، أرغب في تفعيل منيو مطعم (${shop.nameAr})`
+      `مرحباً إدارة غزالة، أرغب في تفعيل ${
+        selectedPlan === 'monthly'
+          ? `الاشتراك الشهري (${SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / 30 يوم)`
+          : `الاشتراك السنوي (${SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / 365 يوم)`
+      } لمنيو مطعم (${shop.nameAr})`
     );
-    const mailSubject = encodeURIComponent(`تفعيل منيو ${shop.nameAr} - Ghazalo`);
+    const mailSubject = encodeURIComponent(
+      `تفعيل ${selectedPlan === 'monthly' ? 'اشتراك شهري' : 'اشتراك سنوي'} لمنيو ${shop.nameAr} - Ghazalo`
+    );
 
     return (
-      <div dir="rtl" className="min-h-screen bg-orange-50/30 dark:bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-200 dark:border-orange-900 text-center space-y-5 shadow-sm">
+      <div
+        dir={isEn ? 'ltr' : 'rtl'}
+        className="min-h-screen bg-orange-50/30 dark:bg-slate-950 flex items-center justify-center p-4"
+      >
+        <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-200 dark:border-orange-900 text-center space-y-5 shadow-sm relative">
+          <button
+            type="button"
+            onClick={toggleLang}
+            className={`absolute top-4 ${
+              isEn ? 'right-4' : 'left-4'
+            } px-2.5 py-1 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold inline-flex items-center gap-1`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>{isEn ? 'عربي' : 'EN'}</span>
+          </button>
           <div className="w-16 h-16 rounded-3xl bg-orange-100 dark:bg-orange-950/60 text-[#FF6A00] dark:text-orange-300 mx-auto flex items-center justify-center">
             <Lock className="w-8 h-8" />
           </div>
 
           <div className="space-y-1.5">
             <div className="text-xs font-extrabold text-[#FF6A00] dark:text-orange-400">
-              {shop.nameAr}
+              {displayShopName}
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white leading-snug">
-              المنيو متوقف مؤقتاً، انتهت الفترة المجانية، فعل اشتراكك لتشغيل المنيو
+              {tx(
+                isEn,
+                'المنيو متوقف مؤقتاً، انتهت الفترة المجانية، فعل اشتراكك لتشغيل المنيو',
+                'Menu temporarily paused — free trial ended. Activate a plan to resume.'
+              )}
             </h1>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-right">
-            <div className="p-4 rounded-2xl border border-orange-200 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800/70 space-y-1">
-              <div className="text-xs font-bold text-slate-500 dark:text-slate-400">اشتراك شهري (30 يوم)</div>
-              <div className="text-lg font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / شهري
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border-2 border-[#FF6A00] bg-orange-50 dark:bg-orange-950/40 space-y-1">
+          <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isEn ? 'text-left' : 'text-right'}`}>
+            <button
+              type="button"
+              onClick={() => setSelectedPlan('monthly')}
+              aria-pressed={selectedPlan === 'monthly'}
+              className={`p-4 rounded-2xl space-y-1 text-start transition-all cursor-pointer ${
+                selectedPlan === 'monthly'
+                  ? 'border-2 border-[#FF6A00] bg-orange-50 dark:bg-orange-950/40 shadow-sm'
+                  : 'border border-orange-200 dark:border-slate-700 bg-orange-50/30 dark:bg-slate-800/70 hover:border-[#FF6A00]/60'
+              }`}
+            >
               <div className="flex items-center justify-between gap-1">
-                <span className="text-xs font-bold text-orange-900 dark:text-orange-300">
-                  اشتراك سنوي (365 يوم)
+                <span
+                  className={`text-xs font-bold ${
+                    selectedPlan === 'monthly'
+                      ? 'text-orange-900 dark:text-orange-300'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  {tx(isEn, 'اشتراك شهري (30 يوم)', 'Monthly Plan (30 days)')}
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">
-                  وفّر {SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه
-                </span>
+                {selectedPlan === 'monthly' && (
+                  <span className="w-5 h-5 rounded-full bg-[#FF6A00] text-white inline-flex items-center justify-center shrink-0">
+                    <Check className="w-3 h-3" />
+                  </span>
+                )}
               </div>
               <div className="text-lg font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                {SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / سنوي
+                {SUBSCRIPTION_PRICING.MONTHLY_EGP} {tx(isEn, 'جنيه / شهري', 'EGP / month')}
               </div>
-            </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedPlan('yearly')}
+              aria-pressed={selectedPlan === 'yearly'}
+              className={`p-4 rounded-2xl space-y-1 text-start transition-all cursor-pointer ${
+                selectedPlan === 'yearly'
+                  ? 'border-2 border-[#FF6A00] bg-orange-50 dark:bg-orange-950/40 shadow-sm'
+                  : 'border border-orange-200 dark:border-slate-700 bg-orange-50/30 dark:bg-slate-800/70 hover:border-[#FF6A00]/60'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span
+                  className={`text-xs font-bold ${
+                    selectedPlan === 'yearly'
+                      ? 'text-orange-900 dark:text-orange-300'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  {tx(isEn, 'اشتراك سنوي (365 يوم)', 'Yearly Plan (365 days)')}
+                </span>
+                <div className="flex items-center gap-1">
+                  <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">
+                    {tx(
+                      isEn,
+                      `وفّر ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه`,
+                      `Save ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} EGP`
+                    )}
+                  </span>
+                  {selectedPlan === 'yearly' && (
+                    <span className="w-5 h-5 rounded-full bg-[#FF6A00] text-white inline-flex items-center justify-center shrink-0">
+                      <Check className="w-3 h-3" />
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="text-lg font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / year')}
+              </div>
+            </button>
           </div>
 
           <div className="space-y-2.5 pt-1">
@@ -549,7 +634,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               className="w-full py-3.5 px-4 rounded-full bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm"
             >
               <MessageCircle className="w-4 h-4" />
-              <span>تواصل واتساب للتفعيل: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
+              <span>
+                {tx(isEn, 'تواصل واتساب للتفعيل:', 'Activate via WhatsApp:')} {SUPPORT_CONTACT.PHONE_DISPLAY}
+              </span>
             </a>
 
             <a
@@ -567,7 +654,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               onClick={onBack}
               className="px-6 py-2.5 rounded-full glass-btn text-slate-700 dark:text-slate-200 font-bold text-xs"
             >
-              {backLabel}
+              {resolvedBackLabel}
             </button>
           )}
         </div>
@@ -577,7 +664,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
   if (ordersPageOpen) {
     return (
-      <div dir="rtl" className="min-h-screen bg-orange-50/30 dark:bg-slate-950 p-4 sm:p-6">
+      <div
+        dir={isEn ? 'ltr' : 'rtl'}
+        className="min-h-screen bg-orange-50/30 dark:bg-slate-950 p-4 sm:p-6"
+      >
         <div className="max-w-2xl mx-auto space-y-5">
           <div className="flex items-center justify-between bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800">
             <button
@@ -585,10 +675,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               onClick={() => setOrdersPageOpen(false)}
               className="inline-flex items-center gap-1.5 text-sm font-bold text-[#FF6A00] dark:text-orange-400"
             >
-              <ArrowRight className="w-4 h-4" />
-              العودة للمنيو
+              {isEn ? <ArrowLeft className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+              {tx(isEn, 'العودة للمنيو', 'Back to Menu')}
             </button>
-            <h1 className="text-lg font-extrabold">طلباتي</h1>
+            <h1 className="text-lg font-extrabold">{tx(isEn, 'طلباتي', 'My Orders')}</h1>
             <div className="w-16" />
           </div>
 
@@ -598,14 +688,18 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <ClipboardList className="w-8 h-8" />
               </div>
               <p className="text-base font-bold text-slate-700 dark:text-slate-200">
-                لا توجد طلبات بعد. اطلب من المنيو لتظهر طلباتك هنا
+                {tx(
+                  isEn,
+                  'لا توجد طلبات بعد. اطلب من المنيو لتظهر طلباتك هنا',
+                  'No orders yet. Place an order from the menu to track it here.'
+                )}
               </p>
               <button
                 type="button"
                 onClick={() => setOrdersPageOpen(false)}
                 className="px-6 py-3 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
               >
-                تصفح المنيو
+                {tx(isEn, 'تصفح المنيو', 'Browse Menu')}
               </button>
             </div>
           ) : (
@@ -617,25 +711,25 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-base tabular-nums">
-                      طلب #{ord.orderNumber}
+                      {tx(isEn, `طلب #${ord.orderNumber}`, `Order #${ord.orderNumber}`)}
                     </span>
                     <span className="px-3 py-1 rounded-xl bg-orange-50 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold">
                       {ord.status === 'new'
-                        ? 'جديد'
+                        ? tx(isEn, 'جديد', 'New')
                         : ord.status === 'preparing'
-                          ? 'قيد التحضير'
+                          ? tx(isEn, 'قيد التحضير', 'Preparing')
                           : ord.status === 'ready'
-                            ? 'جاهز'
-                            : 'مكتمل'}
+                            ? tx(isEn, 'جاهز', 'Ready')
+                            : tx(isEn, 'مكتمل', 'Completed')}
                     </span>
                   </div>
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                     {ord.itemSummary?.join(' • ')}
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t border-orange-50 dark:border-slate-800 text-sm font-extrabold">
-                    <span>الإجمالي</span>
+                    <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
                     <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                      {formatMoney(ord.total, shop.country)}
+                      {formatMoney(ord.total, shop.country, undefined, isEn)}
                     </span>
                   </div>
                 </div>
@@ -649,7 +743,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
   return (
     <div
-      dir="rtl"
+      dir={isEn ? 'ltr' : 'rtl'}
       className={`min-h-screen pb-28 transition-colors ${templateStyles.pageBackgroundClass}`}
     >
       {/* Top Floating Glass Bar */}
@@ -661,29 +755,40 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               onClick={onBack}
               className="px-3 py-1.5 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 text-xs font-bold inline-flex items-center gap-1 shrink-0"
             >
-              <ArrowRight className="w-3.5 h-3.5" />
-              {backLabel}
+              {isEn ? <ArrowLeft className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
+              {resolvedBackLabel}
             </button>
           )}
-          <span className="text-sm font-extrabold truncate max-w-[160px]">{shop.nameAr}</span>
+          <span className="text-sm font-extrabold truncate max-w-[140px] sm:max-w-[200px]">
+            {displayShopName}
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {offerProducts.length > 0 && (
             <button
               type="button"
               onClick={scrollToOffers}
-              className="px-3 py-1.5 rounded-full glass-btn-amber text-xs font-extrabold inline-flex items-center gap-1"
+              className="px-2.5 sm:px-3 py-1.5 rounded-full glass-btn-amber text-xs font-extrabold inline-flex items-center gap-1"
             >
               <Tag className="w-3.5 h-3.5" />
-              <span>العروض</span>
+              <span className="hidden xs:inline">{tx(isEn, 'العروض', 'Offers')}</span>
             </button>
           )}
           <button
             type="button"
+            onClick={toggleLang}
+            className="h-9 px-2.5 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold inline-flex items-center gap-1"
+            aria-label={tx(isEn, 'تغيير اللغة إلى الإنجليزية', 'Switch to Arabic')}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>{isEn ? 'عربي' : 'EN'}</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setOrdersPageOpen(true)}
             className="w-9 h-9 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
-            aria-label="طلباتي"
+            aria-label={tx(isEn, 'طلباتي', 'My Orders')}
           >
             <ClipboardList className="w-4 h-4" />
           </button>
@@ -691,7 +796,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             type="button"
             onClick={onToggleDarkMode}
             className="w-9 h-9 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
-            aria-label="تغيير المظهر"
+            aria-label={tx(isEn, 'تغيير المظهر', 'Toggle theme')}
           >
             {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
@@ -699,7 +804,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             type="button"
             onClick={() => setSideMenuOpen(true)}
             className="w-9 h-9 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
-            aria-label="القائمة"
+            aria-label={tx(isEn, 'القائمة', 'Menu')}
           >
             <Menu className="w-4 h-4" />
           </button>
@@ -762,7 +867,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           : 'text-slate-900 dark:text-white'
                       }`}
                     >
-                      {shop.nameAr}
+                      {displayShopName}
                     </h1>
                     <span
                       className={`px-2.5 py-0.5 rounded-xl text-xs font-extrabold ${
@@ -775,7 +880,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                       }`}
                     >
-                      {shop.isOpen ? 'مفتوح الآن' : 'مغلق الآن'}
+                      {shop.isOpen ? tx(isEn, 'مفتوح الآن', 'Open Now') : tx(isEn, 'مغلق الآن', 'Closed Now')}
                     </span>
                   </div>
                   {(shop.city || shop.address || initialTableLabel) && (
@@ -799,7 +904,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full glass-btn-primary font-bold text-xs whitespace-nowrap shadow-sm"
               >
                 <MessageCircle className="w-4 h-4" />
-                تواصل واتساب
+                {tx(isEn, 'تواصل واتساب', 'WhatsApp Us')}
               </a>
             </div>
 
@@ -813,8 +918,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               >
                 <Truck className="w-3.5 h-3.5" />
                 {shop.freeDelivery || Number(shop.deliveryFee || 0) === 0
-                  ? 'سعر التوصيل: مجاني'
-                  : `سعر التوصيل: ${formatMoney(Number(shop.deliveryFee || 0), shop.country, 0)}`}
+                  ? tx(isEn, 'سعر التوصيل: مجاني', 'Delivery: Free')
+                  : `${tx(isEn, 'سعر التوصيل:', 'Delivery Fee:')} ${formatMoney(Number(shop.deliveryFee || 0), shop.country, 0, isEn)}`}
               </span>
 
               {!shop.freeDelivery && Number(shop.freeDeliveryMinOrder || 0) > 0 && (
@@ -825,7 +930,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       : 'bg-amber-50 dark:bg-slate-800 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-slate-700'
                   }`}
                 >
-                  توصيل مجاني فوق {formatMoney(Number(shop.freeDeliveryMinOrder), shop.country, 0)}
+                  {tx(isEn, 'توصيل مجاني فوق', 'Free delivery over')}{' '}
+                  {formatMoney(Number(shop.freeDeliveryMinOrder), shop.country, 0, isEn)}
                 </span>
               )}
 
@@ -837,7 +943,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 }`}
               >
                 <Clock className="w-3.5 h-3.5" />
-                <span>وقت التوصيل: {shop.deliveryTime || '30-45 دقيقة'}</span>
+                <span>
+                  {tx(isEn, 'وقت التوصيل:', 'Delivery Time:')}{' '}
+                  {shop.deliveryTime || tx(isEn, '30-45 دقيقة', '30-45 mins')}
+                </span>
               </span>
 
               {!hasAnyExtraFeeEnabled && (
@@ -849,7 +958,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   }`}
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>السعر شامل، بدون اي رسوم اضافية</span>
+                  <span>
+                    {tx(isEn, 'السعر شامل، بدون اي رسوم اضافية', 'All-inclusive prices, zero extra fees')}
+                  </span>
                 </span>
               )}
             </div>
@@ -857,7 +968,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         </div>
       </div>
 
-      {/* Prominent Special Offers Menu ("قائمة العروض والخصومات") */}
+      {/* Prominent Special Offers Menu */}
       {offerProducts.length > 0 && !searchQuery.trim() && (
         <section id="offers-section" className={`${templateStyles.contentContainerClass} mt-4 scroll-mt-16`}>
           <div className={`border p-4 sm:p-5 space-y-3 shadow-xs ${templateStyles.offersSectionClass}`}>
@@ -872,7 +983,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       templateId === 'modern' ? 'text-white' : 'text-slate-900 dark:text-white'
                     }`}
                   >
-                    عروض اليوم والخصومات
+                    {tx(isEn, 'عروض اليوم والخصومات', "Today's Offers & Deals")}
                   </h2>
                   <p
                     className={`text-[11px] font-bold ${
@@ -881,7 +992,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         : 'text-slate-500 dark:text-slate-400'
                     }`}
                   >
-                    وفر أكثر مع أقوى عروض {shop.nameAr}
+                    {tx(
+                      isEn,
+                      `وفر أكثر مع أقوى عروض ${displayShopName}`,
+                      `Save more with top deals from ${displayShopName}`
+                    )}
                   </p>
                 </div>
               </div>
@@ -892,7 +1007,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     : 'glass-surface text-amber-800 dark:text-amber-300'
                 }`}
               >
-                {offerProducts.length} عروض متاحة
+                {tx(isEn, `${offerProducts.length} عروض متاحة`, `${offerProducts.length} offers`)}
               </span>
             </div>
 
@@ -924,19 +1039,19 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         )}
 
                         <span className="absolute top-2 right-2 px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[11px] font-extrabold shadow-xs">
-                          {product.offerLabel || 'عرض خاص'}
+                          {product.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
                         </span>
 
                         {pct > 0 && (
                           <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full glass-btn-primary text-[10px] font-extrabold tabular-nums">
-                            وفر {pct}%
+                            {tx(isEn, `وفر ${pct}%`, `Save ${pct}%`)}
                           </span>
                         )}
 
                         {showDishLogo && shop.logoUrl && (
                           <img
                             src={shop.logoUrl}
-                            alt={shop.nameAr}
+                            alt={displayShopName}
                             className="w-7 h-7 rounded-full object-cover border-2 border-white bg-white shadow-sm absolute top-2 left-2"
                           />
                         )}
@@ -965,7 +1080,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         </span>
                         {product.originalPrice && product.originalPrice > product.price && (
                           <span className="text-[11px] font-bold text-slate-400 line-through">
-                            {formatMoney(product.originalPrice, shop.country)}
+                            {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                           </span>
                         )}
                       </div>
@@ -978,7 +1093,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           className={`px-3.5 py-1.5 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums ${templateStyles.primaryButtonClass}`}
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          {inCartQty > 0 ? `في السلة (${inCartQty})` : options.length > 0 ? 'اختر' : 'أضف'}
+                          {inCartQty > 0
+                            ? tx(isEn, `في السلة (${inCartQty})`, `In Cart (${inCartQty})`)
+                            : options.length > 0
+                              ? tx(isEn, 'اختر', 'Select')
+                              : tx(isEn, 'أضف', 'Add')}
                         </button>
                       ) : (
                         <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
@@ -1014,19 +1133,25 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       <div className={`${templateStyles.contentContainerClass} mt-4 space-y-3`}>
         <div className="flex items-center gap-2.5">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+            <Search
+              className={`w-4 h-4 text-slate-400 absolute ${
+                isEn ? 'left-3.5' : 'right-3.5'
+              } top-1/2 -translate-y-1/2`}
+            />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث عن صنف"
-              className="w-full pr-10 pl-4 py-3 rounded-2xl glass-surface text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+              placeholder={tx(isEn, 'ابحث عن صنف', 'Search menu items')}
+              className={`w-full ${
+                isEn ? 'pl-10 pr-4' : 'pr-10 pl-4'
+              } py-3 rounded-2xl glass-surface text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]`}
             />
           </div>
           <button
             type="button"
             onClick={() => setViewMode('list')}
-            aria-label="عرض القائمة"
+            aria-label={tx(isEn, 'عرض القائمة', 'List view')}
             className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
               viewMode === 'list'
                 ? templateStyles.primaryButtonClass
@@ -1038,7 +1163,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           <button
             type="button"
             onClick={() => setViewMode('grid')}
-            aria-label="عرض الشبكة"
+            aria-label={tx(isEn, 'عرض الشبكة', 'Grid view')}
             className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
               viewMode === 'grid'
                 ? templateStyles.primaryButtonClass
@@ -1058,7 +1183,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               className="px-4 py-2 rounded-full glass-btn-amber text-sm font-extrabold whitespace-nowrap shrink-0 inline-flex items-center gap-1.5"
             >
               <Tag className="w-3.5 h-3.5" />
-              العروض ({offerProducts.length})
+              {tx(isEn, `العروض (${offerProducts.length})`, `Offers (${offerProducts.length})`)}
             </button>
           )}
           {categories.map((cat) => {
@@ -1072,7 +1197,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   active ? templateStyles.categoryActiveClass : templateStyles.categoryIdleClass
                 }`}
               >
-                {cat}
+                {cat === ALL_CATEGORIES_KEY ? tx(isEn, 'الكل', 'All') : cat}
               </button>
             );
           })}
@@ -1081,10 +1206,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         {/* Section Title */}
         <div className="flex items-center justify-between pt-1">
           <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
-            {selectedCategory === 'الكل' ? 'جميع الأصناف' : selectedCategory}
+            {selectedCategory === ALL_CATEGORIES_KEY
+              ? tx(isEn, 'جميع الأصناف', 'All Menu Items')
+              : selectedCategory}
           </h2>
           <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
-            {filteredProducts.length} صنف
+            {tx(isEn, `${filteredProducts.length} صنف`, `${filteredProducts.length} items`)}
           </span>
         </div>
 
@@ -1093,7 +1220,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 border border-orange-100 dark:border-slate-800 text-center space-y-2">
             <Utensils className="w-10 h-10 text-orange-300 mx-auto" />
             <p className="text-base font-bold text-slate-600 dark:text-slate-300">
-              لا توجد أصناف في هذه الفئة
+              {tx(isEn, 'لا توجد أصناف في هذه الفئة', 'No items in this category')}
             </p>
           </div>
         ) : (
@@ -1156,7 +1283,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           </h3>
                           {product.isOffer && (
                             <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-extrabold">
-                              {product.offerLabel || 'عرض'}
+                              {product.offerLabel || tx(isEn, 'عرض', 'Offer')}
                             </span>
                           )}
                         </div>
@@ -1176,7 +1303,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           </span>
                           {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
                             <span className="text-[11px] font-bold text-slate-400 line-through">
-                              {formatMoney(product.originalPrice, shop.country)}
+                              {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                             </span>
                           )}
                         </div>
@@ -1192,7 +1319,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           type="button"
                           onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
-                          aria-label={`إضافة ${product.name}`}
+                          aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
                           className={
                             options.length > 0
                               ? `px-3 py-1.5 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums ${templateStyles.primaryButtonClass}`
@@ -1201,7 +1328,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         >
                           <Plus className="w-4 h-4" />
                           {options.length > 0 && (
-                            <span>{inCartQty > 0 ? `(${inCartQty})` : 'اختر'}</span>
+                            <span>{inCartQty > 0 ? `(${inCartQty})` : tx(isEn, 'اختر', 'Select')}</span>
                           )}
                         </button>
                       ) : (
@@ -1262,7 +1389,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           </h3>
                           {product.isOffer && (
                             <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
-                              {product.offerLabel || 'عرض'}
+                              {product.offerLabel || tx(isEn, 'عرض', 'Offer')}
                             </span>
                           )}
                         </div>
@@ -1282,7 +1409,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             </span>
                             {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
                               <span className="text-[11px] font-medium text-slate-400 line-through">
-                                {formatMoney(product.originalPrice, shop.country)}
+                                {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                               </span>
                             )}
                           </div>
@@ -1292,11 +1419,17 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                               type="button"
                               onClick={() => openProductDetail(product)}
                               disabled={!shop.acceptOrders}
-                              aria-label={`إضافة ${product.name}`}
+                              aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
                               className={`px-3.5 py-1.5 rounded-full disabled:opacity-40 text-xs font-bold inline-flex items-center gap-1 tabular-nums transition-colors ${templateStyles.primaryButtonClass}`}
                             >
                               <Plus className="w-3.5 h-3.5" />
-                              <span>{inCartQty > 0 ? `(${inCartQty})` : options.length > 0 ? 'اختر' : 'أضف'}</span>
+                              <span>
+                                {inCartQty > 0
+                                  ? `(${inCartQty})`
+                                  : options.length > 0
+                                    ? tx(isEn, 'اختر', 'Select')
+                                    : tx(isEn, 'أضف', 'Add')}
+                              </span>
                             </button>
                           ) : (
                             <div className="inline-flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 rounded-full px-1.5 py-0.5">
@@ -1342,7 +1475,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           </span>
                           {product.isOffer && (
                             <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-extrabold">
-                              {product.offerLabel || 'عرض خاص'}
+                              {product.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
                             </span>
                           )}
                         </div>
@@ -1367,7 +1500,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           </span>
                           {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
                             <span className="text-xs font-bold text-slate-400 line-through">
-                              {formatMoney(product.originalPrice, shop.country)}
+                              {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                             </span>
                           )}
                         </div>
@@ -1379,7 +1512,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             className={`px-4 py-2 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums transition-colors ${templateStyles.primaryButtonClass}`}
                           >
                             <Plus className="w-4 h-4" />
-                            {inCartQty > 0 ? `في السلة (${inCartQty})` : options.length > 0 ? 'اختر' : 'أضف للسلة'}
+                            {inCartQty > 0
+                              ? tx(isEn, `في السلة (${inCartQty})`, `In Cart (${inCartQty})`)
+                              : options.length > 0
+                                ? tx(isEn, 'اختر', 'Select')
+                                : tx(isEn, 'أضف للسلة', 'Add to Cart')}
                           </button>
                         ) : (
                           <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
@@ -1423,7 +1560,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           e.stopPropagation();
                           setFavorites((prev) => ({ ...prev, [product.id]: !isFav }));
                         }}
-                        aria-label="مفضلة"
+                        aria-label={tx(isEn, 'مفضلة', 'Favorite')}
                         className="absolute top-2 right-2 w-7 h-7 rounded-full glass-btn flex items-center justify-center"
                       >
                         <Heart
@@ -1435,7 +1572,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       {showDishLogo && shop.logoUrl && (
                         <img
                           src={shop.logoUrl}
-                          alt={shop.nameAr}
+                          alt={displayShopName}
                           className="w-7 h-7 rounded-full object-cover border-2 border-white bg-white shadow-sm absolute bottom-2 left-2"
                         />
                       )}
@@ -1470,7 +1607,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           e.stopPropagation();
                           setFavorites((prev) => ({ ...prev, [product.id]: !isFav }));
                         }}
-                        aria-label="مفضلة"
+                        aria-label={tx(isEn, 'مفضلة', 'Favorite')}
                         className="absolute top-2 right-2 w-8 h-8 rounded-full glass-btn flex items-center justify-center"
                       >
                         <Heart
@@ -1482,14 +1619,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
                       {product.isOffer && (
                         <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-extrabold shadow-xs">
-                          {product.offerLabel || 'عرض'}
+                          {product.offerLabel || tx(isEn, 'عرض', 'Offer')}
                         </span>
                       )}
 
                       {showDishLogo && shop.logoUrl && (
                         <img
                           src={shop.logoUrl}
-                          alt={shop.nameAr}
+                          alt={displayShopName}
                           className="w-7 h-7 rounded-full object-cover border-2 border-white bg-white shadow-sm absolute top-2 left-2"
                         />
                       )}
@@ -1518,7 +1655,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       </span>
                       {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
                         <span className="text-[10px] font-bold text-slate-400 line-through">
-                          {formatMoney(product.originalPrice, shop.country)}
+                          {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                         </span>
                       )}
                     </div>
@@ -1528,7 +1665,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         type="button"
                         onClick={() => openProductDetail(product)}
                         disabled={!shop.acceptOrders}
-                        aria-label={`إضافة ${product.name}`}
+                        aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
                         className={
                           options.length > 0
                             ? `px-3 py-1.5 rounded-full disabled:opacity-40 text-[11px] font-extrabold inline-flex items-center gap-1 shrink-0 tabular-nums ${templateStyles.primaryButtonClass}`
@@ -1537,7 +1674,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       >
                         <Plus className="w-4 h-4" />
                         {options.length > 0 && (
-                          <span>{inCartQty > 0 ? `(${inCartQty})` : 'اختر'}</span>
+                          <span>{inCartQty > 0 ? `(${inCartQty})` : tx(isEn, 'اختر', 'Select')}</span>
                         )}
                       </button>
                     ) : (
@@ -1580,9 +1717,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <ShoppingBag className="w-5 h-5" />
-                <span>السلة - {totalItemsCount} صنف</span>
+                <span>
+                  {tx(isEn, `السلة - ${totalItemsCount} صنف`, `Cart - ${totalItemsCount} items`)}
+                </span>
               </div>
-              <span>{formatMoney(cartSubtotal, shop.country)}</span>
+              <span>{formatMoney(cartSubtotal, shop.country, undefined, isEn)}</span>
             </button>
           </div>
         </div>
@@ -1600,7 +1739,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-t-3xl p-5 sm:p-6 max-h-[88vh] flex flex-col justify-between shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
-              <h2 className="text-xl font-extrabold">السلة</h2>
+              <h2 className="text-xl font-extrabold">{tx(isEn, 'السلة', 'Your Cart')}</h2>
               <button
                 type="button"
                 onClick={() => setCartOpen(false)}
@@ -1612,7 +1751,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
             <div className="overflow-y-auto py-4 space-y-5 flex-1">
               {cartItems.length === 0 ? (
-                <p className="text-center text-sm font-bold text-slate-500 py-8">السلة فارغة</p>
+                <p className="text-center text-sm font-bold text-slate-500 py-8">
+                  {tx(isEn, 'السلة فارغة', 'Your cart is empty')}
+                </p>
               ) : (
                 <div className="space-y-3">
                   {Object.entries(cart).map(([cartKey, { product, quantity, unitPrice, note }]) => (
@@ -1640,14 +1781,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             </div>
                           )}
                           <div className="text-xs font-bold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                            {formatMoney(unitPrice * quantity, shop.country)}
+                            {formatMoney(unitPrice * quantity, shop.country, undefined, isEn)}
                           </div>
                           <button
                             type="button"
                             onClick={() => removeFromCart(cartKey)}
                             className="text-xs font-bold text-slate-500 hover:text-amber-600 mt-0.5"
                           >
-                            حذف
+                            {tx(isEn, 'حذف', 'Remove')}
                           </button>
                         </div>
                       </div>
@@ -1679,7 +1820,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               {/* Section "يكمل طلبك" */}
               <div className="space-y-2.5 pt-2">
                 <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
-                  يكمل طلبك
+                  {tx(isEn, 'يكمل طلبك', 'Goes Great With')}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   {upsellSuggestions.map((item) => (
@@ -1690,7 +1831,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       <div className="min-w-0">
                         <div className="font-bold text-xs truncate">{item.name}</div>
                         <div className="text-xs font-extrabold text-[#FF6A00] tabular-nums">
-                          {item.price}ج
+                          {formatMoney(item.price, shop.country, undefined, isEn)}
                         </div>
                       </div>
                       <button
@@ -1708,9 +1849,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
             <div className="pt-4 border-t border-orange-100 dark:border-slate-800 space-y-3">
               <div className="flex items-center justify-between font-extrabold text-base">
-                <span>الإجمالي</span>
+                <span>{tx(isEn, 'الإجمالي', 'Subtotal')}</span>
                 <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                  {formatMoney(cartSubtotal, shop.country)}
+                  {formatMoney(cartSubtotal, shop.country, undefined, isEn)}
                 </span>
               </div>
               <button
@@ -1722,7 +1863,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 }}
                 className="w-full py-3.5 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] disabled:opacity-40 text-white font-extrabold text-base"
               >
-                متابعة للتفاصيل
+                {tx(isEn, 'متابعة للتفاصيل', 'Continue to Checkout')}
               </button>
             </div>
           </div>
@@ -1737,7 +1878,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-t-3xl p-5 sm:p-6 max-h-[92vh] overflow-y-auto space-y-4 shadow-2xl"
           >
             <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
-              <h2 className="text-xl font-extrabold">بيانات الطلب</h2>
+              <h2 className="text-xl font-extrabold">{tx(isEn, 'بيانات الطلب', 'Order Details')}</h2>
               <button
                 type="button"
                 onClick={() => setCheckoutOpen(false)}
@@ -1750,14 +1891,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             {/* Order Type */}
             <div className="space-y-2">
               <label className="block text-xs font-extrabold text-slate-600 dark:text-slate-300">
-                نوع الطلب
+                {tx(isEn, 'نوع الطلب', 'Order Type')}
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
-                  { id: 'delivery', label: 'توصيل' },
-                  { id: 'pickup', label: 'استلام' },
-                  { id: 'dine_in', label: 'محلي' },
-                  { id: 'table', label: 'طاولة' },
+                  { id: 'delivery', label: tx(isEn, 'توصيل', 'Delivery') },
+                  { id: 'pickup', label: tx(isEn, 'استلام', 'Pickup') },
+                  { id: 'dine_in', label: tx(isEn, 'محلي', 'Dine-in') },
+                  { id: 'table', label: tx(isEn, 'طاولة', 'Table') },
                 ].map((opt) => (
                   <button
                     key={opt.id}
@@ -1778,24 +1919,35 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             {/* Payment Method */}
             <div className="space-y-2">
               <label className="block text-xs font-extrabold text-slate-600 dark:text-slate-300">
-                طريقة الدفع
+                {tx(isEn, 'طريقة الدفع', 'Payment Method')}
               </label>
               <div className="grid grid-cols-2 gap-2">
                 {(shop.paymentMethods?.length ? shop.paymentMethods : ['نقداً', 'فودافون كاش']).map(
-                  (pm) => (
-                    <button
-                      key={pm}
-                      type="button"
-                      onClick={() => setPaymentMethod(pm)}
-                      className={`py-2.5 rounded-2xl text-sm font-bold border transition-colors ${
-                        paymentMethod === pm
-                          ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-orange-900 dark:text-orange-300'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                      }`}
-                    >
-                      {pm}
-                    </button>
-                  )
+                  (pm) => {
+                    const pmLabel = isEn
+                      ? pm === 'نقداً'
+                        ? 'Cash'
+                        : pm === 'فودافون كاش'
+                          ? 'Vodafone Cash'
+                          : pm === 'فيزا / بطاقة'
+                            ? 'Card / Visa'
+                            : pm
+                      : pm;
+                    return (
+                      <button
+                        key={pm}
+                        type="button"
+                        onClick={() => setPaymentMethod(pm)}
+                        className={`py-2.5 rounded-2xl text-sm font-bold border transition-colors ${
+                          paymentMethod === pm
+                            ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-orange-900 dark:text-orange-300'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {pmLabel}
+                      </button>
+                    );
+                  }
                 )}
               </div>
             </div>
@@ -1807,7 +1959,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 required
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="الاسم"
+                placeholder={tx(isEn, 'الاسم', 'Full Name')}
                 className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
               />
               <input
@@ -1816,20 +1968,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 dir="ltr"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
-                placeholder="الهاتف"
-                className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold text-right"
+                placeholder={tx(isEn, 'الهاتف', 'Phone Number')}
+                className={`w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold ${
+                  isEn ? 'text-left' : 'text-right'
+                }`}
               />
 
               {orderType === 'pickup' ? (
                 <div className="rounded-2xl bg-orange-50 dark:bg-orange-950/50 border border-orange-200 dark:border-orange-900 p-3.5 text-sm font-bold text-orange-900 dark:text-orange-200">
-                  الاستلام من: الفرع الرئيسي
+                  {tx(isEn, 'الاستلام من: الفرع الرئيسي', 'Pickup from: Main Branch')}
                 </div>
               ) : orderType === 'table' ? (
                 <input
                   type="text"
                   value={tableLabel}
                   onChange={(e) => setTableLabel(e.target.value)}
-                  placeholder="رقم الطاولة (مثال: طاولة 3)"
+                  placeholder={tx(isEn, 'رقم الطاولة (مثال: طاولة 3)', 'Table Number (e.g. Table 3)')}
                   className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                 />
               ) : orderType === 'delivery' ? (
@@ -1839,7 +1993,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     required
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    placeholder="العنوان"
+                    placeholder={tx(isEn, 'العنوان', 'Delivery Address')}
                     className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                   />
                   <div className="grid grid-cols-2 gap-3">
@@ -1847,14 +2001,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       type="text"
                       value={floor}
                       onChange={(e) => setFloor(e.target.value)}
-                      placeholder="الدور"
+                      placeholder={tx(isEn, 'الدور', 'Floor')}
                       className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                     />
                     <input
                       type="text"
                       value={apartment}
                       onChange={(e) => setApartment(e.target.value)}
-                      placeholder="الشقة"
+                      placeholder={tx(isEn, 'الشقة', 'Apartment')}
                       className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
                     />
                   </div>
@@ -1865,7 +2019,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 rows={2}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="اكتب أي طلب خاص"
+                placeholder={tx(isEn, 'اكتب أي طلب خاص', 'Any special instructions...')}
                 className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
               />
             </div>
@@ -1873,46 +2027,54 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             {/* Detailed Calculation: Food + Delivery (+ Optional Fees ONLY if enabled) */}
             <div className="bg-orange-50/70 dark:bg-slate-800 rounded-2xl p-4 space-y-2 text-sm font-bold">
               <div className="flex justify-between">
-                <span>سعر الأكل</span>
-                <span className="tabular-nums">{formatMoney(totals.subtotal, shop.country)}</span>
+                <span>{tx(isEn, 'سعر الأكل', 'Subtotal')}</span>
+                <span className="tabular-nums">
+                  {formatMoney(totals.subtotal, shop.country, undefined, isEn)}
+                </span>
               </div>
               {orderType === 'delivery' && (
                 <div className="flex justify-between text-slate-700 dark:text-slate-300">
-                  <span>سعر التوصيل</span>
+                  <span>{tx(isEn, 'سعر التوصيل', 'Delivery Fee')}</span>
                   <span className="tabular-nums font-extrabold text-[#FF6A00] dark:text-orange-400">
                     {totals.freeDeliveryApplied
-                      ? 'مجاناً'
-                      : formatMoney(totals.deliveryFee, shop.country)}
+                      ? tx(isEn, 'مجاناً', 'Free')
+                      : formatMoney(totals.deliveryFee, shop.country, undefined, isEn)}
                   </span>
                 </div>
               )}
               {totals.serviceFee > 0 && (
                 <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                  <span>رسوم الخدمة ({totals.serviceFeePct}%)</span>
-                  <span className="tabular-nums">{formatMoney(totals.serviceFee, shop.country)}</span>
+                  <span>{tx(isEn, `رسوم الخدمة (${totals.serviceFeePct}%)`, `Service Fee (${totals.serviceFeePct}%)`)}</span>
+                  <span className="tabular-nums">
+                    {formatMoney(totals.serviceFee, shop.country, undefined, isEn)}
+                  </span>
                 </div>
               )}
               {totals.vat > 0 && (
                 <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                  <span>الضريبة ({totals.vatPct}%)</span>
-                  <span className="tabular-nums">{formatMoney(totals.vat, shop.country)}</span>
+                  <span>{tx(isEn, `الضريبة (${totals.vatPct}%)`, `VAT (${totals.vatPct}%)`)}</span>
+                  <span className="tabular-nums">
+                    {formatMoney(totals.vat, shop.country, undefined, isEn)}
+                  </span>
                 </div>
               )}
               {totals.packagingFee > 0 && (
                 <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                  <span>رسوم التغليف</span>
-                  <span className="tabular-nums">{formatMoney(totals.packagingFee, shop.country)}</span>
+                  <span>{tx(isEn, 'رسوم التغليف', 'Packaging Fee')}</span>
+                  <span className="tabular-nums">
+                    {formatMoney(totals.packagingFee, shop.country, undefined, isEn)}
+                  </span>
                 </div>
               )}
               {!totals.hasExtraFees && (
                 <div className="text-[11px] font-extrabold text-[#FF6A00] dark:text-orange-400 pt-0.5">
-                  السعر شامل، بدون اي رسوم اضافية
+                  {tx(isEn, 'السعر شامل، بدون اي رسوم اضافية', 'All-inclusive, no extra fees')}
                 </div>
               )}
               <div className="flex justify-between text-base font-extrabold pt-2 border-t border-orange-200 dark:border-slate-700">
-                <span>الإجمالي</span>
+                <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
                 <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                  {formatMoney(totals.total, shop.country)}
+                  {formatMoney(totals.total, shop.country, undefined, isEn)}
                 </span>
               </div>
             </div>
@@ -1929,7 +2091,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               className="w-full py-4 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-base flex items-center justify-center gap-2 tabular-nums"
             >
               {submitting && <Loader2 className="w-5 h-5 animate-spin" />}
-              <span>تأكيد الطلب - {formatMoney(totals.total, shop.country)}</span>
+              <span>
+                {tx(isEn, 'تأكيد الطلب', 'Place Order')} - {formatMoney(totals.total, shop.country, undefined, isEn)}
+              </span>
             </button>
           </form>
         </div>
@@ -1940,12 +2104,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 text-center space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
             <CheckCircle2 className="w-14 h-14 text-[#FF6A00] mx-auto" />
-            <h3 className="text-xl font-extrabold">تم استلام طلبك بنجاح!</h3>
+            <h3 className="text-xl font-extrabold">
+              {tx(isEn, 'تم استلام طلبك بنجاح!', 'Order Received Successfully!')}
+            </h3>
             <p className="text-sm font-bold text-slate-600 dark:text-slate-300 tabular-nums">
-              رقم الطلب: #{placedOrder.orderNumber}
+              {tx(isEn, `رقم الطلب: #${placedOrder.orderNumber}`, `Order Number: #${placedOrder.orderNumber}`)}
             </p>
             <p className="text-lg font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-              الإجمالي: {formatMoney(placedOrder.total, shop.country)}
+              {tx(isEn, 'الإجمالي:', 'Total:')} {formatMoney(placedOrder.total, shop.country, undefined, isEn)}
             </p>
             <div className="flex gap-3 pt-2">
               <button
@@ -1956,14 +2122,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 }}
                 className="flex-1 py-3 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
               >
-                عرض طلباتي
+                {tx(isEn, 'عرض طلباتي', 'View My Orders')}
               </button>
               <button
                 type="button"
                 onClick={() => setPlacedOrder(null)}
                 className="flex-1 py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm"
               >
-                متابعة التسوق
+                {tx(isEn, 'متابعة التسوق', 'Continue Browsing')}
               </button>
             </div>
           </div>
@@ -1977,7 +2143,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           <div className="relative z-10 w-72 bg-white dark:bg-slate-900 h-full p-5 flex flex-col justify-between shadow-xl">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="font-extrabold text-lg">{shop.nameAr}</span>
+                <span className="font-extrabold text-lg">{displayShopName}</span>
                 <button
                   type="button"
                   onClick={() => setSideMenuOpen(false)}
@@ -1990,13 +2156,29 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    toggleLang();
+                    setSideMenuOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                >
+                  <span className="inline-flex items-center gap-3">
+                    <Globe className="w-4 h-4 text-[#FF6A00]" />
+                    {tx(isEn, 'اللغة / Language', 'Language / اللغة')}
+                  </span>
+                  <span className="text-xs font-extrabold text-[#FF6A00]">
+                    {isEn ? 'عربي' : 'English'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     setSideMenuOpen(false);
                     void handleShareMenu();
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Share2 className="w-4 h-4 text-[#FF6A00]" />
-                  مشاركة المنيو
+                  {tx(isEn, 'مشاركة المنيو', 'Share Menu')}
                 </button>
                 <button
                   type="button"
@@ -2004,18 +2186,18 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     onToggleDarkMode();
                     setSideMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   {darkMode ? <Sun className="w-4 h-4 text-[#FF6A00]" /> : <Moon className="w-4 h-4 text-[#FF6A00]" />}
-                  تغيير المظهر
+                  {tx(isEn, 'تغيير المظهر', 'Toggle Theme')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setSideMenuOpen(false)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Utensils className="w-4 h-4 text-[#FF6A00]" />
-                  المنيو
+                  {tx(isEn, 'المنيو', 'Menu')}
                 </button>
                 <button
                   type="button"
@@ -2023,10 +2205,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     setSideMenuOpen(false);
                     setOrdersPageOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <ClipboardList className="w-4 h-4 text-[#FF6A00]" />
-                  الطلبات
+                  {tx(isEn, 'الطلبات', 'My Orders')}
                 </button>
                 <button
                   type="button"
@@ -2034,19 +2216,19 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     setSideMenuOpen(false);
                     setAboutModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Info className="w-4 h-4 text-[#FF6A00]" />
-                  عن المطعم
+                  {tx(isEn, 'عن المطعم', 'About Restaurant')}
                 </button>
                 <a
                   href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-right"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
                 >
                   <Phone className="w-4 h-4 text-[#FF6A00]" />
-                  تواصل معنا
+                  {tx(isEn, 'تواصل معنا', 'Contact Us')}
                 </a>
               </div>
             </div>
@@ -2059,7 +2241,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">عن {shop.nameAr}</h3>
+              <h3 className="text-lg font-extrabold">
+                {tx(isEn, `عن ${displayShopName}`, `About ${displayShopName}`)}
+              </h3>
               <button
                 type="button"
                 onClick={() => setAboutModalOpen(false)}
@@ -2069,17 +2253,23 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               </button>
             </div>
             <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-              {shop.bio || 'أشهى المأكولات والمشروبات الطازجة يومياً.'}
+              {shop.bio || tx(isEn, 'أشهى المأكولات والمشروبات الطازجة يومياً.', 'Freshly prepared food and drinks daily.')}
             </p>
             <div className="text-xs font-bold text-slate-500 dark:text-slate-400 space-y-1">
-              {shop.address && <div>العنوان: {shop.city} - {shop.address}</div>}
-              <div>ساعات العمل: من {shop.workFrom || '4م'} إلى {shop.workTo || '2ص'}</div>
+              {shop.address && (
+                <div>
+                  {tx(isEn, 'العنوان:', 'Address:')} {shop.city} - {shop.address}
+                </div>
+              )}
+              <div>
+                {tx(isEn, 'ساعات العمل:', 'Opening Hours:')} {shop.workFrom || '4م'} - {shop.workTo || '2ص'}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Product Detail Page / Modal (Exact original item details only) */}
+      {/* Product Detail Page / Modal */}
       {detailProduct && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-xs"
@@ -2108,7 +2298,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               <button
                 type="button"
                 onClick={() => setDetailProduct(null)}
-                aria-label="إغلاق"
+                aria-label={tx(isEn, 'إغلاق', 'Close')}
                 className="absolute top-3 left-3 w-10 h-10 rounded-full bg-white/90 dark:bg-slate-900/90 text-slate-800 dark:text-white flex items-center justify-center shadow-md"
               >
                 <X className="w-5 h-5" />
@@ -2117,14 +2307,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               {showDishLogo && shop.logoUrl && (
                 <img
                   src={shop.logoUrl}
-                  alt={shop.nameAr}
+                  alt={displayShopName}
                   className="w-10 h-10 rounded-full object-cover border-2 border-white bg-white shadow-md absolute top-3 right-3"
                 />
               )}
 
               {detailProduct.isOffer && (
                 <span className="absolute bottom-3 right-3 px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-xs font-extrabold shadow-sm">
-                  {detailProduct.offerLabel || 'عرض خاص'}
+                  {detailProduct.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
                 </span>
               )}
             </div>
@@ -2140,15 +2330,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     {detailProduct.name}
                   </h2>
                 </div>
-                <div className="text-left shrink-0 tabular-nums">
+                <div className={`${isEn ? 'text-right' : 'text-left'} shrink-0 tabular-nums`}>
                   <div className="text-xl font-extrabold text-[#FF6A00] dark:text-orange-400">
-                    {formatMoney(activeDetailUnitPrice, shop.country)}
+                    {formatMoney(activeDetailUnitPrice, shop.country, undefined, isEn)}
                   </div>
                   {detailProduct.isOffer &&
                     detailProduct.originalPrice &&
                     detailProduct.originalPrice > activeDetailUnitPrice && (
                       <div className="text-xs font-bold text-slate-400 line-through">
-                        {formatMoney(detailProduct.originalPrice, shop.country)}
+                        {formatMoney(detailProduct.originalPrice, shop.country, undefined, isEn)}
                       </div>
                     )}
                 </div>
@@ -2165,10 +2355,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <div className="space-y-2.5 pt-2 border-t border-orange-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      اختر من الخيارات المتاحة في المنيو
+                      {tx(isEn, 'اختر من الخيارات المتاحة في المنيو', 'Choose an option')}
                     </span>
                     <span className="text-xs font-bold text-[#FF6A00] dark:text-orange-400">
-                      مطلوب
+                      {tx(isEn, 'مطلوب', 'Required')}
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -2179,7 +2369,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           key={opt.raw}
                           type="button"
                           onClick={() => setSelectedOptionIndex(idx)}
-                          className={`p-3 rounded-2xl border text-right transition-all flex items-center justify-between gap-2 ${
+                          className={`p-3 rounded-2xl border text-start transition-all flex items-center justify-between gap-2 ${
                             active
                               ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] ring-2 ring-[#FF6A00]/30'
                               : 'bg-white dark:bg-slate-800 border-orange-100 dark:border-slate-700 hover:border-orange-300'
@@ -2200,7 +2390,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             </span>
                           </div>
                           <span className="text-sm font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums shrink-0">
-                            {formatMoney(opt.price, shop.country)}
+                            {formatMoney(opt.price, shop.country, undefined, isEn)}
                           </span>
                         </button>
                       );
@@ -2216,7 +2406,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setDetailQty((q) => q + 1)}
-                  aria-label="زيادة الكمية"
+                  aria-label={tx(isEn, 'زيادة الكمية', 'Increase quantity')}
                   className="w-8 h-8 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
                 >
                   <Plus className="w-4 h-4" />
@@ -2227,7 +2417,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setDetailQty((q) => Math.max(1, q - 1))}
-                  aria-label="إنقاص الكمية"
+                  aria-label={tx(isEn, 'إنقاص الكمية', 'Decrease quantity')}
                   className="w-8 h-8 rounded-full bg-white dark:bg-slate-900 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
                 >
                   <Minus className="w-4 h-4" />
@@ -2240,8 +2430,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 onClick={addDetailToCart}
                 className="flex-1 py-3.5 px-5 rounded-full glass-btn-primary disabled:opacity-40 font-extrabold text-sm sm:text-base flex items-center justify-between gap-2 shadow-md tabular-nums"
               >
-                <span>أضف للسلة</span>
-                <span>{formatMoney(activeDetailUnitPrice * detailQty, shop.country)}</span>
+                <span>{tx(isEn, 'أضف للسلة', 'Add to Cart')}</span>
+                <span>{formatMoney(activeDetailUnitPrice * detailQty, shop.country, undefined, isEn)}</span>
               </button>
             </div>
           </div>

@@ -26,6 +26,7 @@ import { getShopThemeHex } from '../utils/calculations';
 import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { sortExtractedMenuItems, sortMenuCategories } from '../utils/menuSorting';
 import { getProductOptions } from '../utils/productVariants';
+import { setStoredUiLang } from '../utils/uiLang';
 import {
   setAuthSessionStorage,
   shopToDemoRecord,
@@ -511,7 +512,11 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     <button
                       key={lang}
                       type="button"
-                      onClick={() => setMenuLanguage(lang)}
+                      onClick={() => {
+                        setMenuLanguage(lang);
+                        if (lang === 'English') setStoredUiLang('en');
+                        else if (lang === 'العربية') setStoredUiLang('ar');
+                      }}
                       className={`py-2.5 px-4 rounded-2xl text-sm font-bold border transition-colors ${
                         menuLanguage === lang
                           ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-[#FF6A00] dark:text-orange-300'
@@ -574,14 +579,14 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                       setSlugTouched(true);
                       setStoreSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
                     }}
-                    placeholder="koshary-corner"
-                    className="w-full pl-32 pr-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold"
+                    placeholder="kebda-masr"
+                    className="w-full pl-24 pr-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold"
                   />
                   <span
                     dir="ltr"
                     className="absolute left-3 px-2.5 py-1 rounded-xl bg-orange-50 dark:bg-slate-700 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold"
                   >
-                    .ghazalo.com
+                    /menu/
                   </span>
                 </div>
               </div>

@@ -44,8 +44,10 @@ import { formatArabicDate, getShopAccessState } from '../utils/calculations';
 import {
   LS_KEYS,
   getLocalRestaurants,
+  getLocalUsers,
   getPlatformSettingsLocal,
   saveLocalRestaurants,
+  saveLocalUsers,
   savePlatformSettingsLocal,
   shopToDemoRecord,
   upsertLocalRestaurant,
@@ -652,6 +654,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         resetCode: generatedCode,
         resetCodeExpiresAt: expiresAt,
       });
+      const updatedUsers = getLocalUsers().map((u) =>
+        u.storeSlug === row.storeSlug ||
+        u.shopId === row.shopId ||
+        (row.email && u.email.toLowerCase() === row.email.toLowerCase())
+          ? { ...u, resetCode: generatedCode, resetCodeExpiresAt: expiresAt }
+          : u
+      );
+      saveLocalUsers(updatedUsers);
 
       try {
         await navigator.clipboard.writeText(generatedCode);
@@ -705,6 +715,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       );
       saveLocalRestaurants(updated);
       setLocalRestaurants(updated);
+      const updatedUsers = getLocalUsers().map((u) =>
+        u.storeSlug === passwordModalRow.storeSlug ||
+        u.shopId === passwordModalRow.shopId ||
+        (passwordModalRow.email &&
+          u.email.toLowerCase() === passwordModalRow.email.toLowerCase())
+          ? { ...u, password: cleanPass, resetCode: undefined, resetCodeExpiresAt: undefined }
+          : u
+      );
+      saveLocalUsers(updatedUsers);
 
       showToast(`تم تغيير كلمة السر لمتجر ${passwordModalRow.nameAr} بنجاح — يمكنه الدخول فوراً!`);
       setPasswordModalRow(null);
@@ -715,14 +734,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   };
 
   const handleCopyMenuLink = async (row: UnifiedRestaurantRow) => {
-    const link = `https://${row.storeSlug}.ghazalo.com/menu`;
+    const pathLink = `/menu/${row.storeSlug}`;
+    const fullLink = `${window.location.origin}${pathLink}`;
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(fullLink);
       setCopiedSlugId(row.shopId);
       setTimeout(() => setCopiedSlugId(null), 2000);
-      showToast(`تم نسخ رابط المنيو: ${link}`);
+      showToast(`تم نسخ رابط المنيو (${pathLink}): ${fullLink}`);
     } catch {
-      showToast(link);
+      showToast(fullLink);
     }
   };
 
@@ -772,8 +792,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <ArrowRight className="w-4 h-4" />
             العودة للموقع
           </button>
-          <span className="font-extrabold text-sm text-slate-700 dark:text-slate-200">
-            ghazalo.com/admin
+          <span className="font-extrabold text-sm text-slate-700 dark:text-slate-200" dir="ltr">
+            /admin
           </span>
           <div className="w-16" />
         </header>
@@ -1087,7 +1107,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
                           <td className="py-3.5 px-3" dir="ltr">
                             <span className="font-mono text-[11px] font-bold text-[#FF6A00]">
-                              {row.storeSlug}.ghazalo.com
+                              /menu/{row.storeSlug}
                             </span>
                           </td>
 
@@ -1396,9 +1416,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </button>
             </div>
             <p className="text-xs font-semibold text-slate-500">
-              أدخل كلمة السر الجديدة — سيتمكن المطعم من تسجيل الدخول بها فوراً على{' '}
+              أدخل كلمة السر الجديدة — سيتمكن المطعم من تسجيل الدخول بها فوراً على لوحة{' '}
               <span dir="ltr" className="font-bold text-[#FF6A00]">
-                {passwordModalRow.storeSlug}.ghazalo.com
+                {passwordModalRow.storeSlug}
               </span>
             </p>
             <input

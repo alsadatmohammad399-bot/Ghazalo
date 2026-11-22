@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
-import { Lock, LogOut, Mail, MessageCircle, RefreshCw } from 'lucide-react';
+import { Globe, Lock, LogOut, Mail, MessageCircle, RefreshCw } from 'lucide-react';
 import { auth } from './firebase';
 import {
   findShopBySlugOrId,
@@ -12,6 +12,7 @@ import {
   subscribeToTables,
 } from './services/firestoreService';
 import { getShopAccessState } from './utils/calculations';
+import { getShopDisplayName, tx, useUiLang } from './utils/uiLang';
 import {
   formatAuthContactLabel,
   isPhoneAuthEmail,
@@ -90,6 +91,8 @@ function saveLocalTables(shopId: string, tables: ShopTable[]): void {
 function parseRouteTarget(): {
   isAdminRoute: boolean;
   shopTarget: string | null;
+  dashboardTarget: string | null;
+  authRoute: 'login' | 'signup' | null;
   tableLabel: string;
   shortcutMode: 'cashier' | 'dashboard' | null;
 } {
@@ -105,16 +108,52 @@ function parseRouteTarget(): {
     pathname.startsWith('/admin/') ||
     Boolean(portalParam && portalParam === ADMIN_PORTAL_KEY);
 
-  const menuMatch = pathname.match(/^\/([a-z0-9-]+)\/menu\/?$/i);
-  const shopTarget = menuMatch ? menuMatch[1] : shopParam;
+  const menuPathMatch = pathname.match(/^\/menu\/([a-z0-9-]+)\/?$/i);
+  const legacyMenuMatch = pathname.match(/^\/([a-z0-9-]+)\/menu\/?$/i);
+  const shopTarget = menuPathMatch
+    ? menuPathMatch[1]
+    : legacyMenuMatch
+      ? legacyMenuMatch[1]
+      : shopParam;
+
+  const dashboardMatch = pathname.match(/^\/dashboard\/([a-z0-9-]+)\/?$/i);
+  const dashboardTarget = dashboardMatch ? dashboardMatch[1] : null;
+
+  const authRoute =
+    pathname === '/login' || pathname === '/login/'
+      ? 'login'
+      : pathname === '/signup' || pathname === '/signup/'
+        ? 'signup'
+        : null;
 
   const shortcutMode =
     modeParam === 'cashier' || modeParam === 'dashboard' ? modeParam : null;
 
-  return { isAdminRoute, shopTarget, tableLabel, shortcutMode };
+  return { isAdminRoute, shopTarget, dashboardTarget, authRoute, tableLabel, shortcutMode };
+}
+
+function replacePathSafely(nextPath: string): void {
+  try {
+    if (window.location.pathname + window.location.search !== nextPath) {
+      window.history.replaceState({}, '', nextPath);
+    }
+  } catch {
+    // ignore history restriction
+  }
+}
+
+function pushPathSafely(nextPath: string): void {
+  try {
+    if (window.location.pathname + window.location.search !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+  } catch {
+    // ignore history restriction
+  }
 }
 
 function AppShell() {
+  const { isEn, toggleLang } = useUiLang();
   const [darkMode, setDarkMode] = useState(false);
   const [view, setView] = useState<AppView>('landing');
   const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
@@ -237,23 +276,54 @@ function AppShell() {
     []
   );
 
-  // Detect URL /admin, ?portal=..., ?shop=...&table=..., /{slug}/menu, or ?mode=...
+  // Detect URL /admin, /login, /signup, /menu/{slug}, /dashboard/{slug}, ?portal=..., ?shop=..., or ?mode=...
   useEffect(() => {
-    const { isAdminRoute, shopTarget, tableLabel, shortcutMode } = parseRouteTarget();
-    if (isAdminRoute) {
-      setView('admin');
-      return;
-    }
-    if (shopTarget) {
-      setQrTargetShopId(shopTarget);
-      setQrTableLabel(tableLabel);
-      setView('storefront');
-      return;
-    }
-    if (shortcutMode) {
-      setPendingShortcutMode(shortcutMode);
-    }
-  }, []);
+    const applyRouteFromLocation = () => {
+      const { isAdminRoute, shopTarget, dashboardTarget, authRoute, tableLabel, shortcutMode } =
+        parseRouteTarget();
+      if (isAdminRoute) {
+        setQrTargetShopId(null);
+        setView('admin');
+        return;
+      }
+      if (shopTarget) {
+        setDemoPreview(null);
+        setQrTargetShopId(shopTarget);
+        setQrTableLabel(tableLabel);
+        setView('storefront');
+        return;
+      }
+      if (authRoute) {
+        setQrTargetShopId(null);
+        setAuthMode(authRoute);
+        setView(authRoute);
+        return;
+      }
+      if (dashboardTarget) {
+        setQrTargetShopId(null);
+        const storedSession = getStoredAuthSession();
+        if (storedSession.token) {
+          void hydrateStoreSession(dashboardTarget, null, 'dashboard');
+        } else {
+          try {
+            localStorage.setItem('lastStore', dashboardTarget);
+          } catch {
+            // ignore
+          }
+          setAuthMode('login');
+          setView('login');
+        }
+        return;
+      }
+      if (shortcutMode) {
+        setPendingShortcutMode(shortcutMode);
+      }
+    };
+
+    applyRouteFromLocation();
+    window.addEventListener('popstate', applyRouteFromLocation);
+    return () => window.removeEventListener('popstate', applyRouteFromLocation);
+  }, [hydrateStoreSession]);
 
   // Subscribe / Resolve Public Customer Menu when viewing via ?shop= or /{slug}/menu
   useEffect(() => {
@@ -315,7 +385,8 @@ function AppShell() {
       setCurrentUser(user);
       setAuthSyncTick((t) => t + 1);
 
-      const { isAdminRoute, shopTarget, shortcutMode } = parseRouteTarget();
+      const { isAdminRoute, shopTarget, dashboardTarget, authRoute, shortcutMode } =
+        parseRouteTarget();
       const isSpecialRoute = Boolean(isAdminRoute || shopTarget);
 
       if (user && isUserActivated(user)) {
@@ -323,18 +394,19 @@ function AppShell() {
           const shops = await getOwnerShops(user.uid);
           if (shops.length > 0) {
             const firstShop = shops[0];
+            const firstSlug = firstShop.storeSlug || firstShop.id;
             setActiveShopId(firstShop.id);
             setActiveShop(firstShop);
             upsertLocalRestaurant(
               shopToDemoRecord(firstShop, { email: user.email || '' })
             );
-            setAuthSessionStorage(
-              firstShop.storeSlug || firstShop.id,
-              `fb-${user.uid}`
-            );
-            if (!isSpecialRoute) {
+            setAuthSessionStorage(firstSlug, `fb-${user.uid}`);
+            if (!isSpecialRoute && !authRoute) {
               const modeTarget = shortcutMode || pendingShortcutMode;
               setView(modeTarget === 'cashier' ? 'cashier' : 'dashboard');
+              if (modeTarget !== 'cashier') {
+                replacePathSafely(`/dashboard/${firstSlug}`);
+              }
               if (pendingShortcutMode) setPendingShortcutMode(null);
             }
           }
@@ -343,17 +415,20 @@ function AppShell() {
         }
       } else {
         const storedSession = getStoredAuthSession();
-        if (storedSession.token && storedSession.lastStore) {
-          const hydrated = await hydrateStoreSession(
-            storedSession.lastStore,
-            null,
-            !isSpecialRoute
-              ? (shortcutMode || pendingShortcutMode) === 'cashier'
+        const targetSlug = dashboardTarget || storedSession.lastStore;
+        if (storedSession.token && targetSlug) {
+          const modeTarget = shortcutMode || pendingShortcutMode;
+          const nextView =
+            !isSpecialRoute && !authRoute
+              ? modeTarget === 'cashier'
                 ? 'cashier'
                 : 'dashboard'
-              : undefined
-          );
-          if (!hydrated) {
+              : undefined;
+          const hydrated = await hydrateStoreSession(targetSlug, null, nextView);
+          if (hydrated && nextView === 'dashboard') {
+            const rec = findLocalRestaurantBySlugOrShopId(targetSlug);
+            replacePathSafely(`/dashboard/${rec?.storeSlug || targetSlug}`);
+          } else if (!hydrated) {
             setActiveShopId(null);
             setActiveShop(null);
           }
@@ -413,12 +488,15 @@ function AppShell() {
     );
     const shops = await getOwnerShops(user.uid);
     if (isAdmin && shops.length === 0) {
+      replacePathSafely('/admin');
       setView('admin');
     } else if (shops.length > 0) {
       const firstShop = shops[0];
+      const firstSlug = firstShop.storeSlug || firstShop.id;
       setActiveShopId(firstShop.id);
       setActiveShop(firstShop);
-      setAuthSessionStorage(firstShop.storeSlug || firstShop.id, `fb-${user.uid}`);
+      setAuthSessionStorage(firstSlug, `fb-${user.uid}`);
+      replacePathSafely(`/dashboard/${firstSlug}`);
       setView('dashboard');
     } else {
       setView('onboarding');
@@ -441,6 +519,7 @@ function AppShell() {
     setShopOrders([]);
     setShopTables([]);
     setAuthMode('login');
+    replacePathSafely('/login');
     setView('login');
   };
 
@@ -473,34 +552,55 @@ function AppShell() {
         isAdminUser={isAdminUser}
         onNavigateAuth={(mode) => {
           setAuthMode(mode);
+          pushPathSafely(`/${mode}`);
           setView(mode);
         }}
         onNavigateDashboard={async () => {
           if (currentUser && !activeShop) {
             const shops = await getOwnerShops(currentUser.uid);
             if (shops.length > 0) {
+              const slug = shops[0].storeSlug || shops[0].id;
               setActiveShopId(shops[0].id);
               setActiveShop(shops[0]);
+              replacePathSafely(`/dashboard/${slug}`);
               setView('dashboard');
             } else if (isAdminUser) {
+              replacePathSafely('/admin');
               setView('admin');
             } else {
               setView('onboarding');
             }
           } else if (activeShop) {
+            replacePathSafely(`/dashboard/${activeShop.storeSlug || activeShop.id}`);
             setView('dashboard');
           } else if (isAdminUser) {
+            replacePathSafely('/admin');
             setView('admin');
           } else {
             setView('onboarding');
           }
         }}
-        onOpenAdminPanel={() => setView('admin')}
+        onOpenAdminPanel={() => {
+          pushPathSafely('/admin');
+          setView('admin');
+        }}
         onOpenDemoMenu={(demo) => {
           setDemoPreview(demo);
           setQrTargetShopId(null);
           setQrTableLabel('');
           setView('storefront');
+        }}
+        onOpenStoreMenu={(storeSlug) => {
+          setDemoPreview(null);
+          setQrTargetShopId(storeSlug);
+          setQrTableLabel('');
+          pushPathSafely(`/menu/${storeSlug}`);
+          setView('storefront');
+        }}
+        onStoreLoginSuccess={({ storeSlug, shopId, record }) => {
+          const finalSlug = record?.storeSlug || storeSlug || shopId;
+          replacePathSafely(`/dashboard/${finalSlug}`);
+          void hydrateStoreSession(finalSlug, record, 'dashboard');
         }}
       />
     );
@@ -510,10 +610,15 @@ function AppShell() {
     return (
       <AuthPage
         initialMode={authMode}
-        onBack={() => setView('landing')}
+        onBack={() => {
+          replacePathSafely('/');
+          setView('landing');
+        }}
         onAuthComplete={(meta) => void handleAuthComplete(meta)}
         onStoreLoginSuccess={({ storeSlug, shopId, record }) => {
-          void hydrateStoreSession(storeSlug || shopId, record, 'dashboard');
+          const finalSlug = record?.storeSlug || storeSlug || shopId;
+          replacePathSafely(`/dashboard/${finalSlug}`);
+          void hydrateStoreSession(finalSlug, record, 'dashboard');
         }}
       />
     );
@@ -534,10 +639,15 @@ function AppShell() {
         initialContact={signupMeta.contact}
         initialPassword={signupMeta.password}
         initialCountry={signupMeta.country}
-        onCancel={() => setView('landing')}
+        onCancel={() => {
+          replacePathSafely('/');
+          setView('landing');
+        }}
         onCompleted={(newShop) => {
+          const slug = newShop.storeSlug || newShop.id;
           setActiveShopId(newShop.id);
           setActiveShop(newShop);
+          replacePathSafely(`/dashboard/${slug}`);
           setView('dashboard');
         }}
       />
@@ -612,9 +722,14 @@ function AppShell() {
             }
           }}
           onBack={() => {
-            window.history.replaceState({}, '', '/');
             setQrTargetShopId(null);
-            setView(activeShop ? 'dashboard' : 'landing');
+            if (activeShop) {
+              replacePathSafely(`/dashboard/${activeShop.storeSlug || activeShop.id}`);
+              setView('dashboard');
+            } else {
+              replacePathSafely('/');
+              setView('landing');
+            }
           }}
           backLabel={activeShop ? 'لوحة التحكم' : 'الرئيسية'}
         />
@@ -639,7 +754,10 @@ function AppShell() {
               });
             }
           }}
-          onBack={() => setView('dashboard')}
+          onBack={() => {
+            replacePathSafely(`/dashboard/${activeShop.storeSlug || activeShop.id}`);
+            setView('dashboard');
+          }}
           backLabel="لوحة التحكم"
         />
       );
@@ -650,16 +768,23 @@ function AppShell() {
     return (
       <AdminPage
         onBack={() => {
-          window.history.replaceState({}, '', '/');
-          setView(activeShop ? 'dashboard' : 'landing');
+          if (activeShop) {
+            replacePathSafely(`/dashboard/${activeShop.storeSlug || activeShop.id}`);
+            setView('dashboard');
+          } else {
+            replacePathSafely('/');
+            setView('landing');
+          }
         }}
         onPlatformConfigChange={(settings) => {
           setForceZeroFeesGlobally(Boolean(settings.forceZeroFeesGlobally));
         }}
         onPreviewShop={(shopItem) => {
+          const targetSlug = shopItem.storeSlug || shopItem.id;
           setDemoPreview(null);
-          setQrTargetShopId(shopItem.storeSlug || shopItem.id);
+          setQrTargetShopId(targetSlug);
           setQrTableLabel('');
+          pushPathSafely(`/menu/${targetSlug}`);
           setView('storefront');
         }}
       />
@@ -679,9 +804,23 @@ function AppShell() {
       );
       const mailSubject = encodeURIComponent(`تفعيل منيو ${activeShop.nameAr} - Ghazalo`);
 
+      const expiredShopName = getShopDisplayName(activeShop, isEn);
       return (
-        <div dir="rtl" className="min-h-screen bg-orange-50/30 dark:bg-slate-950 flex items-center justify-center p-4">
-          <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-200 dark:border-amber-800 shadow-sm space-y-5">
+        <div
+          dir={isEn ? 'ltr' : 'rtl'}
+          className="min-h-screen bg-orange-50/30 dark:bg-slate-950 flex items-center justify-center p-4"
+        >
+          <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-200 dark:border-amber-800 shadow-sm space-y-5 relative">
+            <button
+              type="button"
+              onClick={toggleLang}
+              className={`absolute top-4 ${
+                isEn ? 'right-4' : 'left-4'
+              } px-2.5 py-1 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold inline-flex items-center gap-1`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>{isEn ? 'عربي' : 'EN'}</span>
+            </button>
             <div className="text-center space-y-3">
               <div className="w-16 h-16 rounded-3xl bg-orange-100 dark:bg-amber-950/60 text-[#FF6A00] dark:text-amber-300 mx-auto flex items-center justify-center">
                 <Lock className="w-8 h-8" />
@@ -689,12 +828,20 @@ function AppShell() {
 
               <div className="space-y-1.5">
                 <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white leading-snug">
-                  المنيو متوقف مؤقتاً، انتهت الفترة المجانية، فعل اشتراكك لتشغيل المنيو
+                  {tx(
+                    isEn,
+                    'المنيو متوقف مؤقتاً، انتهت الفترة المجانية، فعل اشتراكك لتشغيل المنيو',
+                    'Menu temporarily paused — your free trial ended. Activate a plan to resume.'
+                  )}
                 </h1>
                 <p className="text-sm font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
-                  تم إيقاف متجر{' '}
-                  <span className="text-[#FF6A00] dark:text-orange-400">"{activeShop.nameAr}"</span>{' '}
-                  لحين التفعيل من الإدارة. جميع أصنافك وبياناتك محفوظة بأمان.
+                  {tx(isEn, 'تم إيقاف متجر ', 'Store ')}
+                  <span className="text-[#FF6A00] dark:text-orange-400">"{expiredShopName}"</span>{' '}
+                  {tx(
+                    isEn,
+                    'لحين التفعيل من الإدارة. جميع أصنافك وبياناتك محفوظة بأمان.',
+                    'is paused pending activation. All your menu items and data are safely preserved.'
+                  )}
                 </p>
               </div>
             </div>
@@ -702,24 +849,28 @@ function AppShell() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="p-4 rounded-2xl border border-orange-200 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800/70 space-y-1">
                 <div className="font-extrabold text-sm text-slate-900 dark:text-white">
-                  الباقة الشهرية (30 يوم)
+                  {tx(isEn, 'الباقة الشهرية (30 يوم)', 'Monthly Plan (30 days)')}
                 </div>
                 <div className="text-xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                  {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / شهري
+                  {SUBSCRIPTION_PRICING.MONTHLY_EGP} {tx(isEn, 'جنيه / شهري', 'EGP / month')}
                 </div>
               </div>
 
               <div className="p-4 rounded-2xl border-2 border-[#FF6A00] bg-orange-50 dark:bg-orange-950/40 space-y-1">
                 <div className="flex items-center justify-between gap-1">
                   <span className="font-extrabold text-sm text-slate-900 dark:text-white">
-                    الباقة السنوية (365 يوم)
+                    {tx(isEn, 'الباقة السنوية (365 يوم)', 'Yearly Plan (365 days)')}
                   </span>
                   <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">
-                    وفّر {SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه
+                    {tx(
+                      isEn,
+                      `وفّر ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه`,
+                      `Save ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} EGP`
+                    )}
                   </span>
                 </div>
                 <div className="text-xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                  {SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / سنوي
+                  {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / year')}
                 </div>
               </div>
             </div>
@@ -732,7 +883,9 @@ function AppShell() {
                 className="w-full py-3.5 px-4 rounded-full bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
               >
                 <MessageCircle className="w-4 h-4" />
-                <span>تواصل للتفعيل واتساب: {SUPPORT_CONTACT.PHONE_DISPLAY}</span>
+                <span>
+                  {tx(isEn, 'تواصل للتفعيل واتساب:', 'Activate via WhatsApp:')} {SUPPORT_CONTACT.PHONE_DISPLAY}
+                </span>
               </a>
 
               <a
@@ -765,7 +918,7 @@ function AppShell() {
                   className="py-3 rounded-full glass-btn text-[#FF6A00] dark:text-orange-200 font-bold text-xs flex items-center justify-center gap-1.5"
                 >
                   <RefreshCw className="w-4 h-4" />
-                  تحديث الحالة
+                  {tx(isEn, 'تحديث الحالة', 'Refresh Status')}
                 </button>
 
                 <button
@@ -774,7 +927,7 @@ function AppShell() {
                   className="py-3 rounded-full glass-btn text-slate-600 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5"
                 >
                   <LogOut className="w-4 h-4" />
-                  تسجيل الخروج
+                  {tx(isEn, 'تسجيل الخروج', 'Log Out')}
                 </button>
               </div>
             </div>
@@ -866,9 +1019,11 @@ function AppShell() {
           });
         }}
         onOpenStorefront={(tbl) => {
+          const slug = activeShop.storeSlug || activeShop.id;
           setDemoPreview(null);
           setQrTargetShopId(null);
           setQrTableLabel(tbl || '');
+          pushPathSafely(`/menu/${slug}${tbl ? `?table=${encodeURIComponent(tbl)}` : ''}`);
           setView('storefront');
         }}
       />
@@ -897,15 +1052,20 @@ function AppShell() {
         onShopUpdated={(updated) => setActiveShop(updated)}
         onProductsUpdated={(updatedProducts) => setShopProducts(updatedProducts)}
         onOpenStorefront={() => {
+          const slug = activeShop.storeSlug || activeShop.id;
           setDemoPreview(null);
           setQrTargetShopId(null);
           setQrTableLabel('');
+          pushPathSafely(`/menu/${slug}`);
           setView('storefront');
         }}
         onOpenCashier={() => setView('cashier')}
         onOpenOrders={() => setView('orders')}
         onOpenShareQr={() => setView('share')}
-        onOpenAdmin={() => setView('admin')}
+        onOpenAdmin={() => {
+          pushPathSafely('/admin');
+          setView('admin');
+        }}
         onLogout={() => void handleLogout()}
       />
     );
@@ -918,12 +1078,27 @@ function AppShell() {
       isAuthenticated={false}
       onNavigateAuth={(mode) => {
         setAuthMode(mode);
+        pushPathSafely(`/${mode}`);
         setView(mode);
       }}
       onNavigateDashboard={() => setView('onboarding')}
       onOpenDemoMenu={(demo) => {
         setDemoPreview(demo);
+        setQrTargetShopId(null);
+        setQrTableLabel('');
         setView('storefront');
+      }}
+      onOpenStoreMenu={(storeSlug) => {
+        setDemoPreview(null);
+        setQrTargetShopId(storeSlug);
+        setQrTableLabel('');
+        pushPathSafely(`/menu/${storeSlug}`);
+        setView('storefront');
+      }}
+      onStoreLoginSuccess={({ storeSlug, shopId, record }) => {
+        const finalSlug = record?.storeSlug || storeSlug || shopId;
+        replacePathSafely(`/dashboard/${finalSlug}`);
+        void hydrateStoreSession(finalSlug, record, 'dashboard');
       }}
     />
   );
