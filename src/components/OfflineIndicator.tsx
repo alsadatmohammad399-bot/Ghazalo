@@ -30,7 +30,7 @@ export const OfflineIndicator: React.FC = () => {
   return (
     <div
       dir="rtl"
-      className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-2xl bg-amber-500 px-3.5 py-2 text-xs font-extrabold text-slate-950 shadow-lg no-print"
+      className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-2xl bg-[#FACC15] px-3.5 py-2 text-xs font-extrabold text-[#14201A] shadow-lg no-print"
     >
       <WifiOff className="w-4 h-4 shrink-0" />
       <span>وضع عدم الاتصال — يتم العمل على النسخة المحفوظة</span>

@@ -7,11 +7,6 @@ import {
   type SubscriptionStatus,
 } from '../types';
 import { DEMO_PROJECTS } from '../data/demoProjects';
-import {
-  DEMO_STORES,
-  buildShopFromDemoEntry,
-  mapSeedItemsToProducts,
-} from '../data/stores';
 
 export const LS_KEYS = {
   USERS: 'users',
@@ -20,18 +15,7 @@ export const LS_KEYS = {
   LAST_STORE: 'lastStore',
   ADMIN_TOKEN: 'adminToken',
   PLATFORM_SETTINGS: 'ghazalo_platform_settings',
-  GHAZALO_USER: 'ghazalo_user',
 } as const;
-
-export interface GhazaloUserSession {
-  uid?: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  photo?: string;
-  isGuest?: boolean;
-  loginMethod?: 'google' | 'phone' | 'guest' | 'email';
-}
 
 export interface DemoUserRecord {
   id: string;
@@ -171,38 +155,95 @@ export function shopToDemoRecord(
   };
 }
 
-export function getDemoStoreEntriesMeta(): Map<
-  string,
-  { logoEmoji: string; category: string; isDemo: boolean }
-> {
-  const map = new Map<string, { logoEmoji: string; category: string; isDemo: boolean }>();
-  for (const entry of DEMO_STORES) {
-    map.set(entry.slug.toLowerCase(), {
-      logoEmoji: entry.logoEmoji,
-      category: entry.category,
-      isDemo: true,
-    });
-  }
-  return map;
-}
+function getDefaultDemoSeed(): DemoRestaurantRecord[] {
+  const now = Date.now();
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  const firstDemo = DEMO_PROJECTS[0];
 
-export function getDemoStoreRecords(): DemoRestaurantRecord[] {
-  return DEMO_STORES.map((entry) => {
-    const built = buildShopFromDemoEntry(entry, entry.slug);
-    return shopToDemoRecord(
-      built.shop,
+  const kebdaShop: Shop = {
+    ...(firstDemo?.shop || {
+      id: 'kebda-masr',
+      ownerId: 'demo-owner-kebda',
+      nameAr: 'كبدة مصر',
+      nameEn: 'Kebda Masr',
+      country: 'مصر',
+      city: 'القاهرة',
+      address: 'وسط البلد - شارع 26 يوليو',
+      acceptOrders: true,
+      isOpen: true,
+      subscriptionStatus: 'trial',
+    }),
+    id: 'kebda-masr',
+    storeSlug: 'kebda-masr',
+    nameAr: 'كبدة مصر',
+    nameEn: 'Kebda Masr',
+    whatsapp: '01015861991',
+    subscriptionStatus: 'trial',
+    trialEndsAt: now + sevenDays,
+    deliveryFee: 20,
+    freeDelivery: false,
+    freeDeliveryMinOrder: 200,
+    deliveryTime: '25-40 دقيقة',
+    enableServiceFee: false,
+    serviceFeePct: 0,
+    enableVat: false,
+    vatPct: 0,
+    enablePackagingFee: false,
+    packagingFee: 0,
+  };
+
+  const kosharyShop: Shop = {
+    ...(firstDemo?.shop || {
+      id: 'koshary-corner',
+      ownerId: 'demo-owner-1',
+      nameAr: 'ركن الكشري',
+      nameEn: 'Koshary Corner',
+      country: 'مصر',
+      city: 'القاهرة',
+      address: 'مدينة نصر - شارع عباس العقاد',
+      acceptOrders: true,
+      isOpen: true,
+      subscriptionStatus: 'trial',
+    }),
+    id: 'koshary-corner',
+    storeSlug: 'koshary-corner',
+    nameAr: 'ركن الكشري',
+    nameEn: 'Koshary Corner',
+    whatsapp: '01015861991',
+    subscriptionStatus: 'trial',
+    trialEndsAt: now + sevenDays,
+    deliveryFee: 25,
+    freeDelivery: false,
+    freeDeliveryMinOrder: 250,
+    deliveryTime: '30-45 دقيقة',
+    enableServiceFee: false,
+    serviceFeePct: 0,
+    enableVat: false,
+    vatPct: 0,
+    enablePackagingFee: false,
+    packagingFee: 0,
+  };
+
+  return [
+    shopToDemoRecord(
+      kebdaShop,
       {
-        email: `${entry.slug}@menu.eg`,
-        phone: entry.phone,
+        email: 'kebda@menu.eg',
+        phone: '01015861991',
         password: '123456',
       },
-      built.products
-    );
-  });
-}
-
-function getDefaultDemoSeed(): DemoRestaurantRecord[] {
-  return getDemoStoreRecords();
+      firstDemo?.products
+    ),
+    shopToDemoRecord(
+      kosharyShop,
+      {
+        email: 'koshary@menu.eg',
+        phone: '01099887766',
+        password: '123456',
+      },
+      firstDemo?.products
+    ),
+  ];
 }
 
 export function getLocalUsers(): DemoUserRecord[] {
@@ -212,24 +253,24 @@ export function getLocalUsers(): DemoUserRecord[] {
     if (list.length > 0) return list;
     const defaultUsers: DemoUserRecord[] = [
       {
-        id: 'user-kebda-msr',
+        id: 'user-kebda-masr',
         restaurantName: 'كبدة مصر',
         email: 'kebda@menu.eg',
         phone: '01015861991',
         password: '123456',
-        storeSlug: 'kebda-msr',
-        shopId: 'kebda-msr',
+        storeSlug: 'kebda-masr',
+        shopId: 'kebda-masr',
         plan: 'trial',
         createdAt: Date.now(),
       },
       {
-        id: 'user-mshwyat-al-ghazal',
-        restaurantName: 'مشويات الغزال',
-        email: 'ghazal@menu.eg',
-        phone: '01000000001',
+        id: 'user-koshary-corner',
+        restaurantName: 'ركن الكشري',
+        email: 'koshary@menu.eg',
+        phone: '01099887766',
         password: '123456',
-        storeSlug: 'mshwyat-al-ghazal',
-        shopId: 'mshwyat-al-ghazal',
+        storeSlug: 'koshary-corner',
+        shopId: 'koshary-corner',
         plan: 'trial',
         createdAt: Date.now(),
       },
@@ -398,19 +439,17 @@ export function getLocalRestaurants(): DemoRestaurantRecord[] {
     const list = safeJsonParse<DemoRestaurantRecord[]>(raw, []);
     const seed = getDefaultDemoSeed();
     if (list.length > 0) {
-      const seedVersionKey = 'ghazalo_seed_5demos_v3';
+      const seedVersionKey = 'ghazalo_seed_clean_v2';
       if (!localStorage.getItem(seedVersionKey)) {
         const cleaned = list.map((r) => ({
           ...r,
           email: (r.email || '').replace(/@ghazalo\.com$/i, '@menu.eg'),
         }));
-        const existingSlugs = new Set(
-          cleaned.map((r) => normalizeStoreSlug(r.storeSlug || r.shopId))
+        const kebdaSeed = seed.find((s) => s.storeSlug === 'kebda-masr');
+        const hasKebda = cleaned.some(
+          (r) => normalizeStoreSlug(r.storeSlug) === 'kebda-masr' || r.shopId === 'kebda-masr'
         );
-        const missingSeeds = seed.filter(
-          (s) => !existingSlugs.has(normalizeStoreSlug(s.storeSlug))
-        );
-        const merged = [...cleaned, ...missingSeeds];
+        const merged = kebdaSeed && !hasKebda ? [kebdaSeed, ...cleaned] : cleaned;
         localStorage.setItem(seedVersionKey, '1');
         localStorage.setItem(LS_KEYS.RESTAURANTS, JSON.stringify(merged));
         return merged;
@@ -418,7 +457,7 @@ export function getLocalRestaurants(): DemoRestaurantRecord[] {
       return list;
     }
     localStorage.setItem(LS_KEYS.RESTAURANTS, JSON.stringify(seed));
-    localStorage.setItem('ghazalo_seed_5demos_v3', '1');
+    localStorage.setItem('ghazalo_seed_clean_v2', '1');
     return seed;
   } catch {
     return getDefaultDemoSeed();
@@ -531,222 +570,6 @@ export function findLocalRestaurantByIdentifier(identifier: string): DemoRestaur
   );
 }
 
-export function getGhazaloUser(): GhazaloUserSession | null {
-  try {
-    const parsed = safeJsonParse<GhazaloUserSession | null>(
-      localStorage.getItem(LS_KEYS.GHAZALO_USER),
-      null
-    );
-    if (!parsed || !parsed.name) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-export function setGhazaloUser(user: GhazaloUserSession): void {
-  try {
-    const clean: GhazaloUserSession = {
-      uid: user.uid || '',
-      name: (user.name || 'مستخدم غزالو').trim(),
-      email: (user.email || '').trim(),
-      phone: (user.phone || '').trim(),
-      photo: (user.photo || '').trim(),
-      isGuest: Boolean(user.isGuest),
-      loginMethod: user.loginMethod || (user.isGuest ? 'guest' : user.phone ? 'phone' : 'google'),
-    };
-    localStorage.setItem(LS_KEYS.GHAZALO_USER, JSON.stringify(clean));
-  } catch {
-    // ignore storage restriction
-  }
-}
-
-export function clearGhazaloUser(): void {
-  try {
-    localStorage.removeItem(LS_KEYS.GHAZALO_USER);
-  } catch {
-    // ignore storage restriction
-  }
-}
-
-export interface VisibleStoreItem {
-  record: DemoRestaurantRecord;
-  isDemo: boolean;
-  isOwnedByUser: boolean;
-  logoEmoji: string;
-  category: string;
-}
-
-export function isStoreOwnedByUser(
-  record: DemoRestaurantRecord,
-  user: GhazaloUserSession | null
-): boolean {
-  if (!user) return false;
-  if (user.uid && record.shop?.ownerId && record.shop.ownerId === user.uid) return true;
-  if (
-    user.email &&
-    record.email &&
-    record.email.trim().toLowerCase() === user.email.trim().toLowerCase()
-  ) {
-    return true;
-  }
-  if (user.phone) {
-    const userPhoneNorm = normalizeEgyptianPhone(user.phone);
-    const recPhoneNorm = normalizeEgyptianPhone(record.phone || record.shop?.whatsapp || '');
-    if (userPhoneNorm && recPhoneNorm && userPhoneNorm === recPhoneNorm) return true;
-  }
-  return false;
-}
-
-export function getVisibleStoresForUser(
-  user: GhazaloUserSession | null,
-  extraShops: Shop[] = []
-): VisibleStoreItem[] {
-  const demoMetaMap = getDemoStoreEntriesMeta();
-  const demoSlugs = new Set(DEMO_STORES.map((d) => d.slug.toLowerCase()));
-  const localRestaurants = getLocalRestaurants();
-  const seenSlugs = new Set<string>();
-  const userOwnedItems: VisibleStoreItem[] = [];
-  const demoItems: VisibleStoreItem[] = [];
-
-  for (const fsShop of extraShops) {
-    const slug = normalizeStoreSlug(fsShop.storeSlug || fsShop.id);
-    if (!slug || seenSlugs.has(slug)) continue;
-    seenSlugs.add(slug);
-    const localRec = findLocalRestaurantBySlugOrShopId(slug);
-    const rec = shopToDemoRecord(
-      fsShop,
-      { email: user?.email || localRec?.email || '', phone: user?.phone || fsShop.whatsapp || '' },
-      localRec?.products
-    );
-    const isDemo = demoSlugs.has(slug);
-    const meta = demoMetaMap.get(slug);
-    const item: VisibleStoreItem = {
-      record: rec,
-      isDemo,
-      isOwnedByUser: true,
-      logoEmoji: meta?.logoEmoji || '🍽️',
-      category: meta?.category || 'متجري',
-    };
-    userOwnedItems.push(item);
-  }
-
-  for (const rec of localRestaurants) {
-    const slug = normalizeStoreSlug(rec.storeSlug || rec.shopId);
-    if (!slug || seenSlugs.has(slug)) continue;
-    const isDemo = demoSlugs.has(slug);
-    const owned = isStoreOwnedByUser(rec, user);
-    if (owned && !isDemo) {
-      seenSlugs.add(slug);
-      userOwnedItems.push({
-        record: rec,
-        isDemo: false,
-        isOwnedByUser: true,
-        logoEmoji: '🏪',
-        category: 'متجري',
-      });
-    }
-  }
-
-  // Always show all 5 DEMO_STORES for every user (including guests)
-  for (const demoEntry of DEMO_STORES) {
-    const slug = demoEntry.slug.toLowerCase();
-    if (seenSlugs.has(slug)) continue;
-    seenSlugs.add(slug);
-    const localOverride = localRestaurants.find(
-      (r) => normalizeStoreSlug(r.storeSlug || r.shopId) === slug
-    );
-    const built = buildShopFromDemoEntry(demoEntry, demoEntry.slug);
-    const rec = localOverride
-      ? {
-          ...localOverride,
-          products:
-            localOverride.products && localOverride.products.length > 0
-              ? localOverride.products
-              : built.products,
-        }
-      : shopToDemoRecord(
-          built.shop,
-          { email: `${demoEntry.slug}@menu.eg`, phone: demoEntry.phone },
-          built.products
-        );
-    demoItems.push({
-      record: rec,
-      isDemo: true,
-      isOwnedByUser: isStoreOwnedByUser(rec, user),
-      logoEmoji: demoEntry.logoEmoji,
-      category: demoEntry.category,
-    });
-  }
-
-  return [...userOwnedItems, ...demoItems];
-}
-
-export function createStoreForCurrentUser(
-  input: { restaurantName: string; phone?: string },
-  user: GhazaloUserSession | null
-): DemoRestaurantRecord {
-  const cleanName = input.restaurantName.trim() || 'مطعمي الجديد';
-  const storeSlug = makeUniqueStoreSlug(cleanName);
-  const now = Date.now();
-  const sevenDays = 7 * 24 * 60 * 60 * 1000;
-  const ownerId = user?.uid || `owner-${storeSlug}`;
-  const cleanPhone = normalizeEgyptianPhone(input.phone || user?.phone || '01015861991');
-
-  const seedItems = DEMO_STORES[4]?.items || DEMO_STORES[0].items;
-  const starterProducts = mapSeedItemsToProducts(storeSlug, seedItems).map((p) => ({
-    ...p,
-    shopOwnerId: ownerId,
-  }));
-
-  const newShop: Shop = {
-    id: storeSlug,
-    ownerId,
-    storeSlug,
-    nameAr: cleanName,
-    nameEn: storeSlug,
-    country: 'مصر',
-    menuLanguage: 'العربية',
-    branchCount: 'فرع واحد',
-    city: 'القاهرة',
-    address: '',
-    workFrom: '10ص',
-    workTo: '2ص',
-    workDays: ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'],
-    themeColor: 'برتقالي',
-    themeMode: 'light',
-    menuTemplate: 'classic',
-    acceptOrders: true,
-    paymentMethods: ['نقداً', 'فودافون كاش', 'انستاباي'],
-    whatsapp: cleanPhone || '01015861991',
-    isOpen: true,
-    subscriptionStatus: 'trial',
-    trialEndsAt: now + sevenDays,
-    deliveryFee: 20,
-    freeDelivery: false,
-    freeDeliveryMinOrder: 200,
-    deliveryTime: '25-40 دقيقة',
-    enableServiceFee: false,
-    serviceFeePct: 0,
-    enableVat: false,
-    vatPct: 0,
-    enablePackagingFee: false,
-    packagingFee: 0,
-  };
-
-  const rec = shopToDemoRecord(
-    newShop,
-    {
-      email: user?.email || '',
-      phone: cleanPhone,
-    },
-    starterProducts
-  );
-  upsertLocalRestaurant(rec);
-  setAuthSessionStorage(storeSlug, localStorage.getItem(LS_KEYS.TOKEN) || `ghz-${ownerId}-${now}`);
-  return rec;
-}
-
 export function setAuthSessionStorage(storeSlug: string, token: string): void {
   try {
     if (storeSlug) {
@@ -761,7 +584,7 @@ export function setAuthSessionStorage(storeSlug: string, token: string): void {
 export function clearAuthTokenKeepLastStore(): void {
   try {
     localStorage.removeItem(LS_KEYS.TOKEN);
-    localStorage.removeItem(LS_KEYS.GHAZALO_USER);
+    localStorage.removeItem('ghazalo_user');
   } catch {
     // ignore storage restriction
   }
@@ -776,4 +599,41 @@ export function getStoredAuthSession(): { token: string; lastStore: string } {
   } catch {
     return { token: '', lastStore: '' };
   }
+}
+
+const PHONE_EMAIL_MAP_KEY = 'ghazalo_phone_email_map';
+
+export function savePhoneEmailMapping(phone: string, email: string): void {
+  const normPhone = normalizeEgyptianPhone(phone);
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (!normPhone || !cleanEmail || !cleanEmail.includes('@')) return;
+  try {
+    const existing = safeJsonParse<Record<string, string>>(
+      localStorage.getItem(PHONE_EMAIL_MAP_KEY),
+      {}
+    );
+    existing[normPhone] = cleanEmail;
+    localStorage.setItem(PHONE_EMAIL_MAP_KEY, JSON.stringify(existing));
+  } catch {
+    // ignore storage quota
+  }
+}
+
+export function lookupEmailByPhone(phone: string): string {
+  const normPhone = normalizeEgyptianPhone(phone);
+  if (!normPhone) return '';
+  try {
+    const map = safeJsonParse<Record<string, string>>(
+      localStorage.getItem(PHONE_EMAIL_MAP_KEY),
+      {}
+    );
+    if (map[normPhone]) return map[normPhone];
+  } catch {
+    // ignore
+  }
+  const userMatch = findLocalUserByEmailOrPhone(normPhone);
+  if (userMatch?.email) return userMatch.email;
+  const restMatch = findLocalRestaurantByIdentifier(normPhone);
+  if (restMatch?.email) return restMatch.email;
+  return '';
 }

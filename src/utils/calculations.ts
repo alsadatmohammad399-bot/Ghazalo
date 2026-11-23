@@ -166,18 +166,18 @@ export function formatCompactMoney(
 export function getShopThemeHex(colorName?: string): string {
   switch (colorName) {
     case 'أحمر':
-      return '#B45309';
+      return '#B91C1C';
     case 'أزرق مخضر':
       return '#0D9488';
     case 'أسود':
-      return '#1E293B';
-    case 'أخضر':
-      return '#16A34A';
+      return '#14201A';
+    case 'برتقالي':
+      return '#FF6A00';
     case 'لون آخر':
       return '#059669';
-    case 'برتقالي':
+    case 'أخضر':
     default:
-      return '#FF6A00';
+      return '#15803D';
   }
 }
 

@@ -41,7 +41,7 @@ import {
   updateShop,
 } from '../services/firestoreService';
 import { formatArabicDate, getShopAccessState } from '../utils/calculations';
-import { copyMenuLink, getAbsoluteMenuUrl } from '../utils/menuLink';
+import { copyMenuLink, getAbsoluteMenuUrl, syncPublicStoreSnapshot } from '../utils/menuLink';
 import {
   LS_KEYS,
   getLocalRestaurants,
@@ -89,6 +89,7 @@ interface UnifiedRestaurantRow {
   deliveryFee: number;
   shop: Shop;
   fromFirestore: boolean;
+  localRecord?: DemoRestaurantRecord;
 }
 
 export const AdminPage: React.FC<AdminPageProps> = ({
@@ -432,6 +433,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         deliveryFee: Number(shop.deliveryFee ?? localMatch?.deliveryFee ?? 0),
         shop: { ...shop, storeSlug: slug },
         fromFirestore,
+        localRecord: localMatch,
       };
     };
 
@@ -503,19 +505,24 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   ) => {
     const mergedShop: Shop = { ...row.shop, ...shopUpdates };
     const nextList = upsertLocalRestaurant(
-      shopToDemoRecord(mergedShop, {
-        email: row.email,
-        phone: row.phone,
-        password: row.password || undefined,
-        resetCode: row.resetCode,
-        resetCodeExpiresAt: row.resetCodeExpiresAt,
-        status: mergedShop.subscriptionStatus as SubscriptionStatus,
-        trialEndDate: mergedShop.trialEndsAt,
-        subscriptionEndDate: mergedShop.subscriptionExpiresAt,
-        ...extraDemo,
-      })
+      shopToDemoRecord(
+        mergedShop,
+        {
+          email: row.email,
+          phone: row.phone,
+          password: row.password || undefined,
+          resetCode: row.resetCode,
+          resetCodeExpiresAt: row.resetCodeExpiresAt,
+          status: mergedShop.subscriptionStatus as SubscriptionStatus,
+          trialEndDate: mergedShop.trialEndsAt,
+          subscriptionEndDate: mergedShop.subscriptionExpiresAt,
+          ...extraDemo,
+        },
+        row.localRecord?.products
+      )
     );
     setLocalRestaurants([...nextList]);
+    void syncPublicStoreSnapshot(mergedShop, row.localRecord?.products);
   };
 
   const handleSubscriptionAction = async (
@@ -780,48 +787,48 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   // Admin-Only Login Gate
   if (!adminToken) {
     return (
-      <div dir="rtl" className="min-h-screen bg-white dark:bg-slate-950 flex flex-col">
-        <header className="bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 sm:px-6 h-14 flex items-center justify-between">
+      <div dir="rtl" className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] text-[#14201A] dark:text-[#E8F2EB] flex flex-col">
+        <header className="bg-[#FFFFFF] dark:bg-[#18231C] border-b border-[#CFE3D5] dark:border-[#2C3D32] px-4 sm:px-6 h-14 flex items-center justify-between">
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-sm font-extrabold text-[#FF6A00]"
+            className="inline-flex items-center gap-1.5 text-sm font-extrabold text-[#15803D] dark:text-[#BBF7D0]"
           >
             <ArrowRight className="w-4 h-4" />
             العودة للموقع
           </button>
-          <span className="font-extrabold text-sm text-slate-700 dark:text-slate-200" dir="ltr">
+          <span className="font-extrabold text-sm text-[#4B5B52] dark:text-[#A3B5AA]" dir="ltr">
             /admin
           </span>
           <div className="w-16" />
         </header>
 
         <main className="flex-1 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-100 dark:border-slate-800 shadow-[0_14px_45px_rgba(255,106,0,0.08)] space-y-6">
+          <div className="w-full max-w-md sf-card p-6 sm:p-8 space-y-6">
             <div className="text-center space-y-2.5">
               <div className="flex justify-center">
                 <GhazaloLogo stacked />
               </div>
-              <div className="w-14 h-14 rounded-3xl bg-orange-50 dark:bg-orange-950/50 text-[#FF6A00] mx-auto flex items-center justify-center">
+              <div className="w-14 h-14 rounded-[18px] bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] border border-[#86EFAC] dark:border-[#2C3D32] mx-auto flex items-center justify-center">
                 <ShieldCheck className="w-7 h-7" />
               </div>
-              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+              <h1 className="text-xl sm:text-2xl font-black">
                 دخول لوحة تحكم الأدمن
               </h1>
-              <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
-                مخصصة لإدارة غزالة فقط — إدارة المطاعم والاشتراكات وكلمات السر والرسوم
+              <p className="text-xs sm:text-sm font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+                مخصصة لإدارة Ghazalo فقط — إدارة المطاعم والاشتراكات وكلمات السر والرسوم
               </p>
             </div>
 
             {pinError && (
-              <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3.5 text-xs font-extrabold text-amber-800 dark:text-amber-200">
+              <div className="rounded-[16px] bg-[#FEF9C3] dark:bg-amber-950/40 border border-[#FACC15] dark:border-amber-800 p-3.5 text-xs font-extrabold text-[#14201A] dark:text-amber-200">
                 {pinError}
               </div>
             )}
 
             <form onSubmit={(e) => void handleVerifyPin(e)} className="space-y-4">
               <div>
-                <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-extrabold text-[#14201A] dark:text-[#E8F2EB] mb-1.5">
                   الرقم السري للأدمن (PIN)
                 </label>
                 <div className="relative">
@@ -832,12 +839,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     value={pinInput}
                     onChange={(e) => setPinInput(e.target.value)}
                     placeholder="••••••"
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center text-lg font-extrabold tracking-widest focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+                    className="sf-inp text-center text-lg font-extrabold tracking-widest"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPin((v) => !v)}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#FF6A00]"
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#4B5B52] hover:text-[#15803D]"
                     aria-label="إظهار أو إخفاء الرقم"
                   >
                     {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -848,7 +855,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               <button
                 type="submit"
                 disabled={verifyingPin}
-                className="w-full py-4 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-[0_10px_28px_rgba(255,106,0,0.28)] transition-all"
+                className="sf-btn-primary w-full text-sm"
               >
                 {verifyingPin ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -865,21 +872,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-[#FFFBF7] dark:bg-slate-950 pb-16">
+    <div dir="rtl" className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] text-[#14201A] dark:text-[#E8F2EB] pb-16">
       {/* Admin Top Header */}
-      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-30 bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 backdrop-blur-md border-b border-[#CFE3D5] dark:border-[#2C3D32] px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-sm font-extrabold text-[#FF6A00]"
+            className="inline-flex items-center gap-1.5 text-sm font-extrabold text-[#15803D] dark:text-[#BBF7D0]"
           >
             <ArrowRight className="w-4 h-4" />
             العودة
           </button>
-          <div className="flex items-center gap-2 font-extrabold text-sm sm:text-lg truncate">
-            <ShieldCheck className="w-5 h-5 text-[#FF6A00] shrink-0" />
-            <span className="truncate">لوحة تحكم الأدمن · غزالة</span>
+          <div className="flex items-center gap-2 font-black text-sm sm:text-lg truncate">
+            <ShieldCheck className="w-5 h-5 text-[#15803D] dark:text-[#BBF7D0] shrink-0" />
+            <span className="truncate">لوحة تحكم الأدمن · Ghazalo</span>
           </div>
         </div>
 
@@ -888,7 +895,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <button
               type="button"
               onClick={() => void handleGoogleAdminLogin()}
-              className="hidden md:inline-flex px-3 py-2 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] border border-orange-200 dark:border-slate-700 font-bold text-xs items-center gap-1.5"
+              className="hidden md:inline-flex px-3 py-2 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] border border-[#86EFAC] dark:border-[#2C3D32] font-bold text-xs items-center gap-1.5"
             >
               <Sparkles className="w-3.5 h-3.5" />
               مزامنة Firebase السحابية
@@ -898,7 +905,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <button
               type="button"
               onClick={() => void signOut(auth)}
-              className="hidden sm:inline-flex px-3 py-2 rounded-full bg-orange-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs items-center gap-1"
+              className="hidden sm:inline-flex px-3 py-2 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14201A] dark:text-[#E8F2EB] font-bold text-xs items-center gap-1"
             >
               <LogOut className="w-3.5 h-3.5" />
               فصل Google
@@ -908,7 +915,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           <button
             type="button"
             onClick={() => setChangePinOpen(true)}
-            className="px-3 py-2 rounded-full bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-[#FF6A00] font-bold text-xs inline-flex items-center gap-1.5"
+            className="px-3 py-2 rounded-full bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-[#15803D] dark:text-[#BBF7D0] font-bold text-xs inline-flex items-center gap-1.5"
           >
             <KeyRound className="w-4 h-4" />
             <span className="hidden sm:inline">تغيير PIN</span>
@@ -916,7 +923,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           <button
             type="button"
             onClick={handleLock}
-            className="px-3 py-2 rounded-full bg-slate-900 dark:bg-slate-800 text-white font-bold text-xs inline-flex items-center gap-1.5"
+            className="px-3 py-2 rounded-full bg-[#14201A] dark:bg-[#173323] text-white font-bold text-xs inline-flex items-center gap-1.5"
           >
             <Lock className="w-3.5 h-3.5" />
             <span>خروج</span>
@@ -925,20 +932,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       </header>
 
       {toastMsg && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl text-xs sm:text-sm font-extrabold shadow-xl border border-orange-500/40">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#14201A] text-white px-5 py-3 rounded-[16px] text-xs sm:text-sm font-extrabold shadow-xl border border-[#15803D]">
           {toastMsg}
         </div>
       )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
         {/* Global Control Toggle: الغاء كل الرسوم والضرايب لكل المطاعم */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border-2 border-[#FF6A00]/30 shadow-xs flex flex-wrap items-center justify-between gap-4">
+        <div className="sf-card p-5 border-2 border-[#15803D]/40 flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-1 max-w-2xl">
-            <div className="flex items-center gap-2 text-base font-extrabold text-slate-900 dark:text-white">
-              <span className="w-3 h-3 rounded-full bg-[#FF6A00]" />
+            <div className="flex items-center gap-2 text-base font-black">
+              <span className="w-3 h-3 rounded-full bg-[#15803D]" />
               <span>الغاء كل الرسوم والضرايب لكل المطاعم</span>
             </div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <p className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
               عند تفعيل هذا الخيار يتم إجبار رسوم الخدمة والضريبة (VAT) ورسوم التغليف على 0 في جميع المطاعم تلقائياً، ليصبح الحساب (سعر الأكل + التوصيل فقط).
             </p>
           </div>
@@ -946,10 +953,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             type="button"
             disabled={savingGlobalFeeToggle}
             onClick={() => void handleToggleGlobalZeroFees()}
-            className={`px-6 py-3 rounded-2xl font-extrabold text-sm transition-all inline-flex items-center gap-2 shadow-xs ${
+            className={`px-6 py-3 rounded-[16px] font-extrabold text-sm transition-all inline-flex items-center gap-2 shadow-xs ${
               forceZeroFeesGlobally
-                ? 'bg-[#FF6A00] text-white'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
+                ? 'bg-[#15803D] text-white'
+                : 'bg-[#F6FBF7] dark:bg-[#173323] text-[#14201A] dark:text-[#E8F2EB] border border-[#CFE3D5] dark:border-[#2C3D32]'
             }`}
           >
             {savingGlobalFeeToggle && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -958,12 +965,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         </div>
 
         {/* Private Link + Quick Tools */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div className="sf-card p-4 flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-0.5 min-w-0">
-            <div className="text-xs font-extrabold text-[#FF6A00]">
+            <div className="text-xs font-extrabold text-[#15803D] dark:text-[#BBF7D0]">
               رابط لوحة الأدمن الخاص
             </div>
-            <div className="text-xs font-mono text-slate-500 truncate" dir="ltr">
+            <div className="text-xs font-mono text-[#4B5B52] dark:text-[#A3B5AA] truncate" dir="ltr">
               {privateAdminUrl}
             </div>
           </div>
@@ -973,7 +980,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 type="button"
                 disabled={backfillBusy}
                 onClick={() => void handleBackfillAllPhotos()}
-                className="px-4 py-2 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] border border-orange-200 dark:border-slate-700 text-xs font-extrabold inline-flex items-center gap-1.5"
+                className="px-4 py-2 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] border border-[#86EFAC] dark:border-[#2C3D32] text-xs font-extrabold inline-flex items-center gap-1.5"
               >
                 {backfillBusy ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -986,7 +993,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <button
               type="button"
               onClick={() => void handleCopyAdminLink()}
-              className="px-4 py-2 rounded-full bg-[#FF6A00] text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+              className="px-4 py-2 rounded-full bg-[#15803D] hover:bg-[#166534] text-white text-xs font-extrabold inline-flex items-center gap-1.5"
             >
               <Copy className="w-3.5 h-3.5" />
               <span>{linkCopied ? 'تم النسخ!' : 'نسخ رابط الإدارة'}</span>
@@ -997,16 +1004,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         {/* KPI Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { label: 'إجمالي المطاعم', count: stats.all, tone: 'bg-white dark:bg-slate-900 border-orange-100' },
-            { label: 'تجريبي', count: stats.trial, tone: 'bg-sky-50 dark:bg-sky-950/30 border-sky-200' },
-            { label: 'مفعل شهري', count: stats.monthly, tone: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200' },
-            { label: 'مفعل سنوي', count: stats.yearly, tone: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200' },
+            { label: 'إجمالي المطاعم', count: stats.all, tone: 'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5]' },
+            { label: 'تجريبي', count: stats.trial, tone: 'bg-[#FEF9C3] dark:bg-amber-950/30 border-[#FACC15]' },
+            { label: 'مفعل شهري', count: stats.monthly, tone: 'bg-[#DCFCE7] dark:bg-[#173323] border-[#86EFAC]' },
+            { label: 'مفعل سنوي', count: stats.yearly, tone: 'bg-[#DCFCE7] dark:bg-[#173323] border-[#15803D]' },
             { label: 'منتهي', count: stats.expired, tone: 'bg-rose-50 dark:bg-rose-950/30 border-rose-200' },
-            { label: 'متوقف', count: stats.suspended, tone: 'bg-slate-100 dark:bg-slate-800 border-slate-300' },
+            { label: 'متوقف', count: stats.suspended, tone: 'bg-[#F6FBF7] dark:bg-[#173323] border-[#CFE3D5]' },
           ].map((k) => (
-            <div key={k.label} className={`rounded-3xl p-4 border dark:border-slate-800 ${k.tone}`}>
-              <div className="text-xs font-bold text-slate-600 dark:text-slate-300">{k.label}</div>
-              <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1 tabular-nums">
+            <div key={k.label} className={`rounded-[20px] p-4 border dark:border-[#2C3D32] ${k.tone}`}>
+              <div className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA]">{k.label}</div>
+              <div className="text-2xl font-black text-[#14201A] dark:text-[#E8F2EB] mt-1 tabular-nums">
                 {k.count}
               </div>
             </div>
@@ -1014,15 +1021,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         </div>
 
         {/* Search + Status Filters */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 space-y-3">
+        <div className="sf-card p-4 space-y-3">
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-[#4B5B52] absolute right-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="ابحث باسم المطعم، رابط المتجر، الإيميل، أو رقم الموبايل..."
-              className="w-full pr-10 pl-4 py-3 rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/20 dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+              className="sf-inp pr-10 pl-4"
             />
           </div>
 
@@ -1041,11 +1048,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setStatusFilter(tab.id)}
-                className={`px-4 py-2 rounded-full text-xs font-extrabold whitespace-nowrap border transition-colors ${
-                  statusFilter === tab.id
-                    ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
-                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-[#FF6A00]'
-                }`}
+                className={statusFilter === tab.id ? 'sf-chip-on text-xs' : 'sf-chip text-xs'}
               >
                 {tab.label}
               </button>
@@ -1054,21 +1057,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         </div>
 
         {/* All Restaurants Table */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-orange-100 dark:border-slate-800 shadow-xs overflow-hidden">
+        <div className="sf-card p-0 overflow-hidden">
           {loadingShops && rows.length === 0 ? (
             <div className="p-10 text-center">
-              <Loader2 className="w-8 h-8 animate-spin text-[#FF6A00] mx-auto" />
+              <Loader2 className="w-8 h-8 animate-spin text-[#15803D] mx-auto" />
             </div>
           ) : filteredRows.length === 0 ? (
             <div className="p-10 text-center space-y-2">
-              <Store className="w-10 h-10 text-orange-300 mx-auto" />
-              <div className="font-bold text-slate-500">لا توجد مطاعم مطابقة للبحث أو التصنيف.</div>
+              <Store className="w-10 h-10 text-[#15803D] mx-auto opacity-60" />
+              <div className="font-bold text-[#4B5B52] dark:text-[#A3B5AA]">لا توجد مطاعم مطابقة للبحث أو التصنيف.</div>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-right border-collapse min-w-[1180px]">
                 <thead>
-                  <tr className="bg-orange-50/70 dark:bg-slate-800 border-b border-orange-100 dark:border-slate-700 text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                  <tr className="bg-[#DCFCE7]/70 dark:bg-[#173323] border-b border-[#CFE3D5] dark:border-[#2C3D32] text-xs font-black text-[#14532D] dark:text-[#BBF7D0]">
                     <th className="py-3.5 px-3">اسم المطعم</th>
                     <th className="py-3.5 px-3">رابط المتجر</th>
                     <th className="py-3.5 px-3">الايميل</th>
@@ -1081,7 +1084,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     <th className="py-3.5 px-3">اجراءات</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-orange-100/70 dark:divide-slate-800 text-xs">
+                <tbody className="divide-y divide-[#CFE3D5]/70 dark:divide-[#2C3D32] text-xs">
                   {filteredRows.map((row) => {
                     const isBusy = busyId === row.shopId;
                     const showPass = Boolean(revealedPasswords[row.shopId]);
@@ -1093,34 +1096,34 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
                     return (
                       <React.Fragment key={row.shopId}>
-                        <tr className="hover:bg-orange-50/30 dark:hover:bg-slate-800/40 align-top">
-                          <td className="py-3.5 px-3 font-extrabold text-slate-900 dark:text-white">
+                        <tr className="hover:bg-[#F6FBF7] dark:hover:bg-[#173323]/40 align-top">
+                          <td className="py-3.5 px-3 font-extrabold text-[#14201A] dark:text-[#E8F2EB]">
                             <div>{row.nameAr}</div>
                             {row.resetCode && (
-                              <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-[11px] font-extrabold tabular-nums">
+                              <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#FEF9C3] text-[#14201A] text-[11px] font-extrabold tabular-nums">
                                 كود الاستعادة: {row.resetCode}
                               </div>
                             )}
                           </td>
 
                           <td className="py-3.5 px-3" dir="ltr">
-                            <span className="font-mono text-[11px] font-bold text-[#FF6A00]">
+                            <span className="font-mono text-[11px] font-bold text-[#15803D] dark:text-[#BBF7D0]">
                               /menu/{row.storeSlug}
                             </span>
                           </td>
 
-                          <td className="py-3.5 px-3 font-semibold text-slate-600 dark:text-slate-300" dir="ltr">
+                          <td className="py-3.5 px-3 font-semibold text-[#4B5B52] dark:text-[#A3B5AA]" dir="ltr">
                             {row.email || '—'}
                           </td>
 
-                          <td className="py-3.5 px-3 font-bold tabular-nums text-slate-700 dark:text-slate-200" dir="ltr">
+                          <td className="py-3.5 px-3 font-bold tabular-nums text-[#14201A] dark:text-[#E8F2EB]" dir="ltr">
                             {row.phone || '—'}
                           </td>
 
                           {/* Password column + eye button */}
                           <td className="py-3.5 px-3">
                             <div className="inline-flex items-center gap-1.5">
-                              <span dir="ltr" className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                              <span dir="ltr" className="font-mono font-bold text-[#14201A] dark:text-[#E8F2EB]">
                                 {showPass
                                   ? row.password || 'مشفرة بالخادم'
                                   : '••••••'}
@@ -1134,7 +1137,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                   }))
                                 }
                                 title="اظهار كلمة السر"
-                                className="p-1.5 rounded-lg bg-orange-50 dark:bg-slate-800 text-[#FF6A00] hover:bg-orange-100"
+                                className="p-1.5 rounded-lg bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] hover:bg-[#BBF7D0]"
                               >
                                 {showPass ? (
                                   <EyeOff className="w-3.5 h-3.5" />
@@ -1145,7 +1148,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             </div>
                           </td>
 
-                          <td className="py-3.5 px-3 font-semibold text-slate-600 dark:text-slate-300">
+                          <td className="py-3.5 px-3 font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
                             {row.subscriptionDateFormatted}
                           </td>
 
@@ -1154,7 +1157,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                               className={
                                 row.daysLeft <= 1
                                   ? 'text-rose-600 dark:text-rose-400'
-                                  : 'text-slate-900 dark:text-white'
+                                  : 'text-[#14201A] dark:text-[#E8F2EB]'
                               }
                             >
                               {row.daysLeft} يوم
@@ -1165,12 +1168,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             <span
                               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold whitespace-nowrap ${
                                 row.statusCategory === 'monthly' || row.statusCategory === 'yearly'
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  ? 'bg-[#DCFCE7] text-[#14532D] dark:bg-[#173323] dark:text-[#BBF7D0]'
                                   : row.statusCategory === 'trial'
-                                    ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
+                                    ? 'bg-[#FEF9C3] text-[#14201A] dark:bg-amber-950 dark:text-amber-300'
                                     : row.statusCategory === 'expired'
                                       ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                                      : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                      : 'bg-[#F6FBF7] text-[#4B5B52] dark:bg-[#173323] dark:text-[#A3B5AA]'
                               }`}
                             >
                               {row.statusCategory === 'expired' && <ShieldAlert className="w-3 h-3" />}
@@ -1196,13 +1199,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                     [row.shopId]: e.target.value,
                                   }))
                                 }
-                                className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-extrabold tabular-nums"
+                                className="w-16 px-2 py-1 rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] text-center font-extrabold tabular-nums"
                               />
                               <button
                                 type="button"
                                 disabled={isBusy}
                                 onClick={() => void handleSaveDeliveryPrice(row)}
-                                className="p-1.5 rounded-xl bg-[#FF6A00] text-white hover:bg-[#e85f00]"
+                                className="p-1.5 rounded-xl bg-[#15803D] text-white hover:bg-[#166534]"
                                 title="حفظ سعر التوصيل"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -1221,7 +1224,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                     [row.shopId]: !prev[row.shopId],
                                   }))
                                 }
-                                className="px-2.5 py-1.5 rounded-xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] font-bold inline-flex items-center gap-1"
+                                className="px-2.5 py-1.5 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] font-bold inline-flex items-center gap-1"
                               >
                                 <Eye className="w-3 h-3" />
                                 اظهار كلمة السر
@@ -1233,9 +1236,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                   setPasswordModalRow(row);
                                   setNewStorePassInput('');
                                 }}
-                                className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold inline-flex items-center gap-1"
+                                className="px-2.5 py-1.5 rounded-xl bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] font-bold inline-flex items-center gap-1"
                               >
-                                <KeyRound className="w-3 h-3 text-[#FF6A00]" />
+                                <KeyRound className="w-3 h-3 text-[#15803D]" />
                                 تغيير كلمة السر
                               </button>
 
@@ -1243,7 +1246,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 type="button"
                                 disabled={isBusy}
                                 onClick={() => void handleGenerateResetCode(row)}
-                                className="px-2.5 py-1.5 rounded-xl bg-amber-100 text-amber-900 font-bold inline-flex items-center gap-1"
+                                className="px-2.5 py-1.5 rounded-xl bg-[#FEF9C3] text-[#14201A] font-bold inline-flex items-center gap-1"
                               >
                                 <Send className="w-3 h-3" />
                                 ارسال كود استعادة
@@ -1252,7 +1255,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                               <button
                                 type="button"
                                 onClick={() => void handleCopyMenuLink(row)}
-                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold inline-flex items-center gap-1"
+                                className="px-2.5 py-1.5 rounded-xl bg-[#F6FBF7] dark:bg-[#173323] border border-[#CFE3D5] dark:border-[#2C3D32] font-bold inline-flex items-center gap-1"
                               >
                                 <Copy className="w-3 h-3" />
                                 {copiedSlugId === row.shopId ? 'تم النسخ!' : 'نسخ اللينك'}
@@ -1262,7 +1265,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onPreviewShop(row.shop)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 dark:bg-slate-700 text-white font-bold inline-flex items-center gap-1"
+                                  className="px-2.5 py-1.5 rounded-xl bg-[#14201A] dark:bg-[#173323] text-white font-bold inline-flex items-center gap-1"
                                 >
                                   <ExternalLink className="w-3 h-3" />
                                   فتح المنيو
@@ -1276,16 +1279,43 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                     prev === row.shopId ? null : row.shopId
                                   )
                                 }
-                                className="px-2.5 py-1.5 rounded-xl bg-[#FF6A00] text-white font-extrabold inline-flex items-center gap-1"
+                                className="px-3 py-1.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold inline-flex items-center gap-1"
                               >
-                                {isPlansExpanded ? 'إخفاء الباقات' : 'إدارة الاشتراك (3 باقات)'}
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {isPlansExpanded ? 'إخفاء التفعيل' : 'تفعيل'}
                               </button>
                             </div>
+                            {isPlansExpanded && (
+                              <div className="mt-2 p-2.5 rounded-[16px] bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] flex flex-wrap items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => {
+                                    void handleSubscriptionAction(row, 'monthly');
+                                    setExpandedPlanRowId(null);
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-[11px]"
+                                >
+                                  شهري (30 يوم - {SUBSCRIPTION_PRICING.MONTHLY_EGP} ج)
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => {
+                                    void handleSubscriptionAction(row, 'yearly');
+                                    setExpandedPlanRowId(null);
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl bg-[#14201A] hover:bg-[#15803D] text-white font-extrabold text-[11px]"
+                                >
+                                  سنوي (365 يوم - {SUBSCRIPTION_PRICING.YEARLY_EGP} ج)
+                                </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
 
                         {/* 3 Clear Subscription Cards Row per Restaurant */}
-                        <tr className="bg-orange-50/25 dark:bg-slate-900/60">
+                        <tr className="bg-[#F6FBF7]/80 dark:bg-[#0F1712]/60">
                           <td colSpan={10} className="px-4 py-3">
                             <div
                               className={`grid grid-cols-1 sm:grid-cols-4 gap-3 items-stretch ${
@@ -1293,12 +1323,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                               }`}
                             >
                               {/* Card 1: Trial 7 days */}
-                              <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-sky-200 dark:border-slate-700 flex items-center justify-between gap-3">
+                              <div className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-[16px] p-3.5 border border-[#FACC15] dark:border-[#2C3D32] flex items-center justify-between gap-3">
                                 <div>
-                                  <div className="font-extrabold text-xs text-slate-900 dark:text-white">
+                                  <div className="font-extrabold text-xs">
                                     تجريبي مجاني - 7 أيام
                                   </div>
-                                  <div className="text-xs font-extrabold text-sky-700 dark:text-sky-400 tabular-nums">
+                                  <div className="text-xs font-extrabold text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                                     السعر: 0 جنيه
                                   </div>
                                 </div>
@@ -1306,19 +1336,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                   type="button"
                                   disabled={isBusy}
                                   onClick={() => void handleSubscriptionAction(row, 'trial')}
-                                  className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-extrabold text-xs shrink-0"
+                                  className="px-3.5 py-2 rounded-xl bg-[#FACC15] hover:bg-[#EAB308] text-[#14201A] font-extrabold text-xs shrink-0"
                                 >
                                   بدأ التجربة
                                 </button>
                               </div>
 
                               {/* Card 2: Monthly 30 days */}
-                              <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-orange-200 dark:border-slate-700 flex items-center justify-between gap-3">
+                              <div className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-[16px] p-3.5 border border-[#CFE3D5] dark:border-[#2C3D32] flex items-center justify-between gap-3">
                                 <div>
-                                  <div className="font-extrabold text-xs text-slate-900 dark:text-white">
+                                  <div className="font-extrabold text-xs">
                                     التفعيل الشهري - 30 يوم
                                   </div>
-                                  <div className="text-xs font-extrabold text-[#FF6A00] tabular-nums">
+                                  <div className="text-xs font-extrabold text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                                     {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه
                                   </div>
                                 </div>
@@ -1326,19 +1356,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                   type="button"
                                   disabled={isBusy}
                                   onClick={() => void handleSubscriptionAction(row, 'monthly')}
-                                  className="px-3.5 py-2 rounded-xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-xs shrink-0"
+                                  className="px-3.5 py-2 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-xs shrink-0"
                                 >
                                   تفعيل شهري
                                 </button>
                               </div>
 
                               {/* Card 3: Yearly 365 days */}
-                              <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border-2 border-[#FF6A00]/60 dark:border-orange-800 flex items-center justify-between gap-3">
+                              <div className="bg-[#DCFCE7] dark:bg-[#173323] rounded-[16px] p-3.5 border-2 border-[#15803D] flex items-center justify-between gap-3">
                                 <div>
-                                  <div className="font-extrabold text-xs text-slate-900 dark:text-white">
+                                  <div className="font-extrabold text-xs">
                                     التفعيل السنوي - 365 يوم
                                   </div>
-                                  <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                  <div className="text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0] tabular-nums">
                                     {SUBSCRIPTION_PRICING.YEARLY_EGP.toLocaleString('en-US')} جنيه
                                   </div>
                                 </div>
@@ -1346,28 +1376,28 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                   type="button"
                                   disabled={isBusy}
                                   onClick={() => void handleSubscriptionAction(row, 'yearly')}
-                                  className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-[#FF6A00] text-white font-extrabold text-xs shrink-0 transition-colors"
+                                  className="px-3.5 py-2 rounded-xl bg-[#14201A] hover:bg-[#15803D] text-white font-extrabold text-xs shrink-0 transition-colors"
                                 >
                                   تفعيل سنوي
                                 </button>
                               </div>
 
                               {/* Suspend + WhatsApp reset code quick send */}
-                              <div className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
+                              <div className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-[16px] p-3.5 border border-[#CFE3D5] dark:border-[#2C3D32] flex items-center justify-between gap-2">
                                 {row.resetCode && row.phone ? (
                                   <a
                                     href={`https://wa.me/${row.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                                      `مرحباً ${row.nameAr}، كود استعادة كلمة سر متجرك على غزالة هو: ${row.resetCode}`
+                                      `مرحباً ${row.nameAr}، كود استعادة كلمة سر متجرك على Ghazalo هو: ${row.resetCode}`
                                     )}`}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="px-3 py-2 rounded-xl bg-emerald-600 text-white font-extrabold text-xs inline-flex items-center gap-1"
+                                    className="px-3 py-2 rounded-xl bg-[#15803D] text-white font-extrabold text-xs inline-flex items-center gap-1"
                                   >
                                     <MessageCircle className="w-3.5 h-3.5" />
                                     واتساب بالكود
                                   </a>
                                 ) : (
-                                  <span className="text-[11px] font-bold text-slate-500">
+                                  <span className="text-[11px] font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
                                     إجراءات الحساب
                                   </span>
                                 )}
@@ -1375,7 +1405,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                   type="button"
                                   disabled={isBusy}
                                   onClick={() => void handleSubscriptionAction(row, 'suspend')}
-                                  className="px-3 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-extrabold text-xs inline-flex items-center gap-1"
+                                  className="px-3 py-2 rounded-xl bg-[#FEF9C3] hover:bg-[#FACC15] text-[#14201A] font-extrabold text-xs inline-flex items-center gap-1"
                                 >
                                   <Ban className="w-3.5 h-3.5" />
                                   إيقاف
@@ -1396,26 +1426,26 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
       {/* Change Restaurant Password Modal */}
       {passwordModalRow && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
           <form
             onSubmit={(e) => void handleSaveStorePassword(e)}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-2xl"
+            className="sf-card max-w-sm w-full p-6 space-y-4 shadow-2xl"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold">
+              <h3 className="text-base font-black">
                 تغيير كلمة سر {passwordModalRow.nameAr}
               </h3>
               <button
                 type="button"
                 onClick={() => setPasswordModalRow(null)}
-                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-8 h-8 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-xs font-semibold text-slate-500">
+            <p className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
               أدخل كلمة السر الجديدة — سيتمكن المطعم من تسجيل الدخول بها فوراً على لوحة{' '}
-              <span dir="ltr" className="font-bold text-[#FF6A00]">
+              <span dir="ltr" className="font-bold text-[#15803D] dark:text-[#BBF7D0]">
                 {passwordModalRow.storeSlug}
               </span>
             </p>
@@ -1426,20 +1456,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               value={newStorePassInput}
               onChange={(e) => setNewStorePassInput(e.target.value)}
               placeholder="كلمة السر الجديدة"
-              className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
+              className="sf-inp"
             />
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={savingStorePass}
-                className="flex-1 py-3 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-sm"
+                className="sf-btn-primary flex-1 text-sm"
               >
                 {savingStorePass ? 'جاري الحفظ...' : 'حفظ كلمة السر'}
               </button>
               <button
                 type="button"
                 onClick={() => setPasswordModalRow(null)}
-                className="px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 font-bold text-sm"
+                className="sf-btn text-sm"
               >
                 إلغاء
               </button>
@@ -1450,13 +1480,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
       {/* Change Admin PIN Modal */}
       {changePinOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
           <form
             onSubmit={(e) => void handleSaveNewPin(e)}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-2xl"
+            className="sf-card max-w-sm w-full p-6 space-y-4 shadow-2xl"
           >
-            <h3 className="text-lg font-extrabold">تغيير الرقم السري للأدمن</h3>
-            <p className="text-xs font-semibold text-slate-500">
+            <h3 className="text-lg font-black">تغيير الرقم السري للأدمن</h3>
+            <p className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
               أدخل الرقم السري الجديد (4 أرقام أو أحرف على الأقل).
             </p>
             <input
@@ -1468,10 +1498,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               value={newPinInput}
               onChange={(e) => setNewPinInput(e.target.value)}
               placeholder="الرقم السري الجديد"
-              className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center text-base font-extrabold"
+              className="sf-inp text-center text-base font-extrabold"
             />
             {pinSavedMsg && (
-              <div className="text-xs font-extrabold text-emerald-700 text-center">
+              <div className="text-xs font-extrabold text-[#15803D] text-center">
                 {pinSavedMsg}
               </div>
             )}
@@ -1479,14 +1509,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               <button
                 type="submit"
                 disabled={savingPin}
-                className="flex-1 py-3 rounded-2xl bg-[#FF6A00] text-white font-extrabold text-sm"
+                className="sf-btn-primary flex-1 text-sm"
               >
                 {savingPin ? 'جاري الحفظ...' : 'حفظ الرقم الجديد'}
               </button>
               <button
                 type="button"
                 onClick={() => setChangePinOpen(false)}
-                className="px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 font-bold text-sm"
+                className="sf-btn text-sm"
               >
                 إلغاء
               </button>

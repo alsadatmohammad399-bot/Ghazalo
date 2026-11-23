@@ -1,6 +1,29 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+:root {
+  --bg: #F6FBF7;
+  --c: #FFFFFF;
+  --t: #14201A;
+  --m: #4B5B52;
+  --b: #CFE3D5;
+  --g: #15803D;
+  --l: #DCFCE7;
+  --lt: #14532D;
+  --y: #FACC15;
+}
+
+.dark {
+  --bg: #0F1712;
+  --c: #18231C;
+  --t: #E8F2EB;
+  --m: #A3B5AA;
+  --b: #2C3D32;
+  --l: #173323;
+  --lt: #BBF7D0;
+  --y: #FACC15;
+}
+
 @layer base {
   html {
     font-family: 'Cairo', system-ui, -apple-system, sans-serif;
@@ -9,28 +32,62 @@
 
   body {
     font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg);
+    color: var(--t);
   }
 }
 
 @layer utilities {
+  .sf-card {
+    @apply bg-[#FFFFFF] dark:bg-[#18231C] rounded-[24px] p-4 border border-[#CFE3D5]/70 dark:border-[#2C3D32] shadow-[0_1px_4px_rgba(0,0,0,0.08)];
+  }
+
+  .sf-btn {
+    @apply inline-flex items-center justify-center min-h-[48px] rounded-[16px] border-[1.5px] border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] text-[#14201A] dark:text-[#E8F2EB] font-extrabold px-4 gap-1.5 cursor-pointer transition-all duration-150 active:scale-[0.98];
+  }
+
+  .sf-btn-primary {
+    @apply inline-flex items-center justify-center min-h-[48px] rounded-[16px] border-[1.5px] border-[#15803D] bg-[#15803D] hover:bg-[#166534] text-white font-extrabold px-4 gap-1.5 cursor-pointer transition-all duration-150 active:scale-[0.98];
+  }
+
+  .sf-btn-mint {
+    @apply inline-flex items-center justify-center min-h-[48px] rounded-[16px] border-[1.5px] border-[#86EFAC] dark:border-[#2C3D32] bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] font-extrabold px-4 gap-1.5 cursor-pointer transition-all duration-150 active:scale-[0.98];
+  }
+
+  .sf-btn-yellow {
+    @apply inline-flex items-center justify-center min-h-[48px] rounded-[16px] border-[1.5px] border-[#FACC15] bg-[#FACC15] hover:bg-[#EAB308] text-[#14201A] font-extrabold px-4 gap-1.5 cursor-pointer transition-all duration-150 active:scale-[0.98];
+  }
+
+  .sf-inp {
+    @apply min-h-[48px] border-[1.5px] border-[#CFE3D5] dark:border-[#2C3D32] rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] px-3.5 font-bold text-[15px] text-[#14201A] dark:text-[#E8F2EB] placeholder:text-[#4B5B52] dark:placeholder:text-[#A3B5AA] w-full outline-none focus:border-[#15803D];
+  }
+
+  .sf-chip {
+    @apply px-4 py-2 rounded-full border-[1.5px] border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] text-[#14201A] dark:text-[#E8F2EB] font-extrabold text-[15px] whitespace-nowrap cursor-pointer transition-colors;
+  }
+
+  .sf-chip-on {
+    @apply px-4 py-2 rounded-full border-[1.5px] border-[#15803D] bg-[#15803D] text-white font-extrabold text-[15px] whitespace-nowrap cursor-pointer transition-colors;
+  }
+
   .glass-surface {
-    @apply bg-white/75 dark:bg-slate-900/75 backdrop-blur-xl border border-white/60 dark:border-white/15 shadow-[0_8px_30px_rgba(15,41,30,0.10)];
+    @apply bg-[#FFFFFF]/90 dark:bg-[#18231C]/90 backdrop-blur-xl border border-[#CFE3D5] dark:border-[#2C3D32] shadow-[0_2px_12px_rgba(20,32,26,0.06)];
   }
 
   .glass-btn {
-    @apply bg-white/80 dark:bg-slate-900/80 hover:bg-white dark:hover:bg-slate-800/95 backdrop-blur-xl border border-white/70 dark:border-white/15 shadow-[0_8px_24px_rgba(15,41,30,0.10)] transition-all duration-150 active:scale-[0.98];
+    @apply bg-[#FFFFFF] dark:bg-[#18231C] hover:bg-[#F6FBF7] dark:hover:bg-[#173323] border-[1.5px] border-[#CFE3D5] dark:border-[#2C3D32] text-[#14201A] dark:text-[#E8F2EB] shadow-[0_1px_4px_rgba(0,0,0,0.06)] transition-all duration-150 active:scale-[0.98];
   }
 
   .glass-btn-primary {
-    @apply bg-[#FF6A00] hover:bg-[#e85f00] backdrop-blur-xl text-white border border-orange-300/40 shadow-[0_10px_28px_rgba(255,106,0,0.28)] transition-all duration-150 active:scale-[0.98];
+    @apply bg-[#15803D] hover:bg-[#166534] text-white border-[1.5px] border-[#15803D] shadow-[0_6px_20px_rgba(21,128,61,0.24)] transition-all duration-150 active:scale-[0.98];
   }
 
   .glass-btn-amber {
-    @apply bg-amber-400/90 hover:bg-amber-400 backdrop-blur-xl text-slate-900 border border-amber-200/70 shadow-[0_10px_26px_rgba(245,158,11,0.28)] transition-all duration-150 active:scale-[0.98];
+    @apply bg-[#FACC15] hover:bg-[#EAB308] text-[#14201A] border-[1.5px] border-[#FACC15] shadow-[0_6px_18px_rgba(250,204,21,0.28)] transition-all duration-150 active:scale-[0.98];
   }
 
   .glass-dock {
-    @apply bg-white/90 dark:bg-slate-900/85 backdrop-blur-2xl border border-orange-100/80 dark:border-white/15 shadow-[0_14px_40px_rgba(255,106,0,0.12)];
+    @apply bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 backdrop-blur-2xl border border-[#CFE3D5] dark:border-[#2C3D32] shadow-[0_12px_32px_rgba(21,128,61,0.14)];
   }
 }
 

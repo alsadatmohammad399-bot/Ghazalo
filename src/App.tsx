@@ -10,6 +10,7 @@ import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { Globe, Lock, LogOut, Mail, MessageCircle, RefreshCw } from 'lucide-react';
 import { auth } from './firebase';
 import {
+  fetchProductsOnce,
   findShopBySlugOrId,
   getOwnerShops,
   getPlatformConfig,
@@ -20,30 +21,25 @@ import {
 } from './services/firestoreService';
 import { getShopAccessState } from './utils/calculations';
 import { getShopDisplayName, tx, useUiLang } from './utils/uiLang';
+import { isUserActivated } from './utils/authHelpers';
 import {
-  formatAuthContactLabel,
-  isPhoneAuthEmail,
-  isUserActivated,
-} from './utils/authHelpers';
+  clearPendingSignupMeta,
+  loadPendingSignupMeta,
+} from './components/AuthFormPanel';
 import {
   clearAuthTokenKeepLastStore,
-  createStoreForCurrentUser,
   findLocalRestaurantBySlugOrShopId,
-  getGhazaloUser,
   getPlatformSettingsLocal,
   getStoredAuthSession,
-  getVisibleStoresForUser,
   safeJsonParse,
   savePlatformSettingsLocal,
   setAuthSessionStorage,
-  setGhazaloUser,
   shopToDemoRecord,
   upsertLocalRestaurant,
-  type GhazaloUserSession,
 } from './utils/storeRegistry';
 import { DEMO_PROJECTS } from './data/demoProjects';
-import { DEMO_STORES, buildFallbackStoreForSlug, findDemoStoreBySlug } from './data/stores';
-import { fetchPublicStoreSnapshot } from './utils/menuLink';
+import { buildFallbackStoreForSlug, findDemoStoreBySlug } from './data/stores';
+import { fetchPublicStoreSnapshot, syncPublicStoreSnapshot } from './utils/menuLink';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PlatformLoader } from './components/PlatformLoader';
@@ -106,7 +102,6 @@ function saveLocalTables(shopId: string, tables: ShopTable[]): void {
 function parseRouteTarget(): {
   isAdminRoute: boolean;
   shopTarget: string | null;
-  isDashboardRoute: boolean;
   dashboardTarget: string | null;
   authRoute: 'login' | 'signup' | null;
   tableLabel: string;
@@ -140,7 +135,6 @@ function parseRouteTarget(): {
     }
   }
 
-  const isDashboardRoute = pathname === '/dashboard' || pathname.startsWith('/dashboard/');
   const dashboardMatch = pathname.match(/^\/dashboard\/([a-z0-9-]+)\/?$/i);
   const dashboardTarget = dashboardMatch ? dashboardMatch[1] : null;
 
@@ -154,15 +148,7 @@ function parseRouteTarget(): {
   const shortcutMode =
     modeParam === 'cashier' || modeParam === 'dashboard' ? modeParam : null;
 
-  return {
-    isAdminRoute,
-    shopTarget,
-    isDashboardRoute,
-    dashboardTarget,
-    authRoute,
-    tableLabel,
-    shortcutMode,
-  };
+  return { isAdminRoute, shopTarget, dashboardTarget, authRoute, tableLabel, shortcutMode };
 }
 
 interface AppShellProps {
@@ -181,21 +167,8 @@ function AppShell({
   const { isEn, toggleLang } = useUiLang();
   const navigate = useNavigate();
   const location = useLocation();
-  const [ghazaloUser, setGhazaloUserState] = useState<GhazaloUserSession | null>(() =>
-    getGhazaloUser()
-  );
-  const [ownerFirestoreShops, setOwnerFirestoreShops] = useState<Shop[]>([]);
-  const [storesVersion, setStoresVersion] = useState(0);
-  const [showLandingOverride, setShowLandingOverride] = useState(false);
-  const [view, setView] = useState<AppView>(() => {
-    const rt = parseRouteTarget();
-    if (rt.isAdminRoute) return 'admin';
-    if (rt.shopTarget) return 'storefront';
-    if (rt.authRoute) return rt.authRoute;
-    const hasLocal = Boolean(getGhazaloUser() || getStoredAuthSession().token);
-    return hasLocal ? 'dashboard' : 'login';
-  });
-  const [authMode, setAuthMode] = useState<'signup' | 'login'>('login');
+  const [view, setView] = useState<AppView>('landing');
+  const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authSyncTick, setAuthSyncTick] = useState(0);
   const [authReady, setAuthReady] = useState(false);
@@ -231,7 +204,7 @@ function AppShell({
     if (!bootSplash) return;
     const timer = window.setTimeout(() => {
       setBootSplash(false);
-    }, 900);
+    }, 1200);
     return () => window.clearTimeout(timer);
   }, [bootSplash]);
 
@@ -242,7 +215,15 @@ function AppShell({
     password?: string;
     country: string;
     contact: string;
-  }>({ fullName: '', businessName: '', country: 'مصر', contact: '' });
+  }>(
+    () =>
+      loadPendingSignupMeta() || {
+        fullName: '',
+        businessName: '',
+        country: 'مصر',
+        contact: '',
+      }
+  );
 
   // Active Merchant Shop State
   const [activeShopId, setActiveShopId] = useState<string | null>(null);
@@ -258,6 +239,7 @@ function AppShell({
   const [publicShop, setPublicShop] = useState<Shop | null>(null);
   const [publicProducts, setPublicProducts] = useState<Product[]>([]);
   const [isFallbackMenu, setIsFallbackMenu] = useState(false);
+  const [isPublicMenuLoading, setIsPublicMenuLoading] = useState(false);
 
   const handleSetThemeMode = (mode: 'light' | 'dark' | 'system') => {
     if (mode === 'system') {
@@ -279,36 +261,34 @@ function AppShell({
       if (localRec) {
         setActiveShopId(localRec.shopId);
         setActiveShop(localRec.shop);
-        setShopProducts(
-          localRec.products && localRec.products.length > 0
-            ? localRec.products
-            : findDemoStoreBySlug(localRec.storeSlug)?.products || DEMO_STORES[0].items.map((it, idx) => ({
-                id: `${localRec.shopId}-${it.id}-${idx + 1}`,
-                shopId: localRec.shopId,
-                shopOwnerId: localRec.shop.ownerId,
-                name: it.name,
-                category: it.category,
-                price: it.price,
-                description: it.description || '',
-                available: true,
-                variants: [],
-                sortOrder: idx,
-              }))
-        );
+        const initialProducts = localRec.products || [];
+        setShopProducts(initialProducts);
         setShopOrders(loadLocalOrders(localRec.shopId));
         setShopTables(loadLocalTables(localRec.shopId));
         if (targetView) setView(targetView);
-        return true;
-      }
 
-      const demoMatch = findDemoStoreBySlug(slugOrId);
-      if (demoMatch) {
-        setActiveShopId(demoMatch.shop.id);
-        setActiveShop(demoMatch.shop);
-        setShopProducts(demoMatch.products);
-        setShopOrders(loadLocalOrders(demoMatch.shop.id));
-        setShopTables(loadLocalTables(demoMatch.shop.id));
-        if (targetView) setView(targetView);
+        if (initialProducts.length === 0 && localRec.shopId.startsWith('shop-')) {
+          void (async () => {
+            try {
+              const [fsProds, snap] = await Promise.all([
+                fetchProductsOnce(localRec.shopId).catch(() => []),
+                fetchPublicStoreSnapshot(localRec.storeSlug || slugOrId).catch(() => null),
+              ]);
+              const resolved = fsProds.length > 0 ? fsProds : snap?.products || [];
+              if (resolved.length > 0) {
+                setShopProducts(resolved);
+                upsertLocalRestaurant(
+                  shopToDemoRecord(localRec.shop, {
+                    ...localRec,
+                    products: resolved,
+                  })
+                );
+              }
+            } catch {
+              // keep existing empty array
+            }
+          })();
+        }
         return true;
       }
 
@@ -316,8 +296,15 @@ function AppShell({
       if (remoteShop) {
         setActiveShopId(remoteShop.id);
         setActiveShop(remoteShop);
+        const [fsProds, snap] = await Promise.all([
+          fetchProductsOnce(remoteShop.id).catch(() => []),
+          fetchPublicStoreSnapshot(remoteShop.storeSlug || slugOrId).catch(() => null),
+        ]);
+        const resolvedProds = fsProds.length > 0 ? fsProds : snap?.products || [];
+        setShopProducts(resolvedProds);
         setShopOrders(loadLocalOrders(remoteShop.id));
         setShopTables(loadLocalTables(remoteShop.id));
+        upsertLocalRestaurant(shopToDemoRecord(remoteShop, { products: resolvedProds }));
         if (targetView) setView(targetView);
         return true;
       }
@@ -327,18 +314,11 @@ function AppShell({
     []
   );
 
-  // Detect URL /admin, /login, /signup, /menu/{slug}, /dashboard, /dashboard/{slug}, ?portal=..., ?shop=..., or ?mode=...
+  // Detect URL /admin, /login, /signup, /menu/{slug}, /dashboard/{slug}, ?portal=..., ?shop=..., or ?mode=...
   useEffect(() => {
     const applyRouteFromLocation = () => {
-      const {
-        isAdminRoute,
-        shopTarget,
-        isDashboardRoute,
-        dashboardTarget,
-        authRoute,
-        tableLabel,
-        shortcutMode,
-      } = parseRouteTarget();
+      const { isAdminRoute, shopTarget, dashboardTarget, authRoute, tableLabel, shortcutMode } =
+        parseRouteTarget();
       if (isAdminRoute) {
         setQrTargetShopId(null);
         setView('admin');
@@ -357,24 +337,25 @@ function AppShell({
         setView(authRoute);
         return;
       }
-      if (isDashboardRoute) {
+      if (dashboardTarget) {
         setQrTargetShopId(null);
         const storedSession = getStoredAuthSession();
-        const savedUser = getGhazaloUser();
-        const fallbackSlug = dashboardTarget || storedSession.lastStore || DEMO_STORES[0].slug;
-        if (storedSession.token || savedUser) {
-          void hydrateStoreSession(fallbackSlug, null, 'dashboard');
+        if (storedSession.token) {
+          void hydrateStoreSession(dashboardTarget, null, 'dashboard');
         } else {
-          if (dashboardTarget) {
-            try {
-              localStorage.setItem('lastStore', dashboardTarget);
-            } catch {
-              // ignore
-            }
+          try {
+            localStorage.setItem('lastStore', dashboardTarget);
+          } catch {
+            // ignore
           }
           setAuthMode('login');
           setView('login');
         }
+        return;
+      }
+      if (location.pathname === '/onboarding') {
+        setQrTargetShopId(null);
+        setView('onboarding');
         return;
       }
       if (shortcutMode) {
@@ -385,7 +366,7 @@ function AppShell({
     applyRouteFromLocation();
   }, [hydrateStoreSession, location.pathname, location.search]);
 
-  // Subscribe / Resolve Public Customer Menu when viewing via /menu/:slug (no login or localStorage required)
+  // Subscribe / Resolve Public Customer Menu when viewing via ?shop=:slug (no login or localStorage required)
   useEffect(() => {
     if (!qrTargetShopId || demoPreview) return;
     let active = true;
@@ -402,58 +383,110 @@ function AppShell({
 
     if (localRec) {
       setPublicShop(localRec.shop);
-      setPublicProducts(
-        localRec.products && localRec.products.length > 0
-          ? localRec.products
-          : demoStoreMatch?.products || buildFallbackStoreForSlug(qrTargetShopId).products
-      );
+      setPublicProducts(localRec.products || []);
       setIsFallbackMenu(false);
+      setIsPublicMenuLoading(false);
     } else if (demoStoreMatch) {
       setPublicShop(demoStoreMatch.shop);
       setPublicProducts(demoStoreMatch.products);
       setIsFallbackMenu(false);
+      setIsPublicMenuLoading(false);
     } else if (demoProjectMatch) {
       setPublicShop(demoProjectMatch.shop);
       setPublicProducts(demoProjectMatch.products);
       setIsFallbackMenu(false);
+      setIsPublicMenuLoading(false);
     } else {
-      const generic = buildFallbackStoreForSlug(qrTargetShopId);
-      setPublicShop(generic.shop);
-      setPublicProducts(generic.products);
-      setIsFallbackMenu(true);
+      setIsFallbackMenu(false);
+      setIsPublicMenuLoading(true);
     }
 
     const resolveAndSubscribe = async () => {
-      try {
-        const fsShop = await findShopBySlugOrId(qrTargetShopId);
+      const [fsShop, remoteSnapshot] = await Promise.all([
+        findShopBySlugOrId(qrTargetShopId).catch(() => null),
+        fetchPublicStoreSnapshot(qrTargetShopId).catch(() => null),
+      ]);
+      if (!active) return;
+
+      const localUpdated = localRec?.updatedAt || 0;
+      const snapUpdated = remoteSnapshot?.updatedAt || 0;
+
+      if (fsShop) {
+        const fsProds = await fetchProductsOnce(fsShop.id).catch(() => []);
         if (!active) return;
-        if (fsShop) {
-          setPublicShop(fsShop);
-          setIsFallbackMenu(false);
-          unsubShop = subscribeToShop(fsShop.id, (s) => {
+
+        const chosenProducts =
+          fsProds.length > 0
+            ? fsProds
+            : localRec?.products && localRec.products.length > 0
+              ? localRec.products
+              : remoteSnapshot?.products || [];
+
+        const preferRemoteSnap = Boolean(remoteSnapshot && snapUpdated > localUpdated);
+        const mergedShop: Shop = preferRemoteSnap && remoteSnapshot
+          ? {
+              ...remoteSnapshot.shop,
+              subscriptionStatus: fsShop.subscriptionStatus,
+              plan: fsShop.plan,
+              subscriptionExpiresAt: fsShop.subscriptionExpiresAt,
+              trialEndsAt: fsShop.trialEndsAt,
+              approvedByAdmin: fsShop.approvedByAdmin,
+              approvedAt: fsShop.approvedAt,
+            }
+          : localRec && localUpdated > snapUpdated
+            ? {
+                ...localRec.shop,
+                subscriptionStatus: fsShop.subscriptionStatus,
+                plan: fsShop.plan,
+                subscriptionExpiresAt: fsShop.subscriptionExpiresAt,
+                trialEndsAt: fsShop.trialEndsAt,
+                approvedByAdmin: fsShop.approvedByAdmin,
+                approvedAt: fsShop.approvedAt,
+              }
+            : fsShop;
+
+        setPublicShop(mergedShop);
+        setPublicProducts(chosenProducts);
+        setIsFallbackMenu(false);
+        setIsPublicMenuLoading(false);
+
+        unsubShop = subscribeToShop(
+          fsShop.id,
+          (s) => {
             if (s && active) setPublicShop(s);
-          });
-          unsubProds = subscribeToProducts(fsShop.id, (p) => {
-            if (active) setPublicProducts(p);
-          });
-          return;
-        }
-      } catch {
-        // continue to server snapshot lookup
+          },
+          () => {
+            // non-fatal listener error
+          }
+        );
+        unsubProds = subscribeToProducts(
+          fsShop.id,
+          (p) => {
+            if (active && p.length > 0) setPublicProducts(p);
+          },
+          () => {
+            // non-fatal listener error
+          }
+        );
+        return;
+      }
+
+      if (remoteSnapshot && (!localRec || snapUpdated >= localUpdated)) {
+        setPublicShop(remoteSnapshot.shop);
+        setPublicProducts(remoteSnapshot.products || []);
+        setIsFallbackMenu(false);
+        setIsPublicMenuLoading(false);
+        return;
       }
 
       if (!localRec && !demoStoreMatch && !demoProjectMatch) {
-        const remoteSnapshot = await fetchPublicStoreSnapshot(qrTargetShopId);
-        if (!active) return;
-        if (remoteSnapshot) {
-          setPublicShop(remoteSnapshot.shop);
-          setPublicProducts(
-            remoteSnapshot.products.length > 0
-              ? remoteSnapshot.products
-              : buildFallbackStoreForSlug(qrTargetShopId).products
-          );
-          setIsFallbackMenu(false);
-        }
+        const generic = buildFallbackStoreForSlug(qrTargetShopId);
+        setPublicShop(generic.shop);
+        setPublicProducts(generic.products);
+        setIsFallbackMenu(true);
+        setIsPublicMenuLoading(false);
+      } else {
+        setIsPublicMenuLoading(false);
       }
     };
 
@@ -466,7 +499,7 @@ function AppShell({
     };
   }, [qrTargetShopId, demoPreview]);
 
-  // Listen to Firebase Auth state AND honor persisted localStorage ("ghazalo_user" / "token")
+  // Listen to Firebase Auth state AND honor persisted localStorage ("token" + "lastStore") auto-redirect
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user && !isUserActivated(user)) {
@@ -479,45 +512,20 @@ function AppShell({
       setCurrentUser(user);
       setAuthSyncTick((t) => t + 1);
 
-      const {
-        isAdminRoute,
-        shopTarget,
-        dashboardTarget,
-        authRoute,
-        shortcutMode,
-      } = parseRouteTarget();
+      const { isAdminRoute, shopTarget, dashboardTarget, authRoute, shortcutMode } =
+        parseRouteTarget();
       const isSpecialRoute = Boolean(isAdminRoute || shopTarget);
 
       if (user && isUserActivated(user)) {
-        const existingSavedUser = getGhazaloUser();
-        const syncedUser: GhazaloUserSession = existingSavedUser?.uid === user.uid
-          ? existingSavedUser
-          : {
-              uid: user.uid,
-              name:
-                user.displayName ||
-                (user.phoneNumber ? user.phoneNumber.replace(/^\+20/, '0') : '') ||
-                user.email?.split('@')[0] ||
-                'تاجر غزالو',
-              email: user.email && !isPhoneAuthEmail(user.email) ? user.email : '',
-              phone: user.phoneNumber || '',
-              photo: user.photoURL || '',
-              isGuest: false,
-              loginMethod: user.phoneNumber ? 'phone' : 'google',
-            };
-        setGhazaloUser(syncedUser);
-        setGhazaloUserState(syncedUser);
-
         try {
           const shops = await getOwnerShops(user.uid);
-          setOwnerFirestoreShops(shops);
           if (shops.length > 0) {
             const firstShop = shops[0];
             const firstSlug = firstShop.storeSlug || firstShop.id;
             setActiveShopId(firstShop.id);
             setActiveShop(firstShop);
             upsertLocalRestaurant(
-              shopToDemoRecord(firstShop, { email: syncedUser.email || '', phone: syncedUser.phone || '' })
+              shopToDemoRecord(firstShop, { email: user.email || '' })
             );
             setAuthSessionStorage(firstSlug, `fb-${user.uid}`);
             if (!isSpecialRoute && !authRoute) {
@@ -528,31 +536,29 @@ function AppShell({
               }
               if (pendingShortcutMode) setPendingShortcutMode(null);
             }
-          } else {
-            const storedSession = getStoredAuthSession();
-            const fallbackSlug = dashboardTarget || storedSession.lastStore || DEMO_STORES[0].slug;
-            setAuthSessionStorage(fallbackSlug, `fb-${user.uid}`);
-            const nextView =
-              !isSpecialRoute && !authRoute
-                ? shortcutMode === 'cashier' || pendingShortcutMode === 'cashier'
-                  ? 'cashier'
-                  : 'dashboard'
-                : undefined;
-            await hydrateStoreSession(fallbackSlug, null, nextView);
-            if (nextView === 'dashboard') {
-              replacePathSafely(`/dashboard/${fallbackSlug}`);
+          } else if (!isSpecialRoute) {
+            const isAdmin = Boolean(
+              user.emailVerified && user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+            );
+            if (isAdmin) {
+              setView('admin');
+              replacePathSafely('/admin');
+            } else if (authRoute || window.location.pathname === '/onboarding') {
+              const pending = loadPendingSignupMeta();
+              if (pending) {
+                setSignupMeta((prev) => (prev.contact ? prev : pending));
+              }
+              setView('onboarding');
+              replacePathSafely('/onboarding');
             }
           }
         } catch {
-          const fallbackSlug = dashboardTarget || getStoredAuthSession().lastStore || DEMO_STORES[0].slug;
-          await hydrateStoreSession(fallbackSlug, null, !isSpecialRoute && !authRoute ? 'dashboard' : undefined);
+          // handled gracefully
         }
       } else {
-        const savedUser = getGhazaloUser();
         const storedSession = getStoredAuthSession();
-        const targetSlug = dashboardTarget || storedSession.lastStore || DEMO_STORES[0].slug;
-        if (storedSession.token || savedUser) {
-          if (savedUser) setGhazaloUserState(savedUser);
+        const targetSlug = dashboardTarget || storedSession.lastStore;
+        if (storedSession.token && targetSlug) {
           const modeTarget = shortcutMode || pendingShortcutMode;
           const nextView =
             !isSpecialRoute && !authRoute
@@ -565,25 +571,21 @@ function AppShell({
             const rec = findLocalRestaurantBySlugOrShopId(targetSlug);
             replacePathSafely(`/dashboard/${rec?.storeSlug || targetSlug}`);
           } else if (!hydrated) {
-            await hydrateStoreSession(DEMO_STORES[0].slug, null, nextView);
+            setActiveShopId(null);
+            setActiveShop(null);
           }
         } else {
-          setOwnerFirestoreShops([]);
           setActiveShopId(null);
           setActiveShop(null);
           setShopProducts([]);
           setShopOrders([]);
           setShopTables([]);
-          if (!isSpecialRoute && !authRoute && !showLandingOverride) {
-            setAuthMode('login');
-            setView('login');
-          }
         }
       }
       setAuthReady(true);
     });
     return () => unsub();
-  }, [hydrateStoreSession, pendingShortcutMode, showLandingOverride]);
+  }, [hydrateStoreSession, pendingShortcutMode]);
 
   // Real-time Firestore subscriptions for Merchant's Active Shop (when authenticated with Firebase)
   useEffect(() => {
@@ -639,16 +641,14 @@ function AppShell({
       replacePathSafely(`/dashboard/${firstSlug}`);
       setView('dashboard');
     } else {
+      replacePathSafely('/onboarding');
       setView('onboarding');
     }
   };
 
-  // On logout: remove "token" + "ghazalo_user", keep "lastStore"
+  // On logout: remove ONLY "token", keep "lastStore" so login input stays pre-filled
   const handleLogout = async () => {
     clearAuthTokenKeepLastStore();
-    setGhazaloUserState(null);
-    setOwnerFirestoreShops([]);
-    setShowLandingOverride(false);
     if (auth.currentUser) {
       try {
         await signOut(auth);
@@ -662,7 +662,7 @@ function AppShell({
     setShopOrders([]);
     setShopTables([]);
     setAuthMode('login');
-    replacePathSafely('/');
+    replacePathSafely('/login');
     setView('login');
   };
 
@@ -672,8 +672,7 @@ function AppShell({
   );
 
   const hasMerchantSession = Boolean(
-    ghazaloUser ||
-      (currentUser && isUserActivated(currentUser)) ||
+    (currentUser && isUserActivated(currentUser)) ||
       (getStoredAuthSession().token && activeShop)
   );
 
@@ -689,7 +688,6 @@ function AppShell({
         isAuthenticated={hasMerchantSession}
         isAdminUser={isAdminUser}
         onNavigateAuth={(mode) => {
-          setShowLandingOverride(false);
           setAuthMode(mode);
           pushPathSafely(`/${mode}`);
           setView(mode);
@@ -703,23 +701,22 @@ function AppShell({
               setActiveShop(shops[0]);
               replacePathSafely(`/dashboard/${slug}`);
               setView('dashboard');
+            } else if (isAdminUser) {
+              replacePathSafely('/admin');
+              setView('admin');
             } else {
-              const fallback = DEMO_STORES[0].slug;
-              await hydrateStoreSession(fallback, null, 'dashboard');
-              replacePathSafely(`/dashboard/${fallback}`);
+              replacePathSafely('/onboarding');
+              setView('onboarding');
             }
           } else if (activeShop) {
             replacePathSafely(`/dashboard/${activeShop.storeSlug || activeShop.id}`);
             setView('dashboard');
-          } else if (ghazaloUser) {
-            const fallback = DEMO_STORES[0].slug;
-            await hydrateStoreSession(fallback, null, 'dashboard');
-            replacePathSafely(`/dashboard/${fallback}`);
           } else if (isAdminUser) {
             replacePathSafely('/admin');
             setView('admin');
           } else {
-            setView('login');
+            replacePathSafely('/onboarding');
+            setView('onboarding');
           }
         }}
         onOpenAdminPanel={() => {
@@ -739,13 +736,9 @@ function AppShell({
           pushPathSafely(`/menu/${storeSlug}`);
           setView('storefront');
         }}
-        onStoreLoginSuccess={({ storeSlug, shopId, record, userSession }) => {
-          if (userSession) {
-            setGhazaloUser(userSession);
-            setGhazaloUserState(userSession);
-          }
-          setShowLandingOverride(false);
-          const finalSlug = record?.storeSlug || storeSlug || shopId || DEMO_STORES[0].slug;
+        onAuthComplete={(meta) => void handleAuthComplete(meta)}
+        onStoreLoginSuccess={({ storeSlug, shopId, record }) => {
+          const finalSlug = record?.storeSlug || storeSlug || shopId;
           replacePathSafely(`/dashboard/${finalSlug}`);
           void hydrateStoreSession(finalSlug, record, 'dashboard');
         }}
@@ -758,30 +751,12 @@ function AppShell({
       <AuthPage
         initialMode={authMode}
         onBack={() => {
-          setShowLandingOverride(true);
           replacePathSafely('/');
           setView('landing');
         }}
         onAuthComplete={(meta) => void handleAuthComplete(meta)}
-        onSocialLoginSuccess={({ userSession }) => {
-          setGhazaloUser(userSession);
-          setGhazaloUserState(userSession);
-          setShowLandingOverride(false);
-          setStoresVersion((v) => v + 1);
-          const visible = getVisibleStoresForUser(userSession, ownerFirestoreShops);
-          const firstRec = visible[0]?.record;
-          const targetSlug = firstRec?.storeSlug || DEMO_STORES[0].slug;
-          replacePathSafely(`/dashboard/${targetSlug}`);
-          void hydrateStoreSession(targetSlug, firstRec || null, 'dashboard');
-        }}
-        onStoreLoginSuccess={({ storeSlug, shopId, record, userSession }) => {
-          if (userSession) {
-            setGhazaloUser(userSession);
-            setGhazaloUserState(userSession);
-          }
-          setShowLandingOverride(false);
-          setStoresVersion((v) => v + 1);
-          const finalSlug = record?.storeSlug || storeSlug || shopId || DEMO_STORES[0].slug;
+        onStoreLoginSuccess={({ storeSlug, shopId, record }) => {
+          const finalSlug = record?.storeSlug || storeSlug || shopId;
           replacePathSafely(`/dashboard/${finalSlug}`);
           void hydrateStoreSession(finalSlug, record, 'dashboard');
         }}
@@ -794,11 +769,7 @@ function AppShell({
       <OnboardingPage
         ownerId={currentUser.uid}
         ownerName={signupMeta.fullName || currentUser.displayName || 'تاجر'}
-        ownerEmail={
-          currentUser.email && !isPhoneAuthEmail(currentUser.email)
-            ? currentUser.email
-            : ''
-        }
+        ownerEmail={currentUser.email || ''}
         initialBusinessName={signupMeta.businessName}
         initialStoreSlug={signupMeta.storeSlug}
         initialContact={signupMeta.contact}
@@ -808,10 +779,14 @@ function AppShell({
           replacePathSafely('/');
           setView('landing');
         }}
-        onCompleted={(newShop) => {
+        onCompleted={(newShop, createdProducts) => {
+          clearPendingSignupMeta();
           const slug = newShop.storeSlug || newShop.id;
+          const initialProducts = createdProducts || [];
           setActiveShopId(newShop.id);
           setActiveShop(newShop);
+          setShopProducts(initialProducts);
+          void syncPublicStoreSnapshot(newShop, initialProducts);
           replacePathSafely(`/dashboard/${slug}`);
           setView('dashboard');
         }}
@@ -848,6 +823,7 @@ function AppShell({
           products={resolvedPublic.products}
           initialTableLabel={qrTableLabel}
           isFallbackMenu={isFallbackMenu}
+          isLoading={isPublicMenuLoading}
           onCreateFreeStore={() => {
             setQrTargetShopId(null);
             setIsFallbackMenu(false);
@@ -930,10 +906,11 @@ function AppShell({
         onPreviewShop={(shopItem) => {
           const targetSlug = shopItem.storeSlug || shopItem.id;
           setDemoPreview(null);
-          setQrTargetShopId(targetSlug);
+          setQrTargetShopId(null);
           setQrTableLabel('');
-          pushPathSafely(`/menu/${targetSlug}`);
-          setView('storefront');
+          navigate(`/menu/${targetSlug}`, {
+            state: { shop: shopItem },
+          });
         }}
       />
     );
@@ -956,35 +933,35 @@ function AppShell({
       return (
         <div
           dir={isEn ? 'ltr' : 'rtl'}
-          className="min-h-screen bg-orange-50/30 dark:bg-slate-950 flex items-center justify-center p-4"
+          className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] text-[#14201A] dark:text-[#E8F2EB] flex items-center justify-center p-4"
         >
-          <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-200 dark:border-amber-800 shadow-sm space-y-5 relative">
+          <div className="max-w-[520px] w-full sf-card p-6 sm:p-7 space-y-5 relative">
             <button
               type="button"
               onClick={toggleLang}
               className={`absolute top-4 ${
                 isEn ? 'right-4' : 'left-4'
-              } px-2.5 py-1 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold inline-flex items-center gap-1`}
+              } px-3 py-1.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] border border-[#86EFAC] dark:border-[#2C3D32] text-xs font-extrabold inline-flex items-center gap-1`}
             >
               <Globe className="w-3.5 h-3.5" />
               <span>{isEn ? 'عربي' : 'EN'}</span>
             </button>
-            <div className="text-center space-y-3">
-              <div className="w-16 h-16 rounded-3xl bg-orange-100 dark:bg-amber-950/60 text-[#FF6A00] dark:text-amber-300 mx-auto flex items-center justify-center">
+            <div className="text-center space-y-3 pt-2">
+              <div className="w-16 h-16 rounded-[20px] bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] border border-[#86EFAC] dark:border-[#2C3D32] mx-auto flex items-center justify-center">
                 <Lock className="w-8 h-8" />
               </div>
 
               <div className="space-y-1.5">
-                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white leading-snug">
+                <h1 className="text-xl sm:text-2xl font-black text-[#14201A] dark:text-[#E8F2EB] leading-snug">
                   {tx(
                     isEn,
-                    'المنيو متوقف مؤقتاً، انتهت الفترة المجانية، فعل اشتراكك لتشغيل المنيو',
-                    'Menu temporarily paused — your free trial ended. Activate a plan to resume.'
+                    'انتهت الفترة المجانية، لتفعيل المنيو تواصل مع إدارة غزالو',
+                    'Free trial ended — contact Ghazalo team to activate your menu'
                   )}
                 </h1>
-                <p className="text-sm font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
+                <p className="text-sm font-bold text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed">
                   {tx(isEn, 'تم إيقاف متجر ', 'Store ')}
-                  <span className="text-[#FF6A00] dark:text-orange-400">"{expiredShopName}"</span>{' '}
+                  <span className="text-[#15803D] dark:text-[#BBF7D0] font-black">"{expiredShopName}"</span>{' '}
                   {tx(
                     isEn,
                     'لحين التفعيل من الإدارة. جميع أصنافك وبياناتك محفوظة بأمان.',
@@ -995,21 +972,21 @@ function AppShell({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="p-4 rounded-2xl border border-orange-200 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800/70 space-y-1">
-                <div className="font-extrabold text-sm text-slate-900 dark:text-white">
+              <div className="p-4 rounded-[18px] border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#173323] space-y-1">
+                <div className="font-extrabold text-sm text-[#14201A] dark:text-[#E8F2EB]">
                   {tx(isEn, 'الباقة الشهرية (30 يوم)', 'Monthly Plan (30 days)')}
                 </div>
-                <div className="text-xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                <div className="text-xl font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                   {SUBSCRIPTION_PRICING.MONTHLY_EGP} {tx(isEn, 'جنيه / شهري', 'EGP / month')}
                 </div>
               </div>
 
-              <div className="p-4 rounded-2xl border-2 border-[#FF6A00] bg-orange-50 dark:bg-orange-950/40 space-y-1">
+              <div className="p-4 rounded-[18px] border-2 border-[#15803D] bg-[#DCFCE7] dark:bg-[#173323] space-y-1">
                 <div className="flex items-center justify-between gap-1">
-                  <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                  <span className="font-extrabold text-sm text-[#14201A] dark:text-[#E8F2EB]">
                     {tx(isEn, 'الباقة السنوية (365 يوم)', 'Yearly Plan (365 days)')}
                   </span>
-                  <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">
+                  <span className="px-2 py-0.5 rounded-full bg-[#FACC15] text-[#14201A] text-[11px] font-black">
                     {tx(
                       isEn,
                       `وفّر ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه`,
@@ -1017,18 +994,18 @@ function AppShell({
                     )}
                   </span>
                 </div>
-                <div className="text-xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                <div className="text-xl font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                   {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / year')}
                 </div>
               </div>
             </div>
 
-            <div className="space-y-2.5 pt-1 border-t border-orange-100 dark:border-slate-800">
+            <div className="space-y-2.5 pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32]">
               <a
                 href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${waText}`}
                 target="_blank"
                 rel="noreferrer"
-                className="w-full py-3.5 px-4 rounded-full bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+                className="sf-btn-primary w-full text-sm"
               >
                 <MessageCircle className="w-4 h-4" />
                 <span>
@@ -1038,7 +1015,7 @@ function AppShell({
 
               <a
                 href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${mailSubject}`}
-                className="w-full py-3.5 px-4 rounded-full bg-orange-50 dark:bg-slate-800 hover:bg-orange-100 dark:hover:bg-slate-700 text-[#FF6A00] dark:text-orange-200 border border-orange-200 dark:border-slate-700 font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+                className="sf-btn-mint w-full text-sm"
               >
                 <Mail className="w-4 h-4" />
                 <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>
@@ -1063,7 +1040,7 @@ function AppShell({
                       }
                     }
                   }}
-                  className="py-3 rounded-full glass-btn text-[#FF6A00] dark:text-orange-200 font-bold text-xs flex items-center justify-center gap-1.5"
+                  className="sf-btn text-xs text-[#15803D] dark:text-[#BBF7D0]"
                 >
                   <RefreshCw className="w-4 h-4" />
                   {tx(isEn, 'تحديث الحالة', 'Refresh Status')}
@@ -1072,7 +1049,7 @@ function AppShell({
                 <button
                   type="button"
                   onClick={() => void handleLogout()}
-                  className="py-3 rounded-full glass-btn text-slate-600 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5"
+                  className="sf-btn text-xs text-[#4B5B52] dark:text-[#A3B5AA]"
                 >
                   <LogOut className="w-4 h-4" />
                   {tx(isEn, 'تسجيل الخروج', 'Log Out')}
@@ -1171,55 +1148,30 @@ function AppShell({
           setDemoPreview(null);
           setQrTargetShopId(null);
           setQrTableLabel(tbl || '');
-          pushPathSafely(`/menu/${slug}${tbl ? `?table=${encodeURIComponent(tbl)}` : ''}`);
-          setView('storefront');
+          void syncPublicStoreSnapshot(activeShop, shopProducts);
+          navigate(`/menu/${slug}${tbl ? `?table=${encodeURIComponent(tbl)}` : ''}`, {
+            state: { shop: activeShop, products: shopProducts },
+          });
         }}
       />
     );
   }
 
   if (activeShop && hasMerchantSession) {
-    const visibleStores =
-      storesVersion >= 0
-        ? getVisibleStoresForUser(ghazaloUser, ownerFirestoreShops)
-        : [];
     return (
       <DashboardPage
         shop={activeShop}
         products={shopProducts}
         orders={shopOrders}
         userName={
-          ghazaloUser?.name ||
-          currentUser?.displayName ||
-          signupMeta.fullName ||
-          activeShop.nameAr ||
-          'تاجر Ghazalo'
+          currentUser?.displayName || signupMeta.fullName || activeShop.nameAr || 'تاجر Ghazalo'
         }
         userEmail={
-          ghazaloUser?.email ||
-          ghazaloUser?.phone ||
-          formatAuthContactLabel(currentUser?.email) ||
+          currentUser?.email ||
           signupMeta.contact ||
           activeShop.whatsapp ||
           ''
         }
-        ghazaloUser={ghazaloUser}
-        availableStores={visibleStores}
-        onSelectStore={(record) => {
-          const slug = record.storeSlug || record.shopId;
-          setAuthSessionStorage(slug, getStoredAuthSession().token || `ghz-${Date.now()}`);
-          replacePathSafely(`/dashboard/${slug}`);
-          void hydrateStoreSession(slug, record, 'dashboard');
-        }}
-        onCreateNewStore={(restaurantName) => {
-          const created = createStoreForCurrentUser(
-            { restaurantName, phone: ghazaloUser?.phone },
-            ghazaloUser
-          );
-          setStoresVersion((v) => v + 1);
-          replacePathSafely(`/dashboard/${created.storeSlug}`);
-          void hydrateStoreSession(created.storeSlug, created, 'dashboard');
-        }}
         isAdminUser={isAdminUser}
         forceZeroFeesGlobally={forceZeroFeesGlobally}
         darkMode={darkMode}
@@ -1231,8 +1183,10 @@ function AppShell({
           setDemoPreview(null);
           setQrTargetShopId(null);
           setQrTableLabel('');
-          pushPathSafely(`/menu/${slug}`);
-          setView('storefront');
+          void syncPublicStoreSnapshot(activeShop, shopProducts);
+          navigate(`/menu/${slug}`, {
+            state: { shop: activeShop, products: shopProducts },
+          });
         }}
         onOpenCashier={() => setView('cashier')}
         onOpenOrders={() => setView('orders')}
@@ -1246,50 +1200,12 @@ function AppShell({
     );
   }
 
-  // Fallback when unauthenticated on "/": render Login screen unless user clicked "استعراض الموقع الرئيسي"
-  if (!showLandingOverride) {
-    return (
-      <AuthPage
-        initialMode={authMode}
-        onBack={() => {
-          setShowLandingOverride(true);
-          replacePathSafely('/');
-          setView('landing');
-        }}
-        onAuthComplete={(meta) => void handleAuthComplete(meta)}
-        onSocialLoginSuccess={({ userSession }) => {
-          setGhazaloUser(userSession);
-          setGhazaloUserState(userSession);
-          setShowLandingOverride(false);
-          setStoresVersion((v) => v + 1);
-          const visible = getVisibleStoresForUser(userSession, ownerFirestoreShops);
-          const firstRec = visible[0]?.record;
-          const targetSlug = firstRec?.storeSlug || DEMO_STORES[0].slug;
-          replacePathSafely(`/dashboard/${targetSlug}`);
-          void hydrateStoreSession(targetSlug, firstRec || null, 'dashboard');
-        }}
-        onStoreLoginSuccess={({ storeSlug, shopId, record, userSession }) => {
-          if (userSession) {
-            setGhazaloUser(userSession);
-            setGhazaloUserState(userSession);
-          }
-          setShowLandingOverride(false);
-          setStoresVersion((v) => v + 1);
-          const finalSlug = record?.storeSlug || storeSlug || shopId || DEMO_STORES[0].slug;
-          replacePathSafely(`/dashboard/${finalSlug}`);
-          void hydrateStoreSession(finalSlug, record, 'dashboard');
-        }}
-      />
-    );
-  }
-
   return (
     <LandingPage
       darkMode={darkMode}
       onToggleDarkMode={() => setDarkMode((d) => !d)}
       isAuthenticated={false}
       onNavigateAuth={(mode) => {
-        setShowLandingOverride(false);
         setAuthMode(mode);
         pushPathSafely(`/${mode}`);
         setView(mode);
@@ -1308,13 +1224,9 @@ function AppShell({
         pushPathSafely(`/menu/${storeSlug}`);
         setView('storefront');
       }}
-      onStoreLoginSuccess={({ storeSlug, shopId, record, userSession }) => {
-        if (userSession) {
-          setGhazaloUser(userSession);
-          setGhazaloUserState(userSession);
-        }
-        setShowLandingOverride(false);
-        const finalSlug = record?.storeSlug || storeSlug || shopId || DEMO_STORES[0].slug;
+      onAuthComplete={(meta) => void handleAuthComplete(meta)}
+      onStoreLoginSuccess={({ storeSlug, shopId, record }) => {
+        const finalSlug = record?.storeSlug || storeSlug || shopId;
         replacePathSafely(`/dashboard/${finalSlug}`);
         void hydrateStoreSession(finalSlug, record, 'dashboard');
       }}
@@ -1383,6 +1295,7 @@ function AppRouter() {
       <Route path="/" element={appShellNode} />
       <Route path="/login" element={appShellNode} />
       <Route path="/signup" element={appShellNode} />
+      <Route path="/onboarding" element={appShellNode} />
       <Route path="/admin/*" element={appShellNode} />
       <Route path="/dashboard/*" element={appShellNode} />
       <Route path="/menu/:slug" element={menuPageNode} />

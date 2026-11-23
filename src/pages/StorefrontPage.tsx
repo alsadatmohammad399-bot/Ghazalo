@@ -63,6 +63,7 @@ interface StorefrontPageProps {
   products: Product[];
   isDemo?: boolean;
   isFallbackMenu?: boolean;
+  isLoading?: boolean;
   onCreateFreeStore?: () => void;
   forceZeroFeesGlobally?: boolean;
   initialTableLabel?: string;
@@ -86,6 +87,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   products,
   isDemo = false,
   isFallbackMenu = false,
+  isLoading = false,
   onCreateFreeStore,
   forceZeroFeesGlobally = false,
   initialTableLabel = '',
@@ -99,6 +101,19 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const displayShopName = getShopDisplayName(shop, isEn);
   const resolvedBackLabel = backLabel || tx(isEn, 'العودة', 'Back');
   const themeHex = getShopThemeHex(shop.themeColor);
+  const [localDarkOverride, setLocalDarkOverride] = useState<boolean | null>(null);
+  const effectiveDark =
+    localDarkOverride !== null
+      ? localDarkOverride
+      : shop.themeMode === 'dark'
+        ? true
+        : shop.themeMode === 'light'
+          ? darkMode
+          : darkMode;
+  const handleToggleMenuTheme = () => {
+    setLocalDarkOverride(!effectiveDark);
+    onToggleDarkMode();
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORIES_KEY);
@@ -327,14 +342,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               e.stopPropagation();
               openProductDetail(product, idx);
             }}
-            className="px-2 py-0.5 rounded-lg bg-orange-50/90 dark:bg-orange-950/60 hover:bg-orange-100 dark:hover:bg-orange-900/70 border border-orange-200/80 dark:border-orange-800 text-[10px] font-extrabold text-[#FF6A00] dark:text-orange-300 tabular-nums transition-colors"
+            className="px-2 py-0.5 rounded-lg bg-[#FFFFFF] dark:bg-[#18231C] hover:bg-[#DCFCE7] dark:hover:bg-[#173323] border border-[#CFE3D5] dark:border-[#2C3D32] text-[10px] font-extrabold text-[#15803D] dark:text-[#BBF7D0] tabular-nums transition-colors"
           >
             {opt.label}
             {opt.hasExplicitPrice ? ` · ${formatMoney(opt.price, shop.country, 0, isEn)}` : ''}
           </button>
         ))}
         {options.length > 4 && (
-          <span className="px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+          <span className="px-1.5 py-0.5 text-[10px] font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
             +{options.length - 4}
           </span>
         )}
@@ -432,6 +447,17 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     e.preventDefault();
     setCheckoutError('');
 
+    if (!isDemo && !getShopAccessState(shop).isActive) {
+      setCheckoutError(
+        tx(
+          isEn,
+          'انتهت الفترة المجانية، لتفعيل المنيو تواصل مع إدارة غزالو',
+          'Free trial ended — contact Ghazalo team to activate this menu.'
+        )
+      );
+      return;
+    }
+
     if (!customerName.trim() || !customerPhone.trim()) {
       setCheckoutError(tx(isEn, 'يرجى إدخال الاسم ورقم الهاتف.', 'Please enter your name and phone number.'));
       return;
@@ -517,6 +543,50 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
   const shopAccess = useMemo(() => getShopAccessState(shop), [shop]);
 
+  const maxWidthClass =
+    templateId === 'modern' || templateId === 'compact'
+      ? 'max-w-5xl mx-auto px-4'
+      : templateId === 'minimal'
+        ? 'max-w-2xl mx-auto px-4'
+        : 'max-w-3xl mx-auto px-4';
+
+  if (isLoading) {
+    return (
+      <div
+        dir={isEn ? 'ltr' : 'rtl'}
+        className={`${effectiveDark ? 'dark ' : ''}min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] text-[#14201A] dark:text-[#E8F2EB]`}
+      >
+        <div className="sticky top-0 z-30 bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 border-b border-[#CFE3D5] dark:border-[#2C3D32] px-4 h-14 flex items-center justify-between">
+          <div className="h-5 w-36 rounded-lg bg-[#DCFCE7] dark:bg-[#173323] animate-pulse" />
+          <div className="h-8 w-24 rounded-full bg-[#DCFCE7] dark:bg-[#173323] animate-pulse" />
+        </div>
+        <div className={`${maxWidthClass} pt-5 space-y-4`}>
+          <div className="h-44 rounded-[24px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] p-5 flex items-end">
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] animate-pulse" />
+              <div className="space-y-2">
+                <div className="h-5 w-44 rounded-lg bg-[#DCFCE7] dark:bg-[#173323] animate-pulse" />
+                <div className="h-3.5 w-32 rounded-lg bg-[#F6FBF7] dark:bg-[#173323]/60 animate-pulse" />
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="rounded-[22px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] p-3 space-y-2.5"
+              >
+                <div className="h-24 rounded-2xl bg-[#DCFCE7]/70 dark:bg-[#173323] animate-pulse" />
+                <div className="h-4 w-3/4 rounded bg-[#DCFCE7] dark:bg-[#173323] animate-pulse" />
+                <div className="h-3.5 w-1/2 rounded bg-[#F6FBF7] dark:bg-[#173323]/60 animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!isDemo && !shopAccess.isActive) {
     const waText = encodeURIComponent(
       `مرحباً إدارة غزالة، أرغب في تفعيل ${
@@ -532,34 +602,41 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     return (
       <div
         dir={isEn ? 'ltr' : 'rtl'}
-        className="min-h-screen bg-orange-50/30 dark:bg-slate-950 flex items-center justify-center p-4"
+        className={`${effectiveDark ? 'dark ' : ''}min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] text-[#14201A] dark:text-[#E8F2EB] flex items-center justify-center p-4`}
       >
-        <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-200 dark:border-orange-900 text-center space-y-5 shadow-sm relative">
+        <div className="max-w-[520px] w-full sf-card p-6 sm:p-7 text-center space-y-5 relative">
           <button
             type="button"
             onClick={toggleLang}
             className={`absolute top-4 ${
               isEn ? 'right-4' : 'left-4'
-            } px-2.5 py-1 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold inline-flex items-center gap-1`}
+            } px-3 py-1.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] border border-[#86EFAC] dark:border-[#2C3D32] text-xs font-extrabold inline-flex items-center gap-1`}
           >
             <Globe className="w-3.5 h-3.5" />
             <span>{isEn ? 'عربي' : 'EN'}</span>
           </button>
-          <div className="w-16 h-16 rounded-3xl bg-orange-100 dark:bg-orange-950/60 text-[#FF6A00] dark:text-orange-300 mx-auto flex items-center justify-center">
+          <div className="w-16 h-16 rounded-[20px] bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] border border-[#86EFAC] dark:border-[#2C3D32] mx-auto flex items-center justify-center mt-2">
             <Lock className="w-8 h-8" />
           </div>
 
           <div className="space-y-1.5">
-            <div className="text-xs font-extrabold text-[#FF6A00] dark:text-orange-400">
+            <div className="text-xs font-black text-[#15803D] dark:text-[#BBF7D0]">
               {displayShopName}
             </div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white leading-snug">
+            <h1 className="text-xl sm:text-2xl font-black leading-snug">
               {tx(
                 isEn,
-                'المنيو متوقف مؤقتاً، انتهت الفترة المجانية، فعل اشتراكك لتشغيل المنيو',
-                'Menu temporarily paused — free trial ended. Activate a plan to resume.'
+                'انتهت الفترة المجانية، لتفعيل المنيو تواصل مع إدارة غزالو',
+                'Free trial ended — contact Ghazalo team to activate your menu'
               )}
             </h1>
+            <p className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(
+                isEn,
+                `موبايل وواتساب: ${SUPPORT_CONTACT.PHONE_DISPLAY} · الجيميل: ${SUPPORT_CONTACT.EMAIL}`,
+                `Phone & WhatsApp: ${SUPPORT_CONTACT.PHONE_DISPLAY} · Gmail: ${SUPPORT_CONTACT.EMAIL}`
+              )}
+            </p>
           </div>
 
           <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${isEn ? 'text-left' : 'text-right'}`}>
@@ -567,29 +644,29 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               type="button"
               onClick={() => setSelectedPlan('monthly')}
               aria-pressed={selectedPlan === 'monthly'}
-              className={`p-4 rounded-2xl space-y-1 text-start transition-all cursor-pointer ${
+              className={`p-4 rounded-[18px] space-y-1 text-start transition-all cursor-pointer ${
                 selectedPlan === 'monthly'
-                  ? 'border-2 border-[#FF6A00] bg-orange-50 dark:bg-orange-950/40 shadow-sm'
-                  : 'border border-orange-200 dark:border-slate-700 bg-orange-50/30 dark:bg-slate-800/70 hover:border-[#FF6A00]/60'
+                  ? 'border-2 border-[#15803D] bg-[#DCFCE7] dark:bg-[#173323] shadow-sm'
+                  : 'border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#18231C] hover:border-[#15803D]'
               }`}
             >
               <div className="flex items-center justify-between gap-1">
                 <span
-                  className={`text-xs font-bold ${
+                  className={`text-xs font-extrabold ${
                     selectedPlan === 'monthly'
-                      ? 'text-orange-900 dark:text-orange-300'
-                      : 'text-slate-500 dark:text-slate-400'
+                      ? 'text-[#14532D] dark:text-[#BBF7D0]'
+                      : 'text-[#4B5B52] dark:text-[#A3B5AA]'
                   }`}
                 >
                   {tx(isEn, 'اشتراك شهري (30 يوم)', 'Monthly Plan (30 days)')}
                 </span>
                 {selectedPlan === 'monthly' && (
-                  <span className="w-5 h-5 rounded-full bg-[#FF6A00] text-white inline-flex items-center justify-center shrink-0">
+                  <span className="w-5 h-5 rounded-full bg-[#15803D] text-white inline-flex items-center justify-center shrink-0">
                     <Check className="w-3 h-3" />
                   </span>
                 )}
               </div>
-              <div className="text-lg font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+              <div className="text-lg font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                 {SUBSCRIPTION_PRICING.MONTHLY_EGP} {tx(isEn, 'جنيه / شهري', 'EGP / month')}
               </div>
             </button>
@@ -598,24 +675,24 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               type="button"
               onClick={() => setSelectedPlan('yearly')}
               aria-pressed={selectedPlan === 'yearly'}
-              className={`p-4 rounded-2xl space-y-1 text-start transition-all cursor-pointer ${
+              className={`p-4 rounded-[18px] space-y-1 text-start transition-all cursor-pointer ${
                 selectedPlan === 'yearly'
-                  ? 'border-2 border-[#FF6A00] bg-orange-50 dark:bg-orange-950/40 shadow-sm'
-                  : 'border border-orange-200 dark:border-slate-700 bg-orange-50/30 dark:bg-slate-800/70 hover:border-[#FF6A00]/60'
+                  ? 'border-2 border-[#15803D] bg-[#DCFCE7] dark:bg-[#173323] shadow-sm'
+                  : 'border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#18231C] hover:border-[#15803D]'
               }`}
             >
               <div className="flex items-center justify-between gap-1">
                 <span
-                  className={`text-xs font-bold ${
+                  className={`text-xs font-extrabold ${
                     selectedPlan === 'yearly'
-                      ? 'text-orange-900 dark:text-orange-300'
-                      : 'text-slate-500 dark:text-slate-400'
+                      ? 'text-[#14532D] dark:text-[#BBF7D0]'
+                      : 'text-[#4B5B52] dark:text-[#A3B5AA]'
                   }`}
                 >
                   {tx(isEn, 'اشتراك سنوي (365 يوم)', 'Yearly Plan (365 days)')}
                 </span>
                 <div className="flex items-center gap-1">
-                  <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">
+                  <span className="px-2 py-0.5 rounded-full bg-[#FACC15] text-[#14201A] text-[11px] font-black">
                     {tx(
                       isEn,
                       `وفّر ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه`,
@@ -623,13 +700,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     )}
                   </span>
                   {selectedPlan === 'yearly' && (
-                    <span className="w-5 h-5 rounded-full bg-[#FF6A00] text-white inline-flex items-center justify-center shrink-0">
+                    <span className="w-5 h-5 rounded-full bg-[#15803D] text-white inline-flex items-center justify-center shrink-0">
                       <Check className="w-3 h-3" />
                     </span>
                   )}
                 </div>
               </div>
-              <div className="text-lg font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+              <div className="text-lg font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                 {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / year')}
               </div>
             </button>
@@ -640,7 +717,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${waText}`}
               target="_blank"
               rel="noreferrer"
-              className="w-full py-3.5 px-4 rounded-full bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm"
+              className="sf-btn-primary w-full text-sm"
             >
               <MessageCircle className="w-4 h-4" />
               <span>
@@ -650,7 +727,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
             <a
               href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${mailSubject}`}
-              className="w-full py-3.5 px-4 rounded-full bg-orange-50 dark:bg-slate-800 hover:bg-orange-100 dark:hover:bg-slate-700 text-orange-900 dark:text-orange-200 border border-orange-200 dark:border-slate-700 font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
+              className="sf-btn-mint w-full text-sm"
             >
               <Mail className="w-4 h-4" />
               <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>
@@ -661,7 +738,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             <button
               type="button"
               onClick={onBack}
-              className="px-6 py-2.5 rounded-full glass-btn text-slate-700 dark:text-slate-200 font-bold text-xs"
+              className="sf-btn text-xs px-6"
             >
               {resolvedBackLabel}
             </button>
@@ -675,28 +752,28 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     return (
       <div
         dir={isEn ? 'ltr' : 'rtl'}
-        className="min-h-screen bg-orange-50/30 dark:bg-slate-950 p-4 sm:p-6"
+        className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] text-[#14201A] dark:text-[#E8F2EB] p-4 sm:p-6"
       >
-        <div className="max-w-2xl mx-auto space-y-5">
-          <div className="flex items-center justify-between bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800">
+        <div className="max-w-[560px] mx-auto space-y-4">
+          <div className="flex items-center justify-between sf-card p-3.5">
             <button
               type="button"
               onClick={() => setOrdersPageOpen(false)}
-              className="inline-flex items-center gap-1.5 text-sm font-bold text-[#FF6A00] dark:text-orange-400"
+              className="inline-flex items-center gap-1.5 text-sm font-extrabold text-[#15803D] dark:text-[#BBF7D0]"
             >
               {isEn ? <ArrowLeft className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
               {tx(isEn, 'العودة للمنيو', 'Back to Menu')}
             </button>
-            <h1 className="text-lg font-extrabold">{tx(isEn, 'طلباتي', 'My Orders')}</h1>
+            <h1 className="text-base font-black">{tx(isEn, 'طلباتي', 'My Orders')}</h1>
             <div className="w-16" />
           </div>
 
           {customerOrders.length === 0 ? (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 border border-orange-100 dark:border-slate-800 text-center space-y-4">
-              <div className="w-16 h-16 rounded-3xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] mx-auto flex items-center justify-center">
+            <div className="sf-card p-10 text-center space-y-4">
+              <div className="w-16 h-16 rounded-[20px] bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] mx-auto flex items-center justify-center">
                 <ClipboardList className="w-8 h-8" />
               </div>
-              <p className="text-base font-bold text-slate-700 dark:text-slate-200">
+              <p className="text-base font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
                 {tx(
                   isEn,
                   'لا توجد طلبات بعد. اطلب من المنيو لتظهر طلباتك هنا',
@@ -706,7 +783,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               <button
                 type="button"
                 onClick={() => setOrdersPageOpen(false)}
-                className="px-6 py-3 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
+                className="sf-btn-primary text-sm px-6"
               >
                 {tx(isEn, 'تصفح المنيو', 'Browse Menu')}
               </button>
@@ -716,13 +793,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               {customerOrders.map((ord) => (
                 <div
                   key={ord.id}
-                  className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 space-y-3"
+                  className="sf-card p-4 space-y-2.5"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-extrabold text-base tabular-nums">
+                    <span className="font-black text-base tabular-nums">
                       {tx(isEn, `طلب #${ord.orderNumber}`, `Order #${ord.orderNumber}`)}
                     </span>
-                    <span className="px-3 py-1 rounded-xl bg-orange-50 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold">
+                    <span className="px-3 py-1 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] text-xs font-extrabold">
                       {ord.status === 'new'
                         ? tx(isEn, 'جديد', 'New')
                         : ord.status === 'preparing'
@@ -732,12 +809,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             : tx(isEn, 'مكتمل', 'Completed')}
                     </span>
                   </div>
-                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
                     {ord.itemSummary?.join(' • ')}
                   </div>
-                  <div className="flex items-center justify-between pt-2 border-t border-orange-50 dark:border-slate-800 text-sm font-extrabold">
+                  <div className="flex items-center justify-between pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] text-sm font-black">
                     <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
-                    <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                    <span className="text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                       {formatMoney(ord.total, shop.country, undefined, isEn)}
                     </span>
                   </div>
@@ -753,12 +830,16 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   return (
     <div
       dir={isEn ? 'ltr' : 'rtl'}
-      className={`min-h-screen pb-28 transition-colors ${templateStyles.pageBackgroundClass}`}
+      className={`${effectiveDark ? 'dark ' : ''}min-h-screen pb-28 text-[#14201A] dark:text-[#E8F2EB] transition-colors ${
+        templateId === 'minimal'
+          ? 'bg-[#FFFFFF] dark:bg-[#0B120E]'
+          : templateStyles.pageBackgroundClass
+      }`}
     >
       {/* Generic Store Fallback Banner when opened via unknown slug */}
       {isFallbackMenu && (
-        <div className="bg-gradient-to-l from-[#FF6A00] to-orange-500 text-white px-4 py-2.5 shadow-xs">
-          <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-extrabold">
+        <div style={{ backgroundColor: themeHex }} className="text-white px-4 py-2.5 shadow-xs">
+          <div className={`${maxWidthClass} flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-extrabold`}>
             <span>
               {tx(
                 isEn,
@@ -770,7 +851,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               <button
                 type="button"
                 onClick={onCreateFreeStore}
-                className="px-4 py-1.5 rounded-full bg-white text-[#FF6A00] hover:bg-orange-50 text-xs font-extrabold shadow-xs transition-colors shrink-0"
+                className="px-4 py-1.5 rounded-full bg-[#FACC15] text-[#14201A] hover:bg-[#EAB308] text-xs font-black shadow-xs transition-colors whitespace-nowrap shrink-0"
               >
                 {tx(isEn, 'انشئ متجرك مجانا', 'Create your store free')}
               </button>
@@ -779,30 +860,47 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         </div>
       )}
 
-      {/* Top Floating Glass Bar */}
-      <div className="sticky top-0 z-30 bg-white/75 dark:bg-slate-900/75 backdrop-blur-xl border-b border-white/60 dark:border-slate-800 px-4 h-14 flex items-center justify-between shadow-xs">
+      {/* Top Sticky Menu Bar */}
+      <header
+        className={`sticky top-0 z-30 backdrop-blur-md border-b px-4 h-14 flex items-center justify-between transition-colors ${
+          templateId === 'modern'
+            ? 'bg-[#14201A]/95 text-white border-[#2C3D32]'
+            : templateId === 'minimal'
+              ? 'bg-[#FFFFFF]/95 dark:bg-[#0B120E]/95 border-[#CFE3D5]/70 dark:border-[#2C3D32]'
+              : 'bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 border-[#CFE3D5] dark:border-[#2C3D32] shadow-xs'
+        }`}
+      >
         <div className="flex items-center gap-2 min-w-0">
           {onBack && (
             <button
               type="button"
               onClick={onBack}
-              className="px-3 py-1.5 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 text-xs font-bold inline-flex items-center gap-1 shrink-0"
+              style={
+                templateId === 'modern'
+                  ? undefined
+                  : { color: effectiveDark ? '#BBF7D0' : themeHex }
+              }
+              className={`px-3 py-1.5 rounded-full text-xs font-extrabold inline-flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                templateId === 'modern'
+                  ? 'bg-white/10 hover:bg-white/20 text-white border border-white/15'
+                  : 'glass-btn'
+              }`}
             >
               {isEn ? <ArrowLeft className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
               {resolvedBackLabel}
             </button>
           )}
-          <span className="text-sm font-extrabold truncate max-w-[140px] sm:max-w-[200px]">
+          <span className="text-sm font-black truncate max-w-[150px] sm:max-w-[240px]">
             {displayShopName}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {offerProducts.length > 0 && (
             <button
               type="button"
               onClick={scrollToOffers}
-              className="px-2.5 sm:px-3 py-1.5 rounded-full glass-btn-amber text-xs font-extrabold inline-flex items-center gap-1"
+              className="px-2.5 sm:px-3 py-1.5 rounded-full bg-[#FACC15] text-[#14201A] text-xs font-black inline-flex items-center gap-1 whitespace-nowrap shrink-0"
             >
               <Tag className="w-3.5 h-3.5" />
               <span className="hidden xs:inline">{tx(isEn, 'العروض', 'Offers')}</span>
@@ -811,7 +909,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           <button
             type="button"
             onClick={toggleLang}
-            className="h-9 px-2.5 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 text-xs font-extrabold inline-flex items-center gap-1"
+            className={`h-9 px-2.5 rounded-full text-xs font-extrabold inline-flex items-center gap-1 whitespace-nowrap shrink-0 ${
+              templateId === 'modern'
+                ? 'bg-white/10 text-white border border-white/15'
+                : 'glass-btn text-[#15803D] dark:text-[#BBF7D0]'
+            }`}
             aria-label={tx(isEn, 'تغيير اللغة إلى الإنجليزية', 'Switch to Arabic')}
           >
             <Globe className="w-3.5 h-3.5" />
@@ -820,200 +922,295 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           <button
             type="button"
             onClick={() => setOrdersPageOpen(true)}
-            className="w-9 h-9 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+              templateId === 'modern'
+                ? 'bg-white/10 text-white border border-white/15'
+                : 'glass-btn text-[#15803D] dark:text-[#BBF7D0]'
+            }`}
             aria-label={tx(isEn, 'طلباتي', 'My Orders')}
           >
             <ClipboardList className="w-4 h-4" />
           </button>
           <button
             type="button"
-            onClick={onToggleDarkMode}
-            className="w-9 h-9 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+            onClick={handleToggleMenuTheme}
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+              templateId === 'modern'
+                ? 'bg-white/10 text-white border border-white/15'
+                : 'glass-btn text-[#15803D] dark:text-[#BBF7D0]'
+            }`}
             aria-label={tx(isEn, 'تغيير المظهر', 'Toggle theme')}
           >
-            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {effectiveDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
           <button
             type="button"
             onClick={() => setSideMenuOpen(true)}
-            className="w-9 h-9 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+              templateId === 'modern'
+                ? 'bg-white/10 text-white border border-white/15'
+                : 'glass-btn text-[#15803D] dark:text-[#BBF7D0]'
+            }`}
             aria-label={tx(isEn, 'القائمة', 'Menu')}
           >
             <Menu className="w-4 h-4" />
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Store Hero Header: Cover Background Behind Logo & Store Name */}
-      <div className={`${templateStyles.contentContainerClass} pt-4`}>
-        <div
-          className={`relative overflow-hidden border shadow-xs ${
-            shop.coverImage
-              ? 'rounded-3xl min-h-[180px] sm:min-h-[215px] flex flex-col justify-end border-orange-200/60 dark:border-slate-800'
-              : templateStyles.heroShellClass
-          }`}
-        >
-          {shop.coverImage ? (
-            <>
-              <img
-                src={shop.coverImage}
-                alt={shop.nameAr}
-                referrerPolicy="no-referrer"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/45 to-slate-950/15" />
-            </>
-          ) : (
-            <div
-              style={{ backgroundColor: `${themeHex}12` }}
-              className={`${
-                templateId === 'minimal' ? 'h-14 sm:h-16' : 'h-20 sm:h-24'
-              } w-full flex items-center justify-center border-b border-orange-100/70 dark:border-slate-800`}
-            >
-              <Utensils style={{ color: themeHex }} className="w-8 h-8 opacity-35" />
-            </div>
-          )}
-
-          {/* Store Identity + WhatsApp + Customer Delivery/Fees Badges */}
-          <div className="relative z-10 p-4 sm:p-6 space-y-3">
+      {/* Store Hero Header — Styled Uniquely Per Active Template */}
+      <div className={`${maxWidthClass} ${templateId === 'compact' ? 'pt-2.5' : 'pt-4'}`}>
+        {templateId === 'minimal' ? (
+          /* Minimal Template Hero: Quiet Architectural Header with Hairline Accent */
+          <div className="py-5 border-b border-[#CFE3D5] dark:border-[#2C3D32] space-y-3">
+            {shop.coverImage && (
+              <div className="relative h-32 sm:h-40 rounded-[18px] overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32]">
+                <img
+                  src={shop.coverImage}
+                  alt={displayShopName}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 {shop.logoUrl ? (
                   <img
                     src={shop.logoUrl}
-                    alt={shop.nameAr}
-                    className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 bg-white shadow-md shrink-0 ${
-                      shop.coverImage
-                        ? 'border-white'
-                        : 'border-orange-200 dark:border-slate-700'
-                    }`}
+                    alt={displayShopName}
+                    className="w-14 h-14 rounded-2xl object-cover border border-[#CFE3D5] dark:border-[#2C3D32] bg-white shrink-0"
                   />
                 ) : (
                   <ShopInitialAvatar name={shop.nameAr} themeHex={themeHex} size="md" />
                 )}
                 <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1
-                      className={`text-xl sm:text-2xl font-extrabold ${
-                        shop.coverImage
-                          ? 'text-white drop-shadow-xs'
-                          : 'text-slate-900 dark:text-white'
-                      }`}
-                    >
-                      {displayShopName}
-                    </h1>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-xl text-xs font-extrabold ${
-                        shop.isOpen
-                          ? shop.coverImage
-                            ? 'bg-[#FF6A00] text-white shadow-xs'
-                            : 'bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-300'
-                          : shop.coverImage
-                            ? 'bg-slate-900/80 text-slate-200'
-                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                      }`}
-                    >
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h1 className="text-2xl font-black tracking-tight">{displayShopName}</h1>
+                    <span className="text-xs font-extrabold" style={{ color: effectiveDark ? '#BBF7D0' : themeHex }}>
                       {shop.isOpen ? tx(isEn, 'مفتوح الآن', 'Open Now') : tx(isEn, 'مغلق الآن', 'Closed Now')}
                     </span>
                   </div>
-                  {(shop.city || shop.address || initialTableLabel) && (
-                    <p
-                      className={`text-xs font-semibold ${
-                        shop.coverImage
-                          ? 'text-slate-200'
-                          : 'text-slate-500 dark:text-slate-400'
-                      }`}
-                    >
-                      {[shop.city, shop.address, initialTableLabel].filter(Boolean).join(' · ')}
-                    </p>
-                  )}
+                  <p className="text-xs font-medium text-[#4B5B52] dark:text-[#A3B5AA]">
+                    {[
+                      shop.city,
+                      shop.address,
+                      initialTableLabel,
+                      shop.freeDelivery || Number(shop.deliveryFee || 0) === 0
+                        ? tx(isEn, 'التوصيل مجاني', 'Free Delivery')
+                        : `${tx(isEn, 'التوصيل', 'Delivery')} ${formatMoney(Number(shop.deliveryFee || 0), shop.country, 0, isEn)}`,
+                      shop.deliveryTime || tx(isEn, '30-45 دقيقة', '30-45 mins'),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
                 </div>
               </div>
-
               <a
                 href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full glass-btn-primary font-bold text-xs whitespace-nowrap shadow-sm"
+                style={{ borderColor: themeHex, color: effectiveDark ? '#BBF7D0' : themeHex }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full border-[1.5px] font-bold text-xs whitespace-nowrap shrink-0 hover:opacity-85 transition-opacity"
               >
                 <MessageCircle className="w-4 h-4" />
-                {tx(isEn, 'تواصل واتساب', 'WhatsApp Us')}
+                {tx(isEn, 'واتساب', 'WhatsApp')}
               </a>
             </div>
-
-            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs font-extrabold">
-              <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl tabular-nums ${
-                  shop.coverImage
-                    ? 'bg-white/15 text-white border border-white/20 backdrop-blur-sm'
-                    : 'bg-orange-50 dark:bg-slate-800 text-orange-900 dark:text-orange-200 border border-orange-200 dark:border-slate-700'
-                }`}
+          </div>
+        ) : (
+          <div
+            className={`relative overflow-hidden border shadow-xs ${
+              shop.coverImage
+                ? `rounded-[24px] ${
+                    templateId === 'modern'
+                      ? 'min-h-[210px] sm:min-h-[250px]'
+                      : templateId === 'compact'
+                        ? 'min-h-[140px]'
+                        : 'min-h-[180px] sm:min-h-[215px]'
+                  } flex flex-col justify-end border-[#CFE3D5] dark:border-[#2C3D32]`
+                : templateId === 'modern'
+                  ? 'rounded-[24px] bg-[#14201A] text-white border-[#2C3D32] shadow-md'
+                  : templateStyles.heroShellClass
+            }`}
+          >
+            {shop.coverImage ? (
+              <>
+                <img
+                  src={shop.coverImage}
+                  alt={shop.nameAr}
+                  referrerPolicy="no-referrer"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#14201A]/90 via-[#14201A]/45 to-[#14201A]/15" />
+              </>
+            ) : templateId === 'modern' ? (
+              <div
+                style={{
+                  background: `linear-gradient(125deg, ${themeHex}45 0%, #14201A 65%)`,
+                }}
+                className="h-16 sm:h-20 w-full flex items-center justify-between px-5 border-b border-white/10"
               >
-                <Truck className="w-3.5 h-3.5" />
-                {shop.freeDelivery || Number(shop.deliveryFee || 0) === 0
-                  ? tx(isEn, 'سعر التوصيل: مجاني', 'Delivery: Free')
-                  : `${tx(isEn, 'سعر التوصيل:', 'Delivery Fee:')} ${formatMoney(Number(shop.deliveryFee || 0), shop.country, 0, isEn)}`}
-              </span>
+                <span className="text-xs font-extrabold text-white/80">
+                  {tx(isEn, 'اطلب مباشرة بدون عمولة', 'Direct Commission-Free Ordering')}
+                </span>
+                <Utensils className="w-6 h-6 text-white/40" />
+              </div>
+            ) : (
+              <div
+                style={{ backgroundColor: `${themeHex}18` }}
+                className={`${
+                  templateId === 'compact' ? 'h-12' : 'h-20 sm:h-24'
+                } w-full flex items-center justify-center border-b border-[#CFE3D5]/70 dark:border-[#2C3D32]`}
+              >
+                <Utensils style={{ color: themeHex }} className={`${templateId === 'compact' ? 'w-5 h-5' : 'w-8 h-8'} opacity-50`} />
+              </div>
+            )}
 
-              {!shop.freeDelivery && Number(shop.freeDeliveryMinOrder || 0) > 0 && (
+            {/* Store Identity + WhatsApp + Customer Delivery/Fees Info */}
+            <div className={`relative z-10 ${templateId === 'compact' ? 'p-3 sm:p-4 space-y-2' : 'p-4 sm:p-5 space-y-3'}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  {shop.logoUrl ? (
+                    <img
+                      src={shop.logoUrl}
+                      alt={shop.nameAr}
+                      className={`${templateId === 'compact' ? 'w-12 h-12 rounded-[14px]' : 'w-14 h-14 sm:w-16 sm:h-16 rounded-[18px]'} object-cover border-2 bg-white shadow-md shrink-0 ${
+                        shop.coverImage || templateId === 'modern'
+                          ? 'border-white'
+                          : 'border-[#CFE3D5] dark:border-[#2C3D32]'
+                      }`}
+                    />
+                  ) : (
+                    <ShopInitialAvatar name={shop.nameAr} themeHex={themeHex} size="md" />
+                  )}
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h1
+                        className={`${templateId === 'modern' ? 'text-2xl sm:text-3xl' : templateId === 'compact' ? 'text-lg sm:text-xl' : 'text-xl sm:text-2xl'} font-black ${
+                          shop.coverImage || templateId === 'modern'
+                            ? 'text-white drop-shadow-xs'
+                            : 'text-[#14201A] dark:text-[#E8F2EB]'
+                        }`}
+                      >
+                        {displayShopName}
+                      </h1>
+                      <span
+                        className={`text-xs font-extrabold ${
+                          shop.coverImage || templateId === 'modern'
+                            ? 'text-[#BBF7D0]'
+                            : 'text-[#15803D] dark:text-[#BBF7D0]'
+                        }`}
+                      >
+                        · {shop.isOpen ? tx(isEn, 'مفتوح الآن', 'Open Now') : tx(isEn, 'مغلق الآن', 'Closed Now')}
+                      </span>
+                    </div>
+                    {(shop.city || shop.address || initialTableLabel) && (
+                      <p
+                        className={`text-xs font-semibold truncate ${
+                          shop.coverImage || templateId === 'modern'
+                            ? 'text-[#E8F2EB]/90'
+                            : 'text-[#4B5B52] dark:text-[#A3B5AA]'
+                        }`}
+                      >
+                        {[shop.city, shop.address, initialTableLabel].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <a
+                  href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ backgroundColor: themeHex, borderColor: themeHex }}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-white font-bold text-xs whitespace-nowrap shadow-sm hover:opacity-95 transition-opacity shrink-0"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  {tx(isEn, 'تواصل واتساب', 'WhatsApp Us')}
+                </a>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-1 text-xs font-extrabold">
                 <span
-                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl tabular-nums ${
-                    shop.coverImage
-                      ? 'bg-white/15 text-amber-200 border border-white/20 backdrop-blur-sm'
-                      : 'bg-amber-50 dark:bg-slate-800 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-slate-700'
+                  className={`inline-flex items-center gap-1.5 tabular-nums ${
+                    shop.coverImage || templateId === 'modern'
+                      ? 'text-white'
+                      : 'text-[#14532D] dark:text-[#BBF7D0]'
                   }`}
                 >
-                  {tx(isEn, 'توصيل مجاني فوق', 'Free delivery over')}{' '}
-                  {formatMoney(Number(shop.freeDeliveryMinOrder), shop.country, 0, isEn)}
+                  <Truck className="w-3.5 h-3.5 shrink-0" />
+                  {shop.freeDelivery || Number(shop.deliveryFee || 0) === 0
+                    ? tx(isEn, 'سعر التوصيل: مجاني', 'Delivery: Free')
+                    : `${tx(isEn, 'سعر التوصيل:', 'Delivery Fee:')} ${formatMoney(Number(shop.deliveryFee || 0), shop.country, 0, isEn)}`}
                 </span>
-              )}
 
-              <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ${
-                  shop.coverImage
-                    ? 'bg-white/15 text-white border border-white/20 backdrop-blur-sm'
-                    : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
-                }`}
-              >
-                <Clock className="w-3.5 h-3.5" />
-                <span>
-                  {tx(isEn, 'وقت التوصيل:', 'Delivery Time:')}{' '}
-                  {shop.deliveryTime || tx(isEn, '30-45 دقيقة', '30-45 mins')}
-                </span>
-              </span>
+                {!shop.freeDelivery && Number(shop.freeDeliveryMinOrder || 0) > 0 && (
+                  <span
+                    className={`inline-flex items-center gap-1 tabular-nums ${
+                      shop.coverImage || templateId === 'modern'
+                        ? 'text-[#FACC15]'
+                        : 'text-[#B45309] dark:text-amber-300'
+                    }`}
+                  >
+                    {tx(isEn, 'توصيل مجاني فوق', 'Free delivery over')}{' '}
+                    {formatMoney(Number(shop.freeDeliveryMinOrder), shop.country, 0, isEn)}
+                  </span>
+                )}
 
-              {!hasAnyExtraFeeEnabled && (
                 <span
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ${
-                    shop.coverImage
-                      ? 'bg-[#FF6A00]/90 text-white border border-white/20'
-                      : 'bg-orange-100/80 dark:bg-orange-950/60 text-[#FF6A00] dark:text-orange-300 border border-orange-200 dark:border-orange-900'
+                  className={`inline-flex items-center gap-1.5 ${
+                    shop.coverImage || templateId === 'modern'
+                      ? 'text-[#E8F2EB]'
+                      : 'text-[#4B5B52] dark:text-[#A3B5AA]'
                   }`}
                 >
-                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
                   <span>
-                    {tx(isEn, 'السعر شامل، بدون اي رسوم اضافية', 'All-inclusive prices, zero extra fees')}
+                    {tx(isEn, 'وقت التوصيل:', 'Delivery Time:')}{' '}
+                    {shop.deliveryTime || tx(isEn, '30-45 دقيقة', '30-45 mins')}
                   </span>
                 </span>
-              )}
+
+                {!hasAnyExtraFeeEnabled && (
+                  <span
+                    className={`inline-flex items-center gap-1.5 ${
+                      shop.coverImage || templateId === 'modern'
+                        ? 'text-[#BBF7D0]'
+                        : 'text-[#15803D] dark:text-[#BBF7D0]'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      {tx(isEn, 'السعر شامل، بدون اي رسوم اضافية', 'All-inclusive prices, zero extra fees')}
+                    </span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Prominent Special Offers Menu */}
       {offerProducts.length > 0 && !searchQuery.trim() && (
-        <section id="offers-section" className={`${templateStyles.contentContainerClass} mt-4 scroll-mt-16`}>
-          <div className={`border p-4 sm:p-5 space-y-3 shadow-xs ${templateStyles.offersSectionClass}`}>
+        <section id="offers-section" className={`${maxWidthClass} mt-4 scroll-mt-16`}>
+          <div
+            className={`border p-4 sm:p-5 space-y-3 shadow-xs ${
+              templateId === 'modern'
+                ? 'bg-[#14201A] text-white border-[#2C3D32] rounded-[24px] shadow-md'
+                : templateStyles.offersSectionClass
+            }`}
+          >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-2xl bg-amber-400 text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
+                <div className="w-9 h-9 rounded-[14px] bg-[#FACC15] text-[#14201A] flex items-center justify-center shrink-0 shadow-xs">
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
                   <h2
-                    className={`text-base sm:text-lg font-extrabold ${
-                      templateId === 'modern' ? 'text-white' : 'text-slate-900 dark:text-white'
+                    className={`text-base sm:text-lg font-black ${
+                      templateId === 'modern' ? 'text-white' : 'text-[#14201A] dark:text-[#E8F2EB]'
                     }`}
                   >
                     {tx(isEn, 'عروض اليوم والخصومات', "Today's Offers & Deals")}
@@ -1021,8 +1218,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   <p
                     className={`text-[11px] font-bold ${
                       templateId === 'modern'
-                        ? 'text-orange-200'
-                        : 'text-slate-500 dark:text-slate-400'
+                        ? 'text-[#BBF7D0]'
+                        : 'text-[#4B5B52] dark:text-[#A3B5AA]'
                     }`}
                   >
                     {tx(
@@ -1036,8 +1233,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               <span
                 className={`px-3 py-1 rounded-full text-xs font-extrabold tabular-nums ${
                   templateId === 'modern'
-                    ? 'bg-white/15 text-amber-300 border border-white/15'
-                    : 'glass-surface text-amber-800 dark:text-amber-300'
+                    ? 'bg-white/15 text-[#FACC15] border border-white/15'
+                    : 'bg-[#FEF9C3] dark:bg-[#18231C] text-[#14201A] dark:text-[#FACC15] border border-[#FACC15]'
                 }`}
               >
                 {tx(isEn, `${offerProducts.length} عروض متاحة`, `${offerProducts.length} offers`)}
@@ -1056,7 +1253,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     className={`cursor-pointer min-w-[235px] sm:min-w-[260px] max-w-[270px] shrink-0 snap-start flex flex-col justify-between gap-2.5 transition-colors ${templateStyles.offersCardClass}`}
                   >
                     <div className="space-y-2">
-                      <div className="relative h-28 rounded-2xl bg-orange-50/70 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
+                      <div className="relative h-28 rounded-[16px] bg-[#DCFCE7] dark:bg-[#173323] overflow-hidden flex items-center justify-center">
                         {product.imageUrl && !brokenImages[product.id] ? (
                           <img
                             src={product.imageUrl}
@@ -1068,15 +1265,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <Utensils className="w-9 h-9 text-orange-300" />
+                          <Utensils className="w-9 h-9 text-[#15803D] opacity-60" />
                         )}
 
-                        <span className="absolute top-2 right-2 px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[11px] font-extrabold shadow-xs">
+                        <span className="absolute top-2 right-2 px-2.5 py-0.5 rounded-full bg-[#FACC15] text-[#14201A] text-[11px] font-black shadow-xs">
                           {product.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
                         </span>
 
                         {pct > 0 && (
-                          <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full glass-btn-primary text-[10px] font-extrabold tabular-nums">
+                          <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-[#15803D] text-white text-[10px] font-extrabold tabular-nums">
                             {tx(isEn, `وفر ${pct}%`, `Save ${pct}%`)}
                           </span>
                         )}
@@ -1091,11 +1288,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <h3 className="font-extrabold text-sm text-slate-900 dark:text-white line-clamp-1">
+                        <h3 className="font-extrabold text-sm text-[#14201A] dark:text-[#E8F2EB] line-clamp-1">
                           {product.name}
                         </h3>
                         {product.description && (
-                          <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 line-clamp-2">
+                          <p className="text-[11px] font-medium text-[#4B5B52] dark:text-[#A3B5AA] line-clamp-2">
                             {product.description}
                           </p>
                         )}
@@ -1108,11 +1305,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-baseline gap-1.5 tabular-nums">
-                        <span className={`text-sm font-extrabold ${templateStyles.priceTextClass}`}>
+                        <span
+                          style={effectiveDark ? undefined : { color: themeHex }}
+                          className="text-sm font-black dark:text-[#BBF7D0]"
+                        >
                           {getProductPriceDisplay(product, options)}
                         </span>
                         {product.originalPrice && product.originalPrice > product.price && (
-                          <span className="text-[11px] font-bold text-slate-400 line-through">
+                          <span className="text-[11px] font-bold text-[#4B5B52] dark:text-[#A3B5AA] line-through">
                             {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                           </span>
                         )}
@@ -1123,7 +1323,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           type="button"
                           onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
-                          className={`px-3.5 py-1.5 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums ${templateStyles.primaryButtonClass}`}
+                          style={{ backgroundColor: themeHex }}
+                          className="px-3.5 py-1.5 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums text-white hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           {inCartQty > 0
@@ -1137,7 +1338,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           <button
                             type="button"
                             onClick={() => addToCart(product)}
-                            className="w-6 h-6 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
+                            style={{ backgroundColor: themeHex }}
+                            className="w-6 h-6 rounded-full text-white flex items-center justify-center"
                           >
                             <Plus className="w-3.5 h-3.5" />
                           </button>
@@ -1147,7 +1349,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           <button
                             type="button"
                             onClick={() => decrementCart(product.id)}
-                            className="w-6 h-6 rounded-full bg-white dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+                            className="w-6 h-6 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
                           >
                             <Minus className="w-3.5 h-3.5" />
                           </button>
@@ -1163,11 +1365,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       )}
 
       {/* Search + View Toggle + Categories */}
-      <div className={`${templateStyles.contentContainerClass} mt-4 space-y-3`}>
+      <div className={`${maxWidthClass} mt-4 space-y-3`}>
         <div className="flex items-center gap-2.5">
           <div className="relative flex-1">
             <Search
-              className={`w-4 h-4 text-slate-400 absolute ${
+              className={`w-4 h-4 text-[#4B5B52] absolute ${
                 isEn ? 'left-3.5' : 'right-3.5'
               } top-1/2 -translate-y-1/2`}
             />
@@ -1176,19 +1378,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={tx(isEn, 'ابحث عن صنف', 'Search menu items')}
-              className={`w-full ${
-                isEn ? 'pl-10 pr-4' : 'pr-10 pl-4'
-              } py-3 rounded-2xl glass-surface text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]`}
+              className={`sf-inp ${isEn ? 'pl-10 pr-4' : 'pr-10 pl-4'}`}
             />
           </div>
           <button
             type="button"
             onClick={() => setViewMode('list')}
             aria-label={tx(isEn, 'عرض القائمة', 'List view')}
-            className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
+            style={
               viewMode === 'list'
-                ? templateStyles.primaryButtonClass
-                : 'glass-btn text-slate-600 dark:text-slate-300'
+                ? { backgroundColor: themeHex, color: '#FFFFFF', borderColor: themeHex }
+                : undefined
+            }
+            className={`w-12 h-12 rounded-[16px] flex items-center justify-center transition-colors shrink-0 ${
+              viewMode === 'list'
+                ? ''
+                : 'glass-btn text-[#4B5B52] dark:text-[#A3B5AA]'
             }`}
           >
             <List className="w-5 h-5" />
@@ -1197,10 +1402,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             type="button"
             onClick={() => setViewMode('grid')}
             aria-label={tx(isEn, 'عرض الشبكة', 'Grid view')}
-            className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
+            style={
               viewMode === 'grid'
-                ? templateStyles.primaryButtonClass
-                : 'glass-btn text-slate-600 dark:text-slate-300'
+                ? { backgroundColor: themeHex, color: '#FFFFFF', borderColor: themeHex }
+                : undefined
+            }
+            className={`w-12 h-12 rounded-[16px] flex items-center justify-center transition-colors shrink-0 ${
+              viewMode === 'grid'
+                ? ''
+                : 'glass-btn text-[#4B5B52] dark:text-[#A3B5AA]'
             }`}
           >
             <Grid className="w-5 h-5" />
@@ -1208,12 +1418,16 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         </div>
 
         {/* Categories Bar Styled By Active Template */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5">
+        <div
+          className={`flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 ${
+            templateId === 'minimal' ? 'border-b border-[#CFE3D5] dark:border-[#2C3D32] pb-2.5' : ''
+          }`}
+        >
           {offerProducts.length > 0 && (
             <button
               type="button"
               onClick={scrollToOffers}
-              className="px-4 py-2 rounded-full glass-btn-amber text-sm font-extrabold whitespace-nowrap shrink-0 inline-flex items-center gap-1.5"
+              className="px-4 py-2 rounded-full bg-[#FACC15] text-[#14201A] text-sm font-black whitespace-nowrap shrink-0 inline-flex items-center gap-1.5"
             >
               <Tag className="w-3.5 h-3.5" />
               {tx(isEn, `العروض (${offerProducts.length})`, `Offers (${offerProducts.length})`)}
@@ -1226,8 +1440,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap shrink-0 transition-colors ${
-                  active ? templateStyles.categoryActiveClass : templateStyles.categoryIdleClass
+                style={
+                  active
+                    ? { backgroundColor: themeHex, borderColor: themeHex, color: '#FFFFFF' }
+                    : undefined
+                }
+                className={`px-4 py-2 rounded-full text-sm font-extrabold whitespace-nowrap shrink-0 transition-colors ${
+                  active ? '' : templateStyles.categoryIdleClass
                 }`}
               >
                 {cat === ALL_CATEGORIES_KEY ? tx(isEn, 'الكل', 'All') : cat}
@@ -1238,30 +1457,44 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
         {/* Section Title */}
         <div className="flex items-center justify-between pt-1">
-          <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
+          <h2 className="text-lg font-black">
             {selectedCategory === ALL_CATEGORIES_KEY
               ? tx(isEn, 'جميع الأصناف', 'All Menu Items')
               : selectedCategory}
           </h2>
-          <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+          <span className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] tabular-nums">
             {tx(isEn, `${filteredProducts.length} صنف`, `${filteredProducts.length} items`)}
           </span>
         </div>
 
         {/* Products Rendered According to Selected Menu Template & View Mode */}
         {filteredProducts.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 border border-orange-100 dark:border-slate-800 text-center space-y-2">
-            <Utensils className="w-10 h-10 text-orange-300 mx-auto" />
-            <p className="text-base font-bold text-slate-600 dark:text-slate-300">
-              {tx(isEn, 'لا توجد أصناف في هذه الفئة', 'No items in this category')}
+          <div className="sf-card p-10 text-center space-y-2">
+            <Utensils style={{ color: themeHex }} className="w-10 h-10 opacity-60 mx-auto" />
+            <p className="text-base font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {activeProducts.length === 0
+                ? tx(isEn, 'لا توجد أصناف مضافة في هذا المنيو حتى الآن.', 'No items have been added to this menu yet.')
+                : tx(isEn, 'لا توجد أصناف في هذه الفئة', 'No items in this category')}
             </p>
           </div>
         ) : (
           <div
             className={
-              viewMode === 'list'
-                ? templateStyles.listContainerClass
-                : templateStyles.gridContainerClass
+              templateId === 'compact'
+                ? viewMode === 'list'
+                  ? 'space-y-2'
+                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5'
+                : templateId === 'minimal'
+                  ? viewMode === 'list'
+                    ? 'divide-y divide-[#CFE3D5] dark:divide-[#2C3D32] bg-[#FFFFFF] dark:bg-[#141F19] rounded-[20px] border border-[#CFE3D5] dark:border-[#2C3D32] overflow-hidden'
+                    : 'divide-y divide-[#CFE3D5] dark:divide-[#2C3D32] bg-[#FFFFFF] dark:bg-[#141F19] rounded-[20px] border border-[#CFE3D5] dark:border-[#2C3D32] overflow-hidden'
+                  : templateId === 'modern'
+                    ? viewMode === 'list'
+                      ? 'space-y-3'
+                      : 'grid grid-cols-1 md:grid-cols-2 gap-4'
+                    : viewMode === 'list'
+                      ? 'space-y-3'
+                      : 'grid grid-cols-2 md:grid-cols-3 gap-3'
             }
           >
             {filteredProducts.map((product) => {
@@ -1270,23 +1503,23 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               const options = getProductOptions(product);
               const displayPrice = getProductPriceDisplay(product, options);
 
-              // Explicit List View Mode OR Compact Template ("مكثف")
-              if (viewMode === 'list' || templateId === 'compact') {
+              // Template 4: Compact High-Density Template ("مكثف") OR Explicit List Mode for Classic
+              if (templateId === 'compact' || (viewMode === 'list' && templateId === 'classic')) {
                 return (
                   <div
                     key={product.id}
                     onClick={() => openProductDetail(product)}
                     className={`cursor-pointer flex items-center justify-between gap-2.5 transition-colors ${
-                      viewMode === 'list' && templateId === 'minimal'
-                        ? 'p-3.5 bg-white dark:bg-slate-900 hover:bg-stone-50/70 dark:hover:bg-slate-800/50'
-                        : templateStyles.cardClass
+                      templateId === 'compact'
+                        ? 'bg-[#FFFFFF] dark:bg-[#18231C] rounded-[16px] p-2.5 border border-[#CFE3D5] dark:border-[#2C3D32] hover:border-[#15803D]'
+                        : 'bg-[#DCFCE7] dark:bg-[#173323] rounded-[20px] p-3 border border-[#CFE3D5]/70 dark:border-[#2C3D32]'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div
                         className={`relative ${
                           templateId === 'compact' ? 'w-14 h-14' : 'w-16 h-16'
-                        } rounded-2xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden`}
+                        } rounded-[14px] bg-[#DCFCE7] dark:bg-[#173323] flex items-center justify-center shrink-0 overflow-hidden`}
                       >
                         {product.imageUrl && !brokenImages[product.id] ? (
                           <img
@@ -1299,7 +1532,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <Utensils className="w-6 h-6 text-orange-300" />
+                          <Utensils className="w-6 h-6 text-[#15803D] opacity-60" />
                         )}
                         {showDishLogo && shop.logoUrl && (
                           <img
@@ -1311,18 +1544,18 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       </div>
                       <div className="min-w-0 space-y-0.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <h3 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                          <h3 className="font-extrabold text-sm text-[#14201A] dark:text-[#E8F2EB] truncate">
                             {product.name}
                           </h3>
                           {product.isOffer && (
-                            <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-extrabold">
+                            <span className="px-2 py-0.5 rounded-full bg-[#FEF9C3] dark:bg-amber-950/60 text-[#14201A] dark:text-amber-300 text-[10px] font-black">
                               {product.offerLabel || tx(isEn, 'عرض', 'Offer')}
                             </span>
                           )}
                         </div>
                         {product.description && (
                           <p
-                            className={`text-xs text-slate-500 dark:text-slate-400 ${
+                            className={`text-xs text-[#4B5B52] dark:text-[#A3B5AA] ${
                               templateId === 'compact' ? 'line-clamp-1' : 'line-clamp-2'
                             }`}
                           >
@@ -1331,11 +1564,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         )}
                         {renderCardOptionChips(product, options)}
                         <div className="flex items-baseline gap-1.5 tabular-nums pt-0.5">
-                          <span className={`text-sm font-extrabold ${templateStyles.priceTextClass}`}>
+                          <span
+                            style={effectiveDark ? undefined : { color: themeHex }}
+                            className="text-sm font-black dark:text-[#BBF7D0]"
+                          >
                             {displayPrice}
                           </span>
                           {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
-                            <span className="text-[11px] font-bold text-slate-400 line-through">
+                            <span className="text-[11px] font-bold text-[#4B5B52] dark:text-[#A3B5AA] line-through">
                               {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                             </span>
                           )}
@@ -1353,10 +1589,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
                           aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
+                          style={{ backgroundColor: themeHex }}
                           className={
                             options.length > 0
-                              ? `px-3 py-1.5 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums ${templateStyles.primaryButtonClass}`
-                              : `w-9 h-9 rounded-full disabled:opacity-40 flex items-center justify-center ${templateStyles.primaryButtonClass}`
+                              ? 'px-3 py-1.5 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums text-white hover:opacity-90 whitespace-nowrap shrink-0'
+                              : 'w-9 h-9 rounded-full disabled:opacity-40 flex items-center justify-center text-white hover:opacity-90 shrink-0'
                           }
                         >
                           <Plus className="w-4 h-4" />
@@ -1369,7 +1606,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           <button
                             type="button"
                             onClick={() => addToCart(product)}
-                            className="w-7 h-7 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
+                            style={{ backgroundColor: themeHex }}
+                            className="w-7 h-7 rounded-full text-white flex items-center justify-center"
                           >
                             <Plus className="w-3.5 h-3.5" />
                           </button>
@@ -1379,7 +1617,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           <button
                             type="button"
                             onClick={() => decrementCart(product.id)}
-                            className="w-7 h-7 rounded-full bg-white dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+                            className="w-7 h-7 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
                           >
                             <Minus className="w-3.5 h-3.5" />
                           </button>
@@ -1396,10 +1634,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   <div
                     key={product.id}
                     onClick={() => openProductDetail(product)}
-                    className={`cursor-pointer flex items-start justify-between gap-3.5 transition-colors ${templateStyles.cardClass}`}
+                    className="cursor-pointer flex items-start justify-between gap-3.5 p-4 bg-transparent hover:bg-[#F6FBF7]/80 dark:hover:bg-[#18231C]/80 transition-colors"
                   >
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
-                      <div className={`${templateStyles.cardImageBoxClass} flex items-center justify-center overflow-hidden`}>
+                    <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                      <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-[14px] bg-[#F6FBF7] dark:bg-[#173323] border border-[#CFE3D5]/70 dark:border-[#2C3D32] flex items-center justify-center overflow-hidden shrink-0">
                         {product.imageUrl && !brokenImages[product.id] ? (
                           <img
                             src={product.imageUrl}
@@ -1411,23 +1649,26 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <Utensils className="w-6 h-6 text-slate-400" />
+                          <Utensils style={{ color: themeHex }} className="w-6 h-6 opacity-60" />
                         )}
                       </div>
 
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex items-start justify-between gap-2">
-                          <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white leading-snug">
+                          <h3 className="font-extrabold text-sm sm:text-base text-[#14201A] dark:text-[#E8F2EB] leading-snug">
                             {product.name}
                           </h3>
                           {product.isOffer && (
-                            <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                            <span
+                              style={{ color: effectiveDark ? '#FACC15' : themeHex }}
+                              className="text-[11px] font-extrabold shrink-0"
+                            >
                               {product.offerLabel || tx(isEn, 'عرض', 'Offer')}
                             </span>
                           )}
                         </div>
                         {product.description && (
-                          <p className="text-xs font-normal text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                          <p className="text-xs font-normal text-[#4B5B52] dark:text-[#A3B5AA] line-clamp-2 leading-relaxed">
                             {product.description}
                           </p>
                         )}
@@ -1437,11 +1678,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="flex items-baseline gap-2 tabular-nums">
-                            <span className={`text-sm font-extrabold ${templateStyles.priceTextClass}`}>
+                            <span className="text-sm font-black text-[#14201A] dark:text-[#E8F2EB]">
                               {displayPrice}
                             </span>
                             {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
-                              <span className="text-[11px] font-medium text-slate-400 line-through">
+                              <span className="text-[11px] font-medium text-[#4B5B52] dark:text-[#A3B5AA] line-through">
                                 {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                               </span>
                             )}
@@ -1453,7 +1694,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                               onClick={() => openProductDetail(product)}
                               disabled={!shop.acceptOrders}
                               aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
-                              className={`px-3.5 py-1.5 rounded-full disabled:opacity-40 text-xs font-bold inline-flex items-center gap-1 tabular-nums transition-colors ${templateStyles.primaryButtonClass}`}
+                              style={{
+                                borderColor: themeHex,
+                                color: effectiveDark ? '#BBF7D0' : themeHex,
+                              }}
+                              className="px-3.5 py-1.5 rounded-full border-[1.5px] bg-transparent hover:opacity-80 disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums transition-opacity whitespace-nowrap shrink-0"
                             >
                               <Plus className="w-3.5 h-3.5" />
                               <span>
@@ -1465,11 +1710,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                               </span>
                             </button>
                           ) : (
-                            <div className="inline-flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 rounded-full px-1.5 py-0.5">
+                            <div className="inline-flex items-center gap-1.5 border border-[#CFE3D5] dark:border-[#2C3D32] rounded-full px-1.5 py-0.5">
                               <button
                                 type="button"
                                 onClick={() => addToCart(product)}
-                                className="w-6 h-6 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center"
+                                style={{ backgroundColor: themeHex }}
+                                className="w-6 h-6 rounded-full text-white flex items-center justify-center"
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
@@ -1479,7 +1725,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                               <button
                                 type="button"
                                 onClick={() => decrementCart(product.id)}
-                                className="w-6 h-6 rounded-full bg-stone-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-center"
+                                className="w-6 h-6 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
@@ -1498,25 +1744,28 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   <div
                     key={product.id}
                     onClick={() => openProductDetail(product)}
-                    className={`cursor-pointer flex items-stretch justify-between gap-4 transition-all ${templateStyles.cardClass}`}
+                    className="cursor-pointer flex items-stretch justify-between gap-4 transition-all bg-[#FFFFFF] dark:bg-[#18231C] rounded-[24px] p-4 border border-[#CFE3D5] dark:border-[#2C3D32] shadow-sm hover:-translate-y-0.5"
                   >
                     <div className="flex-1 min-w-0 flex flex-col justify-between gap-2.5">
                       <div className="space-y-1.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[11px] font-extrabold text-[#FF6A00] dark:text-orange-400">
+                        <div className="flex items-center gap-2 text-[11px] font-extrabold">
+                          <span style={effectiveDark ? undefined : { color: themeHex }} className="dark:text-[#BBF7D0]">
                             {product.category}
                           </span>
                           {product.isOffer && (
-                            <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-extrabold">
-                              {product.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
-                            </span>
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="px-2 py-0.5 rounded-full bg-[#FACC15] text-[#14201A] text-[10px] font-black">
+                                {product.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
+                              </span>
+                            </>
                           )}
                         </div>
-                        <h3 className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white line-clamp-2 leading-snug">
+                        <h3 className="font-extrabold text-base sm:text-lg text-[#14201A] dark:text-[#E8F2EB] line-clamp-2 leading-snug">
                           {product.name}
                         </h3>
                         {product.description && (
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                          <p className="text-xs font-medium text-[#4B5B52] dark:text-[#A3B5AA] line-clamp-2 leading-relaxed">
                             {product.description}
                           </p>
                         )}
@@ -1528,11 +1777,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-baseline gap-1.5 tabular-nums flex-wrap">
-                          <span className={`text-base font-extrabold ${templateStyles.priceTextClass}`}>
+                          <span
+                            style={effectiveDark ? undefined : { color: themeHex }}
+                            className="text-base font-black dark:text-[#BBF7D0]"
+                          >
                             {displayPrice}
                           </span>
                           {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
-                            <span className="text-xs font-bold text-slate-400 line-through">
+                            <span className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] line-through">
                               {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                             </span>
                           )}
@@ -1542,7 +1794,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             type="button"
                             onClick={() => openProductDetail(product)}
                             disabled={!shop.acceptOrders}
-                            className={`px-4 py-2 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums transition-colors ${templateStyles.primaryButtonClass}`}
+                            style={{ backgroundColor: themeHex }}
+                            className="px-4 py-2 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums text-white hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
                           >
                             <Plus className="w-4 h-4" />
                             {inCartQty > 0
@@ -1556,7 +1809,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             <button
                               type="button"
                               onClick={() => addToCart(product)}
-                              className="w-7 h-7 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
+                              style={{ backgroundColor: themeHex }}
+                              className="w-7 h-7 rounded-full text-white flex items-center justify-center"
                             >
                               <Plus className="w-3.5 h-3.5" />
                             </button>
@@ -1566,7 +1820,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             <button
                               type="button"
                               onClick={() => decrementCart(product.id)}
-                              className="w-7 h-7 rounded-full bg-white dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+                              className="w-7 h-7 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
                             >
                               <Minus className="w-3.5 h-3.5" />
                             </button>
@@ -1575,7 +1829,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       </div>
                     </div>
 
-                    <div className={`${templateStyles.cardImageBoxClass} overflow-hidden flex items-center justify-center`}>
+                    <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-[18px] bg-[#DCFCE7] dark:bg-[#173323] shrink-0 overflow-hidden flex items-center justify-center">
                       {product.imageUrl && !brokenImages[product.id] ? (
                         <img
                           src={product.imageUrl}
@@ -1585,7 +1839,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <Utensils className="w-9 h-9 text-orange-300" />
+                        <Utensils style={{ color: themeHex }} className="w-9 h-9 opacity-60" />
                       )}
                       <button
                         type="button"
@@ -1598,7 +1852,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       >
                         <Heart
                           className={`w-3.5 h-3.5 ${
-                            isFav ? 'fill-[#FF6A00] text-[#FF6A00]' : 'text-slate-600'
+                            isFav ? 'fill-[#15803D] text-[#15803D]' : 'text-[#4B5B52]'
                           }`}
                         />
                       </button>
@@ -1614,15 +1868,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 );
               }
 
-              // Template 1 (Default): Classic Balanced Grid ("كلاسيكي")
+              // Template 1 (Default): Classic Soft Mint Grid Card ("كلاسيكي")
               return (
                 <div
                   key={product.id}
                   onClick={() => openProductDetail(product)}
-                  className={`cursor-pointer flex flex-col justify-between gap-3 transition-colors ${templateStyles.cardClass}`}
+                  className="cursor-pointer flex flex-col justify-between gap-3 transition-colors bg-[#DCFCE7] dark:bg-[#173323] rounded-[22px] p-2.5 sm:p-3 border border-[#CFE3D5]/70 dark:border-[#2C3D32]"
                 >
                   <div className="space-y-2.5">
-                    <div className={`${templateStyles.cardImageBoxClass} flex items-center justify-center overflow-hidden`}>
+                    <div className="relative h-28 sm:h-32 rounded-[16px] bg-[#FFFFFF]/85 dark:bg-[#18231C] flex items-center justify-center overflow-hidden">
                       {product.imageUrl && !brokenImages[product.id] ? (
                         <img
                           src={product.imageUrl}
@@ -1632,7 +1886,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <Utensils className="w-10 h-10 text-orange-300" />
+                        <Utensils style={{ color: themeHex }} className="w-10 h-10 opacity-60" />
                       )}
                       <button
                         type="button"
@@ -1645,13 +1899,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       >
                         <Heart
                           className={`w-4 h-4 ${
-                            isFav ? 'fill-[#FF6A00] text-[#FF6A00]' : 'text-slate-500'
+                            isFav ? 'fill-[#15803D] text-[#15803D]' : 'text-[#4B5B52]'
                           }`}
                         />
                       </button>
 
                       {product.isOffer && (
-                        <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-extrabold shadow-xs">
+                        <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-[#FACC15] text-[#14201A] text-[10px] font-black shadow-xs">
                           {product.offerLabel || tx(isEn, 'عرض', 'Offer')}
                         </span>
                       )}
@@ -1666,11 +1920,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     </div>
 
                     <div className="space-y-1">
-                      <h3 className="font-extrabold text-sm text-slate-900 dark:text-white line-clamp-2">
+                      <h3 className="font-extrabold text-sm text-[#14201A] dark:text-[#E8F2EB] line-clamp-2">
                         {product.name}
                       </h3>
                       {product.description && (
-                        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 line-clamp-2">
+                        <p className="text-[11px] font-medium text-[#4B5B52] dark:text-[#A3B5AA] line-clamp-2">
                           {product.description}
                         </p>
                       )}
@@ -1683,11 +1937,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-baseline gap-1.5 tabular-nums flex-wrap">
-                      <span className={`text-sm font-extrabold ${templateStyles.priceTextClass}`}>
+                      <span
+                        style={effectiveDark ? undefined : { color: themeHex }}
+                        className="text-sm font-black dark:text-[#BBF7D0]"
+                      >
                         {displayPrice}
                       </span>
                       {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
-                        <span className="text-[10px] font-bold text-slate-400 line-through">
+                        <span className="text-[10px] font-bold text-[#4B5B52] dark:text-[#A3B5AA] line-through">
                           {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
                         </span>
                       )}
@@ -1699,10 +1956,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         onClick={() => openProductDetail(product)}
                         disabled={!shop.acceptOrders}
                         aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
+                        style={{ backgroundColor: themeHex }}
                         className={
                           options.length > 0
-                            ? `px-3 py-1.5 rounded-full disabled:opacity-40 text-[11px] font-extrabold inline-flex items-center gap-1 shrink-0 tabular-nums ${templateStyles.primaryButtonClass}`
-                            : `w-9 h-9 rounded-full disabled:opacity-40 flex items-center justify-center shrink-0 ${templateStyles.primaryButtonClass}`
+                            ? 'px-3 py-1.5 rounded-full disabled:opacity-40 text-[11px] font-extrabold inline-flex items-center gap-1 shrink-0 tabular-nums text-white hover:opacity-90 whitespace-nowrap'
+                            : 'w-9 h-9 rounded-full disabled:opacity-40 flex items-center justify-center shrink-0 text-white hover:opacity-90'
                         }
                       >
                         <Plus className="w-4 h-4" />
@@ -1715,7 +1973,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         <button
                           type="button"
                           onClick={() => addToCart(product)}
-                          className="w-6 h-6 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
+                          style={{ backgroundColor: themeHex }}
+                          className="w-6 h-6 rounded-full text-white flex items-center justify-center"
                         >
                           <Plus className="w-3.5 h-3.5" />
                         </button>
@@ -1725,7 +1984,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         <button
                           type="button"
                           onClick={() => decrementCart(product.id)}
-                          className="w-6 h-6 rounded-full bg-white dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+                          className="w-6 h-6 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
                         >
                           <Minus className="w-3.5 h-3.5" />
                         </button>
@@ -1739,14 +1998,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         )}
       </div>
 
-      {/* Bottom Floating Glass Cart Bar */}
+      {/* Bottom Floating Cart Bar */}
       {totalItemsCount > 0 && (
-        <div className="fixed bottom-4 left-4 right-4 z-30 max-w-2xl mx-auto">
+        <div className="fixed bottom-4 left-4 right-4 z-30 max-w-[560px] mx-auto">
           <div className="glass-dock rounded-full p-1.5">
             <button
               type="button"
               onClick={() => setCartOpen(true)}
-              className="w-full py-3 px-6 rounded-full glass-btn-primary font-extrabold text-base flex items-center justify-between tabular-nums"
+              style={{ backgroundColor: themeHex, borderColor: themeHex }}
+              className="w-full py-3 px-6 rounded-full text-white shadow-md font-extrabold text-base flex items-center justify-between tabular-nums hover:opacity-95 transition-opacity"
             >
               <div className="flex items-center gap-2.5">
                 <ShoppingBag className="w-5 h-5" />
@@ -1762,9 +2022,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
       {/* Share Toast */}
       {shareToast && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#FF6A00] text-white px-5 py-2.5 rounded-2xl text-xs font-bold shadow-lg text-center space-y-0.5 max-w-[90vw]">
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#14201A] border border-[#15803D] text-white px-5 py-2.5 rounded-[16px] text-xs font-bold shadow-lg text-center space-y-0.5 max-w-[90vw]">
           <div>{shareToast}</div>
-          <div dir="ltr" className="text-[11px] opacity-95 truncate max-w-xs mx-auto">
+          <div dir="ltr" className="text-[11px] text-[#BBF7D0] truncate max-w-xs mx-auto">
             {menuShareUrl}
           </div>
         </div>
@@ -1772,14 +2032,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
       {/* Cart Slide-Up Drawer */}
       {cartOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-t-3xl p-5 sm:p-6 max-h-[88vh] flex flex-col justify-between shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
-              <h2 className="text-xl font-extrabold">{tx(isEn, 'السلة', 'Your Cart')}</h2>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs">
+          <div className="bg-[#F6FBF7] dark:bg-[#0F1712] w-full max-w-[560px] rounded-t-[24px] p-5 sm:p-6 max-h-[88vh] flex flex-col justify-between shadow-2xl border-t border-[#CFE3D5] dark:border-[#2C3D32]">
+            <div className="flex items-center justify-between pb-3 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+              <h2 className="text-xl font-black">{tx(isEn, 'السلة', 'Your Cart')}</h2>
               <button
                 type="button"
                 onClick={() => setCartOpen(false)}
-                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1787,7 +2047,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
             <div className="overflow-y-auto py-4 space-y-5 flex-1">
               {cartItems.length === 0 ? (
-                <p className="text-center text-sm font-bold text-slate-500 py-8">
+                <p className="text-center text-sm font-bold text-[#4B5B52] dark:text-[#A3B5AA] py-8">
                   {tx(isEn, 'السلة فارغة', 'Your cart is empty')}
                 </p>
               ) : (
@@ -1795,10 +2055,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   {Object.entries(cart).map(([cartKey, { product, quantity, unitPrice, note }]) => (
                     <div
                       key={cartKey}
-                      className="flex items-center justify-between gap-3 bg-orange-50/40 dark:bg-slate-800/70 rounded-2xl p-3"
+                      className="flex items-center justify-between gap-3 bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] rounded-[20px] p-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-700 flex items-center justify-center shrink-0 overflow-hidden">
+                        <div className="w-12 h-12 rounded-[14px] bg-[#DCFCE7] dark:bg-[#173323] border border-[#CFE3D5] dark:border-[#2C3D32] flex items-center justify-center shrink-0 overflow-hidden">
                           {product.imageUrl && !brokenImages[product.id] ? (
                             <img
                               src={product.imageUrl}
@@ -1806,34 +2066,34 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                               className="w-full h-full object-cover"
                             />
                           ) : (
-                            <Utensils className="w-5 h-5 text-[#FF6A00]" />
+                            <Utensils className="w-5 h-5 text-[#15803D]" />
                           )}
                         </div>
                         <div className="min-w-0">
                           <div className="font-extrabold text-sm truncate">{product.name}</div>
                           {note && (
-                            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">
+                            <div className="text-[11px] font-bold text-[#4B5B52] dark:text-[#A3B5AA] truncate">
                               {note}
                             </div>
                           )}
-                          <div className="text-xs font-bold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                          <div className="text-xs font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                             {formatMoney(unitPrice * quantity, shop.country, undefined, isEn)}
                           </div>
                           <button
                             type="button"
                             onClick={() => removeFromCart(cartKey)}
-                            className="text-xs font-bold text-slate-500 hover:text-amber-600 mt-0.5"
+                            className="text-xs font-bold text-[#4B5B52] hover:text-rose-600 mt-0.5"
                           >
                             {tx(isEn, 'حذف', 'Remove')}
                           </button>
                         </div>
                       </div>
 
-                      <div className="inline-flex items-center gap-2 bg-white dark:bg-slate-900 rounded-full px-2 py-1 border border-orange-200 dark:border-slate-700 shrink-0">
+                      <div className="inline-flex items-center gap-2 bg-[#F6FBF7] dark:bg-[#0F1712] rounded-full px-2 py-1 border border-[#CFE3D5] dark:border-[#2C3D32] shrink-0">
                         <button
                           type="button"
                           onClick={() => incrementCartKey(cartKey)}
-                          className="w-7 h-7 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
+                          className="w-7 h-7 rounded-full bg-[#15803D] text-white flex items-center justify-center"
                         >
                           <Plus className="w-4 h-4" />
                         </button>
@@ -1843,7 +2103,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         <button
                           type="button"
                           onClick={() => decrementCart(cartKey)}
-                          className="w-7 h-7 rounded-full bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+                          className="w-7 h-7 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
                         >
                           <Minus className="w-4 h-4" />
                         </button>
@@ -1855,25 +2115,25 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
               {/* Section "يكمل طلبك" */}
               <div className="space-y-2.5 pt-2">
-                <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
+                <h3 className="text-sm font-extrabold text-[#4B5B52] dark:text-[#A3B5AA]">
                   {tx(isEn, 'يكمل طلبك', 'Goes Great With')}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   {upsellSuggestions.map((item) => (
                     <div
                       key={item.id}
-                      className="bg-white dark:bg-slate-800 border border-orange-100 dark:border-slate-700 rounded-2xl p-3 flex items-center justify-between gap-2"
+                      className="bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] rounded-[18px] p-3 flex items-center justify-between gap-2"
                     >
                       <div className="min-w-0">
                         <div className="font-bold text-xs truncate">{item.name}</div>
-                        <div className="text-xs font-extrabold text-[#FF6A00] tabular-nums">
+                        <div className="text-xs font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                           {formatMoney(item.price, shop.country, undefined, isEn)}
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => addToCart(item)}
-                        className="w-8 h-8 rounded-full bg-[#FF6A00] text-white flex items-center justify-center shrink-0"
+                        className="w-8 h-8 rounded-full bg-[#15803D] text-white flex items-center justify-center shrink-0"
                       >
                         <Plus className="w-4 h-4" />
                       </button>
@@ -1883,10 +2143,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               </div>
             </div>
 
-            <div className="pt-4 border-t border-orange-100 dark:border-slate-800 space-y-3">
-              <div className="flex items-center justify-between font-extrabold text-base">
+            <div className="pt-4 border-t border-[#CFE3D5] dark:border-[#2C3D32] space-y-3">
+              <div className="flex items-center justify-between font-black text-base">
                 <span>{tx(isEn, 'الإجمالي', 'Subtotal')}</span>
-                <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                <span className="text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                   {formatMoney(cartSubtotal, shop.country, undefined, isEn)}
                 </span>
               </div>
@@ -1897,7 +2157,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   setCartOpen(false);
                   setCheckoutOpen(true);
                 }}
-                className="w-full py-3.5 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] disabled:opacity-40 text-white font-extrabold text-base"
+                className="sf-btn-primary w-full disabled:opacity-40 text-base"
               >
                 {tx(isEn, 'متابعة للتفاصيل', 'Continue to Checkout')}
               </button>
@@ -1908,17 +2168,17 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
       {/* Checkout Details Drawer */}
       {checkoutOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs">
           <form
             onSubmit={handleConfirmOrder}
-            className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-t-3xl p-5 sm:p-6 max-h-[92vh] overflow-y-auto space-y-4 shadow-2xl"
+            className="bg-[#F6FBF7] dark:bg-[#0F1712] w-full max-w-[560px] rounded-t-[24px] p-5 sm:p-6 max-h-[92vh] overflow-y-auto space-y-4 shadow-2xl border-t border-[#CFE3D5] dark:border-[#2C3D32]"
           >
-            <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
-              <h2 className="text-xl font-extrabold">{tx(isEn, 'بيانات الطلب', 'Order Details')}</h2>
+            <div className="flex items-center justify-between pb-3 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+              <h2 className="text-xl font-black">{tx(isEn, 'بيانات الطلب', 'Order Details')}</h2>
               <button
                 type="button"
                 onClick={() => setCheckoutOpen(false)}
-                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1926,7 +2186,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
             {/* Order Type */}
             <div className="space-y-2">
-              <label className="block text-xs font-extrabold text-slate-600 dark:text-slate-300">
+              <label className="block text-xs font-extrabold text-[#4B5B52] dark:text-[#A3B5AA]">
                 {tx(isEn, 'نوع الطلب', 'Order Type')}
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1940,10 +2200,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     key={opt.id}
                     type="button"
                     onClick={() => setOrderType(opt.id as typeof orderType)}
-                    className={`py-2.5 rounded-2xl text-sm font-bold border transition-colors ${
+                    className={`py-2.5 rounded-[14px] text-sm font-extrabold border-[1.5px] transition-colors ${
                       orderType === opt.id
-                        ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-orange-900 dark:text-orange-300'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                        ? 'bg-[#DCFCE7] dark:bg-[#173323] border-[#15803D] text-[#14532D] dark:text-[#BBF7D0]'
+                        : 'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32]'
                     }`}
                   >
                     {opt.label}
@@ -1954,7 +2214,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
             {/* Payment Method */}
             <div className="space-y-2">
-              <label className="block text-xs font-extrabold text-slate-600 dark:text-slate-300">
+              <label className="block text-xs font-extrabold text-[#4B5B52] dark:text-[#A3B5AA]">
                 {tx(isEn, 'طريقة الدفع', 'Payment Method')}
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -1974,10 +2234,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         key={pm}
                         type="button"
                         onClick={() => setPaymentMethod(pm)}
-                        className={`py-2.5 rounded-2xl text-sm font-bold border transition-colors ${
+                        className={`py-2.5 rounded-[14px] text-sm font-extrabold border-[1.5px] transition-colors ${
                           paymentMethod === pm
-                            ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] text-orange-900 dark:text-orange-300'
-                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                            ? 'bg-[#DCFCE7] dark:bg-[#173323] border-[#15803D] text-[#14532D] dark:text-[#BBF7D0]'
+                            : 'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32]'
                         }`}
                       >
                         {pmLabel}
@@ -1996,7 +2256,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder={tx(isEn, 'الاسم', 'Full Name')}
-                className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                className="sf-inp"
               />
               <input
                 type="tel"
@@ -2005,13 +2265,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 placeholder={tx(isEn, 'الهاتف', 'Phone Number')}
-                className={`w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold ${
-                  isEn ? 'text-left' : 'text-right'
-                }`}
+                className={`sf-inp ${isEn ? 'text-left' : 'text-right'}`}
               />
 
               {orderType === 'pickup' ? (
-                <div className="rounded-2xl bg-orange-50 dark:bg-orange-950/50 border border-orange-200 dark:border-orange-900 p-3.5 text-sm font-bold text-orange-900 dark:text-orange-200">
+                <div className="rounded-[16px] bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] p-3.5 text-sm font-bold text-[#14532D] dark:text-[#BBF7D0]">
                   {tx(isEn, 'الاستلام من: الفرع الرئيسي', 'Pickup from: Main Branch')}
                 </div>
               ) : orderType === 'table' ? (
@@ -2020,7 +2278,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   value={tableLabel}
                   onChange={(e) => setTableLabel(e.target.value)}
                   placeholder={tx(isEn, 'رقم الطاولة (مثال: طاولة 3)', 'Table Number (e.g. Table 3)')}
-                  className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                  className="sf-inp"
                 />
               ) : orderType === 'delivery' ? (
                 <>
@@ -2030,7 +2288,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     placeholder={tx(isEn, 'العنوان', 'Delivery Address')}
-                    className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                    className="sf-inp"
                   />
                   <div className="grid grid-cols-2 gap-3">
                     <input
@@ -2038,14 +2296,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       value={floor}
                       onChange={(e) => setFloor(e.target.value)}
                       placeholder={tx(isEn, 'الدور', 'Floor')}
-                      className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                      className="sf-inp"
                     />
                     <input
                       type="text"
                       value={apartment}
                       onChange={(e) => setApartment(e.target.value)}
                       placeholder={tx(isEn, 'الشقة', 'Apartment')}
-                      className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                      className="sf-inp"
                     />
                   </div>
                 </>
@@ -2056,12 +2314,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder={tx(isEn, 'اكتب أي طلب خاص', 'Any special instructions...')}
-                className="w-full px-4 py-3 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                className="sf-inp py-2.5"
               />
             </div>
 
             {/* Detailed Calculation: Food + Delivery (+ Optional Fees ONLY if enabled) */}
-            <div className="bg-orange-50/70 dark:bg-slate-800 rounded-2xl p-4 space-y-2 text-sm font-bold">
+            <div className="bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] rounded-[20px] p-4 space-y-2 text-sm font-bold">
               <div className="flex justify-between">
                 <span>{tx(isEn, 'سعر الأكل', 'Subtotal')}</span>
                 <span className="tabular-nums">
@@ -2069,9 +2327,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 </span>
               </div>
               {orderType === 'delivery' && (
-                <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                <div className="flex justify-between text-[#4B5B52] dark:text-[#A3B5AA]">
                   <span>{tx(isEn, 'سعر التوصيل', 'Delivery Fee')}</span>
-                  <span className="tabular-nums font-extrabold text-[#FF6A00] dark:text-orange-400">
+                  <span className="tabular-nums font-extrabold text-[#15803D] dark:text-[#BBF7D0]">
                     {totals.freeDeliveryApplied
                       ? tx(isEn, 'مجاناً', 'Free')
                       : formatMoney(totals.deliveryFee, shop.country, undefined, isEn)}
@@ -2079,7 +2337,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 </div>
               )}
               {totals.serviceFee > 0 && (
-                <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                <div className="flex justify-between text-[#4B5B52] dark:text-[#A3B5AA]">
                   <span>{tx(isEn, `رسوم الخدمة (${totals.serviceFeePct}%)`, `Service Fee (${totals.serviceFeePct}%)`)}</span>
                   <span className="tabular-nums">
                     {formatMoney(totals.serviceFee, shop.country, undefined, isEn)}
@@ -2087,7 +2345,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 </div>
               )}
               {totals.vat > 0 && (
-                <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                <div className="flex justify-between text-[#4B5B52] dark:text-[#A3B5AA]">
                   <span>{tx(isEn, `الضريبة (${totals.vatPct}%)`, `VAT (${totals.vatPct}%)`)}</span>
                   <span className="tabular-nums">
                     {formatMoney(totals.vat, shop.country, undefined, isEn)}
@@ -2095,7 +2353,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 </div>
               )}
               {totals.packagingFee > 0 && (
-                <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                <div className="flex justify-between text-[#4B5B52] dark:text-[#A3B5AA]">
                   <span>{tx(isEn, 'رسوم التغليف', 'Packaging Fee')}</span>
                   <span className="tabular-nums">
                     {formatMoney(totals.packagingFee, shop.country, undefined, isEn)}
@@ -2103,20 +2361,20 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 </div>
               )}
               {!totals.hasExtraFees && (
-                <div className="text-[11px] font-extrabold text-[#FF6A00] dark:text-orange-400 pt-0.5">
+                <div className="text-[11px] font-extrabold text-[#15803D] dark:text-[#BBF7D0] pt-0.5">
                   {tx(isEn, 'السعر شامل، بدون اي رسوم اضافية', 'All-inclusive, no extra fees')}
                 </div>
               )}
-              <div className="flex justify-between text-base font-extrabold pt-2 border-t border-orange-200 dark:border-slate-700">
+              <div className="flex justify-between text-base font-black pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32]">
                 <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
-                <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                <span className="text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                   {formatMoney(totals.total, shop.country, undefined, isEn)}
                 </span>
               </div>
             </div>
 
             {checkoutError && (
-              <div className="rounded-2xl bg-amber-50 border border-amber-200 p-3 text-xs font-bold text-amber-800">
+              <div className="rounded-[16px] bg-[#FEF9C3] border border-[#FACC15] p-3 text-xs font-bold text-[#14201A]">
                 {checkoutError}
               </div>
             )}
@@ -2124,7 +2382,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-4 rounded-2xl bg-[#FF6A00] hover:bg-[#E55E00] text-white font-extrabold text-base flex items-center justify-center gap-2 tabular-nums"
+              className="sf-btn-primary w-full text-base tabular-nums"
             >
               {submitting && <Loader2 className="w-5 h-5 animate-spin" />}
               <span>
@@ -2137,16 +2395,16 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
       {/* Order Confirmation Modal */}
       {placedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 text-center space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
-            <CheckCircle2 className="w-14 h-14 text-[#FF6A00] mx-auto" />
-            <h3 className="text-xl font-extrabold">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="sf-card max-w-md w-full p-6 text-center space-y-4 shadow-xl">
+            <CheckCircle2 className="w-14 h-14 text-[#15803D] mx-auto" />
+            <h3 className="text-xl font-black">
               {tx(isEn, 'تم استلام طلبك بنجاح!', 'Order Received Successfully!')}
             </h3>
-            <p className="text-sm font-bold text-slate-600 dark:text-slate-300 tabular-nums">
+            <p className="text-sm font-bold text-[#4B5B52] dark:text-[#A3B5AA] tabular-nums">
               {tx(isEn, `رقم الطلب: #${placedOrder.orderNumber}`, `Order Number: #${placedOrder.orderNumber}`)}
             </p>
-            <p className="text-lg font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+            <p className="text-lg font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
               {tx(isEn, 'الإجمالي:', 'Total:')} {formatMoney(placedOrder.total, shop.country, undefined, isEn)}
             </p>
             <div className="flex gap-3 pt-2">
@@ -2156,14 +2414,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   setPlacedOrder(null);
                   setOrdersPageOpen(true);
                 }}
-                className="flex-1 py-3 rounded-2xl bg-[#FF6A00] text-white font-bold text-sm"
+                className="sf-btn-primary flex-1 text-sm"
               >
                 {tx(isEn, 'عرض طلباتي', 'View My Orders')}
               </button>
               <button
                 type="button"
                 onClick={() => setPlacedOrder(null)}
-                className="flex-1 py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-bold text-sm"
+                className="sf-btn flex-1 text-sm"
               >
                 {tx(isEn, 'متابعة التسوق', 'Continue Browsing')}
               </button>
@@ -2175,33 +2433,33 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       {/* Customer Side Menu */}
       {sideMenuOpen && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setSideMenuOpen(false)} />
-          <div className="relative z-10 w-72 bg-white dark:bg-slate-900 h-full p-5 flex flex-col justify-between shadow-xl">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setSideMenuOpen(false)} />
+          <div className="relative z-10 w-72 bg-[#F6FBF7] dark:bg-[#0F1712] h-full p-5 flex flex-col justify-between shadow-xl border-e border-[#CFE3D5] dark:border-[#2C3D32]">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="font-extrabold text-lg">{displayShopName}</span>
+                <span className="font-black text-lg">{displayShopName}</span>
                 <button
                   type="button"
                   onClick={() => setSideMenuOpen(false)}
-                  className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                  className="w-9 h-9 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="space-y-1.5 text-sm font-bold">
+              <div className="space-y-2 text-sm font-extrabold">
                 <button
                   type="button"
                   onClick={() => {
                     toggleLang();
                     setSideMenuOpen(false);
                   }}
-                  className="w-full flex items-center justify-between px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
                 >
                   <span className="inline-flex items-center gap-3">
-                    <Globe className="w-4 h-4 text-[#FF6A00]" />
+                    <Globe className="w-4 h-4 text-[#15803D]" />
                     {tx(isEn, 'اللغة / Language', 'Language / اللغة')}
                   </span>
-                  <span className="text-xs font-extrabold text-[#FF6A00]">
+                  <span className="text-xs font-black text-[#15803D] dark:text-[#BBF7D0]">
                     {isEn ? 'عربي' : 'English'}
                   </span>
                 </button>
@@ -2211,9 +2469,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     setSideMenuOpen(false);
                     void handleShareMenu();
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
                 >
-                  <Share2 className="w-4 h-4 text-[#FF6A00]" />
+                  <Share2 className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'نسخ رابط المنيو', 'Copy Menu Link')}
                 </button>
                 <a
@@ -2221,7 +2479,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   target="_blank"
                   rel="noreferrer"
                   onClick={() => setSideMenuOpen(false)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start text-emerald-700 dark:text-emerald-400"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] text-start text-[#14532D] dark:text-[#BBF7D0]"
                 >
                   <MessageCircle className="w-4 h-4" />
                   {tx(isEn, 'مشاركة على واتساب', 'Share via WhatsApp')}
@@ -2229,20 +2487,20 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    onToggleDarkMode();
+                    handleToggleMenuTheme();
                     setSideMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
                 >
-                  {darkMode ? <Sun className="w-4 h-4 text-[#FF6A00]" /> : <Moon className="w-4 h-4 text-[#FF6A00]" />}
+                  {effectiveDark ? <Sun className="w-4 h-4 text-[#15803D]" /> : <Moon className="w-4 h-4 text-[#15803D]" />}
                   {tx(isEn, 'تغيير المظهر', 'Toggle Theme')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setSideMenuOpen(false)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
                 >
-                  <Utensils className="w-4 h-4 text-[#FF6A00]" />
+                  <Utensils className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'المنيو', 'Menu')}
                 </button>
                 <button
@@ -2251,9 +2509,9 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     setSideMenuOpen(false);
                     setOrdersPageOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
                 >
-                  <ClipboardList className="w-4 h-4 text-[#FF6A00]" />
+                  <ClipboardList className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'الطلبات', 'My Orders')}
                 </button>
                 <button
@@ -2262,18 +2520,18 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     setSideMenuOpen(false);
                     setAboutModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
                 >
-                  <Info className="w-4 h-4 text-[#FF6A00]" />
+                  <Info className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'عن المطعم', 'About Restaurant')}
                 </button>
                 <a
                   href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
                 >
-                  <Phone className="w-4 h-4 text-[#FF6A00]" />
+                  <Phone className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'تواصل معنا', 'Contact Us')}
                 </a>
               </div>
@@ -2284,24 +2542,24 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
       {/* About Restaurant Modal */}
       {aboutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="sf-card max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">
+              <h3 className="text-lg font-black">
                 {tx(isEn, `عن ${displayShopName}`, `About ${displayShopName}`)}
               </h3>
               <button
                 type="button"
                 onClick={() => setAboutModalOpen(false)}
-                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            <p className="text-sm font-medium text-[#4B5B52] dark:text-[#A3B5AA]">
               {shop.bio || tx(isEn, 'أشهى المأكولات والمشروبات الطازجة يومياً.', 'Freshly prepared food and drinks daily.')}
             </p>
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400 space-y-1">
+            <div className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] space-y-1">
               {shop.address && (
                 <div>
                   {tx(isEn, 'العنوان:', 'Address:')} {shop.city} - {shop.address}
@@ -2318,15 +2576,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       {/* Product Detail Page / Modal */}
       {detailProduct && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-xs"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-xs"
           onClick={() => setDetailProduct(null)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-orange-100 dark:border-slate-800"
+            className="bg-[#FFFFFF] dark:bg-[#18231C] w-full max-w-xl rounded-t-[24px] sm:rounded-[24px] max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-[#CFE3D5] dark:border-[#2C3D32]"
           >
             {/* Large Product Image */}
-            <div className="relative h-60 sm:h-72 bg-orange-50/70 dark:bg-slate-800 shrink-0 overflow-hidden flex items-center justify-center">
+            <div className="relative h-60 sm:h-72 bg-[#DCFCE7] dark:bg-[#173323] shrink-0 overflow-hidden flex items-center justify-center">
               {detailProduct.imageUrl && !brokenImages[detailProduct.id] ? (
                 <img
                   src={detailProduct.imageUrl}
@@ -2338,14 +2596,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <Utensils className="w-16 h-16 text-orange-300" />
+                <Utensils className="w-16 h-16 text-[#15803D] opacity-60" />
               )}
 
               <button
                 type="button"
                 onClick={() => setDetailProduct(null)}
                 aria-label={tx(isEn, 'إغلاق', 'Close')}
-                className="absolute top-3 left-3 w-10 h-10 rounded-full bg-white/90 dark:bg-slate-900/90 text-slate-800 dark:text-white flex items-center justify-center shadow-md"
+                className="absolute top-3 left-3 w-10 h-10 rounded-full bg-white/95 dark:bg-[#18231C]/95 text-[#14201A] dark:text-[#E8F2EB] flex items-center justify-center shadow-md"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2359,7 +2617,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               )}
 
               {detailProduct.isOffer && (
-                <span className="absolute bottom-3 right-3 px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-xs font-extrabold shadow-sm">
+                <span className="absolute bottom-3 right-3 px-3 py-1 rounded-full bg-[#FACC15] text-[#14201A] text-xs font-black shadow-sm">
                   {detailProduct.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
                 </span>
               )}
@@ -2369,21 +2627,21 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             <div className="overflow-y-auto p-5 sm:p-6 space-y-4 flex-1">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1.5">
-                  <span className="text-xs font-extrabold text-[#FF6A00] dark:text-orange-400">
+                  <span className="text-xs font-extrabold text-[#15803D] dark:text-[#BBF7D0]">
                     {detailProduct.category}
                   </span>
-                  <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+                  <h2 className="text-xl sm:text-2xl font-black">
                     {detailProduct.name}
                   </h2>
                 </div>
                 <div className={`${isEn ? 'text-right' : 'text-left'} shrink-0 tabular-nums`}>
-                  <div className="text-xl font-extrabold text-[#FF6A00] dark:text-orange-400">
+                  <div className="text-xl font-black text-[#15803D] dark:text-[#BBF7D0]">
                     {formatMoney(activeDetailUnitPrice, shop.country, undefined, isEn)}
                   </div>
                   {detailProduct.isOffer &&
                     detailProduct.originalPrice &&
                     detailProduct.originalPrice > activeDetailUnitPrice && (
-                      <div className="text-xs font-bold text-slate-400 line-through">
+                      <div className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] line-through">
                         {formatMoney(detailProduct.originalPrice, shop.country, undefined, isEn)}
                       </div>
                     )}
@@ -2391,19 +2649,19 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               </div>
 
               {detailProduct.description && (
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                <p className="text-sm font-medium text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed whitespace-pre-line">
                   {detailProduct.description}
                 </p>
               )}
 
               {/* ONLY shown when the uploaded menu/product actually contains options/weights/offers */}
               {detailOptions.length > 0 && (
-                <div className="space-y-2.5 pt-2 border-t border-orange-100 dark:border-slate-800">
+                <div className="space-y-2.5 pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32]">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                    <span className="text-sm font-extrabold">
                       {tx(isEn, 'اختر من الخيارات المتاحة في المنيو', 'Choose an option')}
                     </span>
-                    <span className="text-xs font-bold text-[#FF6A00] dark:text-orange-400">
+                    <span className="text-xs font-bold text-[#15803D] dark:text-[#BBF7D0]">
                       {tx(isEn, 'مطلوب', 'Required')}
                     </span>
                   </div>
@@ -2415,27 +2673,27 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           key={opt.raw}
                           type="button"
                           onClick={() => setSelectedOptionIndex(idx)}
-                          className={`p-3 rounded-2xl border text-start transition-all flex items-center justify-between gap-2 ${
+                          className={`p-3 rounded-[16px] border-[1.5px] text-start transition-all flex items-center justify-between gap-2 ${
                             active
-                              ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] ring-2 ring-[#FF6A00]/30'
-                              : 'bg-white dark:bg-slate-800 border-orange-100 dark:border-slate-700 hover:border-orange-300'
+                              ? 'bg-[#DCFCE7] dark:bg-[#173323] border-[#15803D] ring-2 ring-[#15803D]/25'
+                              : 'bg-[#F6FBF7] dark:bg-[#0F1712] border-[#CFE3D5] dark:border-[#2C3D32] hover:border-[#15803D]'
                           }`}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span
                               className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
                                 active
-                                  ? 'bg-[#FF6A00] text-white'
-                                  : 'border border-slate-300 dark:border-slate-600'
+                                  ? 'bg-[#15803D] text-white'
+                                  : 'border border-[#CFE3D5] dark:border-[#2C3D32]'
                               }`}
                             >
                               {active && <Check className="w-3 h-3" />}
                             </span>
-                            <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                            <span className="font-extrabold text-sm truncate">
                               {opt.label}
                             </span>
                           </div>
-                          <span className="text-sm font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums shrink-0">
+                          <span className="text-sm font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums shrink-0">
                             {formatMoney(opt.price, shop.country, undefined, isEn)}
                           </span>
                         </button>
@@ -2447,13 +2705,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             </div>
 
             {/* Footer: Quantity +/- & Add to Cart Button */}
-            <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-t border-orange-100 dark:border-slate-800 flex items-center gap-3 shrink-0">
-              <div className="inline-flex items-center gap-2.5 bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 rounded-full px-2.5 py-1.5 shrink-0">
+            <div className="p-4 sm:p-5 bg-[#FFFFFF] dark:bg-[#18231C] border-t border-[#CFE3D5] dark:border-[#2C3D32] flex items-center gap-3 shrink-0">
+              <div className="inline-flex items-center gap-2.5 bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] rounded-full px-2.5 py-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => setDetailQty((q) => q + 1)}
                   aria-label={tx(isEn, 'زيادة الكمية', 'Increase quantity')}
-                  className="w-8 h-8 rounded-full bg-[#FF6A00] text-white flex items-center justify-center"
+                  className="w-8 h-8 rounded-full bg-[#15803D] text-white flex items-center justify-center"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -2464,7 +2722,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   type="button"
                   onClick={() => setDetailQty((q) => Math.max(1, q - 1))}
                   aria-label={tx(isEn, 'إنقاص الكمية', 'Decrease quantity')}
-                  className="w-8 h-8 rounded-full bg-white dark:bg-slate-900 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center"
+                  className="w-8 h-8 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center"
                 >
                   <Minus className="w-4 h-4" />
                 </button>

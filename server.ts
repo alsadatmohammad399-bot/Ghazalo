@@ -596,14 +596,35 @@ async function startServer() {
   });
 
   app.post('/api/store-auth/login', (req: Request, res: Response) => {
-    const body = req.body as { storeSlug?: string; password?: string };
-    const slug = normalizeSlugServer(body.storeSlug || '');
+    const body = req.body as { storeSlug?: string; identifier?: string; password?: string };
+    const rawId = String(body.identifier || body.storeSlug || '').trim().toLowerCase();
+    const slug = normalizeSlugServer(rawId);
+    const digits = rawId.replace(/[^0-9]/g, '');
+    const normDigits =
+      digits.startsWith('20') && digits.length >= 12
+        ? `0${digits.slice(2)}`
+        : digits.startsWith('1') && digits.length === 10
+          ? `0${digits}`
+          : digits;
     const pass = String(body.password || '');
-    const match = Object.values(serverRegistry.stores).find(
-      (s) => s.storeSlug === slug || s.shopId.toLowerCase() === (body.storeSlug || '').trim().toLowerCase()
-    );
+    const match = Object.values(serverRegistry.stores).find((s) => {
+      if (slug && s.storeSlug === slug) return true;
+      if (rawId && s.shopId.toLowerCase() === rawId) return true;
+      if (rawId && s.email && s.email.toLowerCase() === rawId) return true;
+      if (normDigits && s.phone) {
+        const sDigits = s.phone.replace(/[^0-9]/g, '');
+        const sNorm =
+          sDigits.startsWith('20') && sDigits.length >= 12
+            ? `0${sDigits.slice(2)}`
+            : sDigits.startsWith('1') && sDigits.length === 10
+              ? `0${sDigits}`
+              : sDigits;
+        if (sNorm === normDigits) return true;
+      }
+      return false;
+    });
     if (!match || !verifyPasswordScrypt(pass, match.passwordSalt, match.passwordHash)) {
-      res.status(401).json({ ok: false, error: 'عنوان المتجر أو كلمة السر غير صحيحة.' });
+      res.status(401).json({ ok: false, error: 'بيانات الدخول أو كلمة السر غير صحيحة.' });
       return;
     }
     const token = signToken({ role: 'merchant', storeSlug: match.storeSlug, shopId: match.shopId });
@@ -613,6 +634,8 @@ async function startServer() {
       storeSlug: match.storeSlug,
       shopId: match.shopId,
       nameAr: match.nameAr,
+      email: match.email,
+      phone: match.phone,
     });
   });
 
@@ -676,106 +699,6 @@ async function startServer() {
     res.json({ ok: true, storeSlug: match.storeSlug });
   });
 
-  // Phone OTP fallback verification (used if Firebase SMS reCAPTCHA is unavailable in iframe preview)
-  const phoneOtpChallenges = new Map<
-    string,
-    { codeHash: string; expiresAt: number; attempts: number; lastSentAt: number }
-  >();
-
-  function normalizeEgyptE164(raw: string): string {
-    const ascii = String(raw || '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
-    const digits = ascii.replace(/\D/g, '');
-    if (digits.startsWith('201') && digits.length === 12) return `+${digits}`;
-    if (digits.startsWith('01') && digits.length === 11) return `+20${digits.slice(1)}`;
-    if (digits.startsWith('1') && digits.length === 10) return `+20${digits}`;
-    return '';
-  }
-
-  function hashOtp(phone: string, code: string): string {
-    return crypto
-      .createHmac('sha256', TOKEN_SIGNING_SECRET)
-      .update(`${phone}:${code}`)
-      .digest('hex');
-  }
-
-  app.post('/api/phone-otp/send', (req: Request, res: Response) => {
-    const body = req.body as { phone?: string };
-    const e164 = normalizeEgyptE164(body?.phone || '');
-    if (!e164) {
-      res.status(400).json({ ok: false, error: 'يرجى إدخال رقم موبايل مصري صحيح (مثال: 01012345678).' });
-      return;
-    }
-
-    const existing = phoneOtpChallenges.get(e164);
-    if (existing && Date.now() - existing.lastSentAt < 15_000) {
-      res.status(429).json({ ok: false, error: 'يرجى الانتظار قليلاً قبل طلب كود جديد.' });
-      return;
-    }
-
-    const code = String(crypto.randomInt(100000, 1000000));
-    phoneOtpChallenges.set(e164, {
-      codeHash: hashOtp(e164, code),
-      expiresAt: Date.now() + 10 * 60 * 1000,
-      attempts: 0,
-      lastSentAt: Date.now(),
-    });
-
-    res.json({
-      ok: true,
-      phone: e164,
-      expiresInSeconds: 600,
-      ...(!process.env.SMS_PROVIDER_KEY ? { previewCode: code } : {}),
-    });
-  });
-
-  app.post('/api/phone-otp/verify', (req: Request, res: Response) => {
-    const body = req.body as { phone?: string; code?: string };
-    const e164 = normalizeEgyptE164(body?.phone || '');
-    const rawCode = String(body?.code || '')
-      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
-      .replace(/\D/g, '');
-
-    if (!e164 || rawCode.length !== 6) {
-      res.status(400).json({ ok: false, error: 'أدخل رقم الموبايل وكود التحقق المكون من 6 أرقام.' });
-      return;
-    }
-
-    const challenge = phoneOtpChallenges.get(e164);
-    if (!challenge) {
-      res.status(400).json({ ok: false, error: 'لم يتم إرسال كود لهذا الرقم بعد، اطلب كوداً جديداً.' });
-      return;
-    }
-    if (Date.now() > challenge.expiresAt) {
-      phoneOtpChallenges.delete(e164);
-      res.status(400).json({ ok: false, error: 'انتهت صلاحية الكود، اطلب كوداً جديداً.' });
-      return;
-    }
-    if (challenge.attempts >= 5) {
-      phoneOtpChallenges.delete(e164);
-      res.status(429).json({ ok: false, error: 'تم تجاوز عدد المحاولات المسموح، اطلب كوداً جديداً.' });
-      return;
-    }
-
-    const candidateHash = hashOtp(e164, rawCode);
-    const matched =
-      candidateHash.length === challenge.codeHash.length &&
-      crypto.timingSafeEqual(Buffer.from(candidateHash), Buffer.from(challenge.codeHash));
-
-    if (!matched) {
-      challenge.attempts += 1;
-      res.status(401).json({ ok: false, error: 'كود التحقق غير صحيح.' });
-      return;
-    }
-
-    phoneOtpChallenges.delete(e164);
-    const token = signToken({ role: 'merchant', phone: e164 });
-    res.json({
-      ok: true,
-      phone: e164,
-      token,
-    });
-  });
-
   app.get('/api/public-stores/:slug', (req: Request, res: Response) => {
     const rawSlug = decodeURIComponent(String(req.params.slug || '')).trim().toLowerCase();
     const norm = normalizeSlugServer(rawSlug);
@@ -791,7 +714,13 @@ async function startServer() {
       );
 
     if (direct) {
-      res.json({ ok: true, found: true, shop: direct.shop, products: direct.products });
+      res.json({
+        ok: true,
+        found: true,
+        shop: direct.shop,
+        products: direct.products,
+        updatedAt: direct.updatedAt,
+      });
       return;
     }
 
@@ -943,58 +872,137 @@ async function startServer() {
 
       parts.push({ text: promptText });
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: { parts },
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              categories: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-                description: 'أسماء الأقسام مرتبة من العروض والمشويات/اللحوم/الأطباق الرئيسية أولاً إلى الحلويات والمشروبات والمياه أخيراً.',
-              },
-              items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING, description: 'اسم الصنف أو العرض كما في المنيو' },
-                    category: { type: Type.STRING, description: 'اسم القسم' },
-                    price: { type: Type.NUMBER, description: 'السعر الأساسي أو أقل سعر متاح كرقم' },
-                    description: { type: Type.STRING, description: 'الوصف أو تفاصيل العرض أو المكونات المكتوبة كما هي في المنيو' },
-                    photoQuery: {
-                      type: Type.STRING,
-                      description: 'اسم الطبق أو المنتج بالإنجليزية للبحث عن صورة حقيقية له (كلمة أو كلمتان)',
-                    },
-                    variants: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                      description: 'قائمة الخيارات أو الأوزان أو عروض الكميات المذكورة فعلياً في المنيو بصيغة "الاسم - السعر" مثل "2 فرخة - 550" أو "نص كيلو - 215"',
-                    },
-                    isOffer: {
-                      type: Type.BOOLEAN,
-                      description: 'هل هذا الصنف عرض أو باقة توفير مذكورة في المنيو',
-                    },
-                    offerLabel: {
-                      type: Type.STRING,
-                      description: 'شارة العرض القصيرة إن كان عرضاً مثل "عرض خاص" أو "عرض التوفير"',
-                    },
+      const callExtractModel = async (
+        modelName: string,
+        useLowThinking: boolean
+      ): Promise<string> => {
+        const isHydrogen = modelName === 'gemini-4-hydrogen';
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: { parts },
+          config: {
+            ...(isHydrogen
+              ? {
+                  thinkingConfig: {
+                    thinkingLevel: useLowThinking ? ThinkingLevel.LOW : ThinkingLevel.MEDIUM,
                   },
-                  required: ['name', 'category', 'price', 'photoQuery'],
+                }
+              : {}),
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                categories: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description:
+                    'أسماء الأقسام مرتبة من العروض والمشويات/اللحوم/الأطباق الرئيسية أولاً إلى الحلويات والمشروبات والمياه أخيراً.',
+                },
+                items: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: { type: Type.STRING, description: 'اسم الصنف أو العرض كما في المنيو' },
+                      category: { type: Type.STRING, description: 'اسم القسم' },
+                      price: {
+                        type: Type.NUMBER,
+                        description: 'السعر الأساسي أو أقل سعر متاح كرقم',
+                      },
+                      description: {
+                        type: Type.STRING,
+                        description: 'الوصف أو تفاصيل العرض أو المكونات المكتوبة كما هي في المنيو',
+                      },
+                      photoQuery: {
+                        type: Type.STRING,
+                        description:
+                          'اسم الطبق أو المنتج بالإنجليزية للبحث عن صورة حقيقية له (كلمة أو كلمتان)',
+                      },
+                      variants: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING },
+                        description:
+                          'قائمة الخيارات أو الأوزان أو عروض الكميات المذكورة فعلياً في المنيو بصيغة "الاسم - السعر" مثل "2 فرخة - 550" أو "نص كيلو - 215"',
+                      },
+                      isOffer: {
+                        type: Type.BOOLEAN,
+                        description: 'هل هذا الصنف عرض أو باقة توفير مذكورة في المنيو',
+                      },
+                      offerLabel: {
+                        type: Type.STRING,
+                        description: 'شارة العرض القصيرة إن كان عرضاً مثل "عرض خاص" أو "عرض التوفير"',
+                      },
+                    },
+                    required: ['name', 'category', 'price', 'photoQuery'],
+                  },
                 },
               },
+              required: ['categories', 'items'],
             },
-            required: ['categories', 'items'],
           },
-        },
-      });
+        });
+        return response.text ?? '{}';
+      };
 
-      const rawText = (response.text ?? '{}').trim();
-      const parsed = JSON.parse(rawText) as {
+      const isTransientAiError = (err: unknown): boolean => {
+        const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
+        return (
+          msg.includes('503') ||
+          msg.includes('unavailable') ||
+          msg.includes('high demand') ||
+          msg.includes('overloaded') ||
+          msg.includes('429') ||
+          msg.includes('resource_exhausted') ||
+          msg.includes('timeout') ||
+          msg.includes('econnreset')
+        );
+      };
+
+      const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      const attemptChain: Array<{ model: string; lowThinking: boolean; delayBeforeMs: number }> = [
+        { model: 'gemini-4-hydrogen', lowThinking: false, delayBeforeMs: 0 },
+        { model: 'gemini-4-hydrogen', lowThinking: true, delayBeforeMs: 850 },
+        { model: 'gemini-3.1-flash-lite', lowThinking: false, delayBeforeMs: 500 },
+        { model: 'gemini-3.1-flash-lite', lowThinking: false, delayBeforeMs: 1200 },
+      ];
+
+      let responseRawText = '';
+      let lastAiError: unknown = null;
+      for (const step of attemptChain) {
+        if (step.delayBeforeMs > 0) {
+          await sleepMs(step.delayBeforeMs);
+        }
+        try {
+          responseRawText = await callExtractModel(step.model, step.lowThinking);
+          lastAiError = null;
+          break;
+        } catch (err: unknown) {
+          lastAiError = err;
+          const shortErr = err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160);
+          console.warn(`[extract-menu] model=${step.model} transient/error:`, shortErr);
+          if (!isTransientAiError(err)) {
+            throw err;
+          }
+        }
+      }
+
+      if (lastAiError) {
+        throw lastAiError;
+      }
+
+      let rawText = (responseRawText || '{}')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+      const firstBrace = rawText.indexOf('{');
+      const lastBrace = rawText.lastIndexOf('}');
+      if (firstBrace > 0 && lastBrace > firstBrace) {
+        rawText = rawText.slice(firstBrace, lastBrace + 1);
+      }
+
+      interface RawParsedMenu {
         categories?: string[];
         items?: Array<{
           name: string;
@@ -1006,7 +1014,23 @@ async function startServer() {
           isOffer?: boolean;
           offerLabel?: string;
         }>;
-      };
+      }
+
+      let parsed: RawParsedMenu;
+      try {
+        parsed = JSON.parse(rawText || '{}') as RawParsedMenu;
+      } catch {
+        // Salvage complete items if response truncated on a very dense menu page
+        const itemsIdx = rawText.indexOf('"items"');
+        const arrayStart = itemsIdx >= 0 ? rawText.indexOf('[', itemsIdx) : -1;
+        const lastCompleteObjEnd = arrayStart >= 0 ? rawText.lastIndexOf('}') : -1;
+        if (arrayStart >= 0 && lastCompleteObjEnd > arrayStart) {
+          const salvagedSlice = `${rawText.slice(0, lastCompleteObjEnd + 1)}]}`;
+          parsed = JSON.parse(salvagedSlice) as RawParsedMenu;
+        } else {
+          throw new Error('تعذر قراءة بيانات الأصناف المستخرجة، يرجى إعادة المحاولة.');
+        }
+      }
 
       const toAsciiDigits = (s: string) =>
         s.replace(/[٠-٩۰-۹]/g, (ch) => {
@@ -1125,9 +1149,38 @@ async function startServer() {
         items: resolvedItems,
       });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'حدث خطأ أثناء تحليل المنيو بالذكاء الاصطناعي.';
+      const rawMessage = error instanceof Error ? error.message : String(error || '');
+      const lower = rawMessage.toLowerCase();
       console.error('Gemini extract-menu error:', error);
-      res.status(500).json({ error: message });
+
+      if (lower.includes('503') || lower.includes('unavailable') || lower.includes('high demand') || lower.includes('overloaded')) {
+        res.status(503).json({
+          error: 'خدمة تحليل المنيو تشهد ضغطاً مؤقتاً حالياً. اضغط "إعادة المحاولة" بعد لحظات أو ارفع صورة أوضح.',
+        });
+        return;
+      }
+      if (lower.includes('429') || lower.includes('resource_exhausted') || lower.includes('quota')) {
+        res.status(429).json({
+          error: 'تم الوصول للحد الأقصى المؤقت لطلبات الذكاء الاصطناعي. يرجى الانتظار قليلاً والمحاولة مرة أخرى.',
+        });
+        return;
+      }
+      if (lower.includes('unsupported') || lower.includes('invalid argument') || lower.includes('unable to process input image')) {
+        res.status(400).json({
+          error: 'صيغة الصورة غير مدعومة أو تالفة. يرجى استخدام صورة بصيغة JPG أو PNG واضحة.',
+        });
+        return;
+      }
+      if (lower.includes('api_key') || lower.includes('permission_denied') || lower.includes('403')) {
+        res.status(500).json({
+          error: 'يرجى التحقق من صلاحية مفتاح Gemini API في إعدادات الخادم (Secrets).',
+        });
+        return;
+      }
+
+      res.status(500).json({
+        error: 'حدث خطأ غير متوقع أثناء قراءة المنيو. جرب رفع صورة أوضح أو إعادة المحاولة.',
+      });
     }
   });
 

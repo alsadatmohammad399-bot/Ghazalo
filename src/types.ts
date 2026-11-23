@@ -21,7 +21,7 @@ export type SubscriptionStatus =
   | 'expired'
   | 'suspended';
 
-export const BRAND_COLOR = '#FF6A00';
+export const BRAND_COLOR = '#15803D';
 export const ADMIN_EMAIL = 'alsadatmohammad399@gmail.com';
 export const ADMIN_PORTAL_KEY: string =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_PORTAL_KEY) ||
@@ -72,7 +72,7 @@ export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> =
     id: 'classic',
     name: 'كلاسيكي',
     englishName: 'Classic',
-    tagline: 'شبكة متوازنة ببطاقات واضحة وصور جذابة تناسب معظم المطاعم والكافيهات',
+    tagline: 'شبكة متوازنة ببطاقات نعناع ناعمة وصور واضحة تناسب معظم المطاعم والكافيهات',
     badge: 'الافتراضي',
     layoutMode: 'grid',
     cardDensity: 'comfortable',
@@ -81,24 +81,27 @@ export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> =
     showFavoritesButton: true,
     showCategoryKicker: false,
     styles: {
-      pageBackgroundClass: 'bg-white dark:bg-slate-950',
-      contentContainerClass: 'max-w-5xl mx-auto px-4',
-      heroShellClass: 'bg-white dark:bg-slate-900 border-orange-100 dark:border-slate-800 rounded-3xl',
+      pageBackgroundClass: 'bg-[#F6FBF7] dark:bg-[#0F1712]',
+      contentContainerClass: 'max-w-[560px] mx-auto px-4',
+      heroShellClass:
+        'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32] rounded-[24px]',
       offersSectionClass:
-        'bg-gradient-to-l from-orange-50/90 via-white to-amber-50/70 dark:from-orange-950/30 dark:via-slate-900 dark:to-amber-950/20 border-orange-200/80 dark:border-orange-800/50 rounded-3xl',
+        'bg-[#DCFCE7]/60 dark:bg-[#173323]/60 border-[#86EFAC] dark:border-[#2C3D32] rounded-[24px]',
       offersCardClass:
-        'bg-white dark:bg-slate-900 rounded-3xl p-3 border border-orange-200/80 dark:border-slate-800 shadow-xs hover:border-[#FF6A00]',
-      categoryActiveClass: 'glass-btn-primary',
-      categoryIdleClass: 'glass-btn text-slate-700 dark:text-slate-200',
-      gridContainerClass: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5',
+        'bg-[#FFFFFF] dark:bg-[#18231C] rounded-[22px] p-3 border border-[#CFE3D5] dark:border-[#2C3D32] shadow-xs hover:border-[#15803D]',
+      categoryActiveClass: 'bg-[#15803D] text-white border-[1.5px] border-[#15803D]',
+      categoryIdleClass:
+        'bg-[#FFFFFF] dark:bg-[#18231C] text-[#14201A] dark:text-[#E8F2EB] border-[1.5px] border-[#CFE3D5] dark:border-[#2C3D32]',
+      gridContainerClass: 'grid grid-cols-2 gap-2.5',
       listContainerClass: 'space-y-3',
       cardClass:
-        'bg-white dark:bg-slate-900 rounded-3xl p-3 border border-orange-100 dark:border-slate-800 shadow-xs hover:border-[#FF6A00]',
-      cardImageBoxClass: 'relative h-32 sm:h-36 rounded-2xl bg-orange-50/70 dark:bg-slate-800',
-      priceTextClass: 'text-[#FF6A00] dark:text-orange-400',
-      primaryButtonClass: 'glass-btn-primary',
-      badgeClass: 'bg-orange-100/80 dark:bg-slate-700 text-orange-800 dark:text-orange-200',
-      cardPreviewClass: 'bg-white border-orange-200 text-slate-900',
+        'bg-[#DCFCE7] dark:bg-[#173323] rounded-[22px] p-2.5 border border-[#CFE3D5]/60 dark:border-[#2C3D32]',
+      cardImageBoxClass:
+        'relative h-24 sm:h-28 rounded-[16px] bg-[#FFFFFF]/80 dark:bg-[#18231C]',
+      priceTextClass: 'text-[#15803D] dark:text-[#BBF7D0]',
+      primaryButtonClass: 'bg-[#15803D] hover:bg-[#166534] text-white',
+      badgeClass: 'bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]',
+      cardPreviewClass: 'bg-[#DCFCE7] border-[#CFE3D5] text-[#14201A]',
     },
   },
   modern: {
@@ -115,29 +118,29 @@ export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> =
     showCategoryKicker: true,
     styles: {
       pageBackgroundClass:
-        'bg-gradient-to-b from-slate-50 via-orange-50/25 to-white dark:from-slate-950 dark:via-slate-950 dark:to-slate-900',
-      contentContainerClass: 'max-w-5xl mx-auto px-4',
+        'bg-[#F6FBF7] dark:bg-[#0F1712]',
+      contentContainerClass: 'max-w-4xl mx-auto px-4',
       heroShellClass:
-        'bg-gradient-to-br from-white via-orange-50/35 to-amber-50/20 dark:from-slate-900 dark:via-slate-900 dark:to-orange-950/25 border-orange-200/80 dark:border-slate-700 rounded-3xl shadow-sm',
+        'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32] rounded-[24px] shadow-sm',
       offersSectionClass:
-        'bg-gradient-to-l from-[#FF6A00] via-orange-600 to-slate-900 text-white border-orange-500/60 rounded-3xl shadow-md',
+        'bg-[#14201A] text-white border-[#2C3D32] rounded-[24px] shadow-md',
       offersCardClass:
-        'bg-white/95 dark:bg-slate-900 text-slate-900 dark:text-white rounded-3xl p-3.5 border border-orange-200/80 dark:border-orange-800/60 shadow-sm hover:border-amber-400',
+        'bg-[#FFFFFF] dark:bg-[#18231C] text-[#14201A] dark:text-[#E8F2EB] rounded-[22px] p-3.5 border border-[#CFE3D5] dark:border-[#2C3D32] shadow-sm hover:border-[#FACC15]',
       categoryActiveClass:
-        'bg-slate-900 dark:bg-[#FF6A00] text-white shadow-sm border border-slate-900 dark:border-orange-400',
+        'bg-[#14201A] dark:bg-[#15803D] text-white shadow-sm border border-[#14201A] dark:border-[#15803D]',
       categoryIdleClass:
-        'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 hover:border-orange-300',
-      gridContainerClass: 'grid grid-cols-1 md:grid-cols-2 gap-4',
-      listContainerClass: 'space-y-3.5',
+        'bg-[#FFFFFF] dark:bg-[#18231C] text-[#14201A] dark:text-[#E8F2EB] border border-[#CFE3D5] dark:border-[#2C3D32] hover:border-[#15803D]',
+      gridContainerClass: 'grid grid-cols-1 md:grid-cols-2 gap-3.5',
+      listContainerClass: 'space-y-3',
       cardClass:
-        'bg-white dark:bg-slate-900 rounded-3xl p-4 border border-slate-200/90 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-orange-300',
+        'bg-[#FFFFFF] dark:bg-[#18231C] rounded-[24px] p-4 border border-[#CFE3D5] dark:border-[#2C3D32] shadow-sm hover:border-[#15803D]',
       cardImageBoxClass:
-        'relative w-28 h-28 sm:w-36 sm:h-36 rounded-2xl bg-slate-100 dark:bg-slate-800 shrink-0',
-      priceTextClass: 'text-[#FF6A00] dark:text-orange-400',
+        'relative w-28 h-28 sm:w-32 sm:h-32 rounded-[18px] bg-[#DCFCE7] dark:bg-[#173323] shrink-0',
+      priceTextClass: 'text-[#15803D] dark:text-[#BBF7D0]',
       primaryButtonClass:
-        'bg-slate-900 hover:bg-[#FF6A00] dark:bg-[#FF6A00] dark:hover:bg-orange-500 text-white',
-      badgeClass: 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300',
-      cardPreviewClass: 'bg-slate-900 border-orange-500/40 text-white',
+        'bg-[#14201A] hover:bg-[#15803D] dark:bg-[#15803D] dark:hover:bg-[#166534] text-white',
+      badgeClass: 'bg-[#FEF9C3] dark:bg-amber-950/70 text-[#14201A] dark:text-amber-200',
+      cardPreviewClass: 'bg-[#14201A] border-[#2C3D32] text-white',
     },
   },
   minimal: {
@@ -153,30 +156,30 @@ export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> =
     showFavoritesButton: false,
     showCategoryKicker: false,
     styles: {
-      pageBackgroundClass: 'bg-[#FAFAF9] dark:bg-slate-950',
-      contentContainerClass: 'max-w-4xl mx-auto px-4',
+      pageBackgroundClass: 'bg-[#F6FBF7] dark:bg-[#0F1712]',
+      contentContainerClass: 'max-w-[560px] mx-auto px-4',
       heroShellClass:
-        'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 rounded-2xl',
+        'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32] rounded-[22px]',
       offersSectionClass:
-        'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 rounded-2xl',
+        'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32] rounded-[22px]',
       offersCardClass:
-        'bg-stone-50/70 dark:bg-slate-800/70 rounded-2xl p-3 border border-slate-200/80 dark:border-slate-700 hover:border-slate-400',
+        'bg-[#F6FBF7] dark:bg-[#173323] rounded-[18px] p-3 border border-[#CFE3D5] dark:border-[#2C3D32] hover:border-[#15803D]',
       categoryActiveClass:
-        'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border border-slate-900 dark:border-white',
+        'bg-[#15803D] text-white border border-[#15803D]',
       categoryIdleClass:
-        'bg-transparent text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900',
+        'bg-transparent text-[#4B5B52] dark:text-[#A3B5AA] border border-[#CFE3D5] dark:border-[#2C3D32] hover:bg-[#FFFFFF] dark:hover:bg-[#18231C]',
       gridContainerClass: 'grid grid-cols-1 sm:grid-cols-2 gap-3',
       listContainerClass:
-        'divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden',
+        'divide-y divide-[#CFE3D5] dark:divide-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] rounded-[22px] border border-[#CFE3D5] dark:border-[#2C3D32] overflow-hidden',
       cardClass:
-        'bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-slate-200/80 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600',
+        'bg-[#FFFFFF] dark:bg-[#18231C] rounded-[20px] p-3.5 border border-[#CFE3D5] dark:border-[#2C3D32] hover:border-[#15803D]',
       cardImageBoxClass:
-        'relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-stone-100 dark:bg-slate-800 shrink-0',
-      priceTextClass: 'text-slate-900 dark:text-white',
+        'relative w-16 h-16 sm:w-20 sm:h-20 rounded-[14px] bg-[#DCFCE7] dark:bg-[#173323] shrink-0',
+      priceTextClass: 'text-[#14201A] dark:text-[#E8F2EB]',
       primaryButtonClass:
-        'bg-slate-900 hover:bg-[#FF6A00] dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900',
-      badgeClass: 'bg-stone-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300',
-      cardPreviewClass: 'bg-[#FAFAF9] border-slate-300 text-slate-900',
+        'bg-[#15803D] hover:bg-[#166534] text-white',
+      badgeClass: 'bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]',
+      cardPreviewClass: 'bg-[#FFFFFF] border-[#CFE3D5] text-[#14201A]',
     },
   },
   compact: {
@@ -192,27 +195,27 @@ export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> =
     showFavoritesButton: false,
     showCategoryKicker: false,
     styles: {
-      pageBackgroundClass: 'bg-slate-50 dark:bg-slate-950',
-      contentContainerClass: 'max-w-6xl mx-auto px-3 sm:px-4',
+      pageBackgroundClass: 'bg-[#F6FBF7] dark:bg-[#0F1712]',
+      contentContainerClass: 'max-w-4xl mx-auto px-3 sm:px-4',
       heroShellClass:
-        'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl',
+        'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32] rounded-[20px]',
       offersSectionClass:
-        'bg-orange-50/70 dark:bg-orange-950/20 border-orange-200 dark:border-orange-900/50 rounded-2xl',
+        'bg-[#DCFCE7]/70 dark:bg-[#173323]/60 border-[#86EFAC] dark:border-[#2C3D32] rounded-[20px]',
       offersCardClass:
-        'bg-white dark:bg-slate-900 rounded-2xl p-2.5 border border-orange-200 dark:border-slate-800 hover:border-[#FF6A00]',
-      categoryActiveClass: 'glass-btn-primary',
+        'bg-[#FFFFFF] dark:bg-[#18231C] rounded-[18px] p-2.5 border border-[#CFE3D5] dark:border-[#2C3D32] hover:border-[#15803D]',
+      categoryActiveClass: 'bg-[#15803D] text-white border border-[#15803D]',
       categoryIdleClass:
-        'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700',
+        'bg-[#FFFFFF] dark:bg-[#18231C] text-[#14201A] dark:text-[#E8F2EB] border border-[#CFE3D5] dark:border-[#2C3D32]',
       gridContainerClass: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5',
       listContainerClass: 'space-y-2',
       cardClass:
-        'bg-white dark:bg-slate-900 rounded-2xl p-2.5 border border-slate-200/90 dark:border-slate-800 hover:border-[#FF6A00]',
+        'bg-[#FFFFFF] dark:bg-[#18231C] rounded-[18px] p-2.5 border border-[#CFE3D5] dark:border-[#2C3D32] hover:border-[#15803D]',
       cardImageBoxClass:
-        'relative w-14 h-14 rounded-xl bg-orange-50/80 dark:bg-slate-800 shrink-0',
-      priceTextClass: 'text-[#FF6A00] dark:text-orange-400',
-      primaryButtonClass: 'glass-btn-primary',
-      badgeClass: 'bg-orange-50 dark:bg-slate-800 text-orange-700 dark:text-orange-300',
-      cardPreviewClass: 'bg-slate-50 border-slate-300 text-slate-900',
+        'relative w-14 h-14 rounded-[12px] bg-[#DCFCE7] dark:bg-[#173323] shrink-0',
+      priceTextClass: 'text-[#15803D] dark:text-[#BBF7D0]',
+      primaryButtonClass: 'bg-[#15803D] hover:bg-[#166534] text-white',
+      badgeClass: 'bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]',
+      cardPreviewClass: 'bg-[#F6FBF7] border-[#CFE3D5] text-[#14201A]',
     },
   },
 };
@@ -484,6 +487,7 @@ export interface DemoRestaurantRecord {
   enablePackagingFee: boolean;
   packagingFee: number;
   createdAt: number;
+  updatedAt?: number;
   shop: Shop;
   products?: Product[];
 }

@@ -65,48 +65,53 @@ export const ShareQrPage: React.FC<ShareQrPageProps> = ({
   };
 
   return (
-    <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-slate-50/70 dark:bg-slate-950 p-4 sm:p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800">
+    <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] pb-20">
+      <header className="sticky top-0 z-20 bg-[#FFFFFF] dark:bg-[#18231C] border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+        <div className="max-w-[560px] mx-auto px-4 py-2.5 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={onBackDashboard}
-            className="inline-flex items-center gap-1.5 text-sm font-bold text-[#FF6A00]"
+            className="sf-btn min-h-[40px] px-3 text-xs text-[#15803D] dark:text-[#BBF7D0]"
           >
             {isEn ? <ArrowLeft className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
             {tx(isEn, 'لوحة التحكم', 'Dashboard')}
           </button>
-          <h1 className="text-lg sm:text-xl font-extrabold">
-            {tx(isEn, 'مشاركة المنيو', 'Share Menu & QR')}
+          <h1 className="text-lg font-extrabold text-[#14201A] dark:text-[#E8F2EB]">
+            {tx(isEn, 'رمز QR للمنيو', 'Menu QR Code')}
           </h1>
-          <div className="w-20" />
+          <div className="w-16" />
         </div>
+      </header>
 
-        <p className="text-center text-sm sm:text-base font-bold text-slate-600 dark:text-slate-300">
+      <main className="max-w-[560px] mx-auto px-4 pt-3.5 space-y-4">
+        <p className="text-center text-xs sm:text-sm font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
           {tx(
             isEn,
-            'رمز QR للمنيو لكل طاولة، رمز طاولة، ربط الطلب بالطاولة',
+            'رمز QR للمنيو لكل طاولة · رمز طاولة · ربط الطلب بالطاولة',
             'Generate menu QR codes and per-table dine-in ordering links'
           )}
         </p>
 
         {/* Main Menu QR Card */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-orange-100 dark:border-slate-800 shadow-xs text-center space-y-4">
+        <div className="sf-card p-6 text-center space-y-4">
           <div className="flex justify-center">
             <QrCodeImage value={baseMenuUrl} size={200} />
           </div>
           <div className="space-y-1">
-            <h2 className="text-xl font-extrabold">{tx(isEn, 'المنيو', 'Digital Menu')}</h2>
-            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+            <h2 className="text-xl font-extrabold text-[#14201A] dark:text-[#E8F2EB]">
+              {tx(isEn, 'المنيو', 'Digital Menu')}
+            </h2>
+            <p className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
               {tx(isEn, 'امسح لفتح المنيو', 'Scan to open menu')}
             </p>
           </div>
-          <div className="max-w-md mx-auto space-y-2.5">
+
+          <div className="space-y-2.5">
             <div className="flex flex-wrap items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={() => void handleCopy()}
-                className="px-4 py-2.5 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+                className="sf-btn-primary text-xs px-4"
               >
                 {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 <span>
@@ -119,7 +124,7 @@ export const ShareQrPage: React.FC<ShareQrPageProps> = ({
                 href={getWhatsAppShareUrl(baseMenuUrl)}
                 target="_blank"
                 rel="noreferrer"
-                className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
+                className="sf-btn-mint text-xs px-4"
               >
                 <MessageCircle className="w-4 h-4" />
                 <span>{tx(isEn, 'مشاركة واتساب', 'Share on WhatsApp')}</span>
@@ -131,29 +136,29 @@ export const ShareQrPage: React.FC<ShareQrPageProps> = ({
               dir="ltr"
               value={baseMenuUrl}
               onClick={(e) => (e.target as HTMLInputElement).select()}
-              className="w-full px-3 py-2 rounded-xl bg-orange-50/50 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 text-xs font-mono-num text-center text-[#FF6A00]"
+              className="sf-inp min-h-[42px] text-xs font-mono-num text-center text-[#15803D] dark:text-[#BBF7D0]"
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto pt-2">
+          <div className="grid grid-cols-3 gap-2.5 pt-1">
             <button
               type="button"
               onClick={() => void downloadQrPng(baseMenuUrl, `${shop.nameAr}-qr.png`)}
-              className="py-3 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-sm"
+              className="sf-btn-primary text-sm"
             >
               PNG
             </button>
             <button
               type="button"
               onClick={() => void downloadQrSvg(baseMenuUrl, `${shop.nameAr}-qr.svg`)}
-              className="py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-extrabold text-sm"
+              className="sf-btn text-sm"
             >
               SVG
             </button>
             <button
               type="button"
               onClick={() => void downloadQrPdf(baseMenuUrl, shop.nameEn || shop.nameAr)}
-              className="py-3 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 font-extrabold text-sm"
+              className="sf-btn text-sm"
             >
               PDF
             </button>
@@ -161,43 +166,45 @@ export const ShareQrPage: React.FC<ShareQrPageProps> = ({
         </div>
 
         {/* Tables Card */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-orange-100 dark:border-slate-800 shadow-xs space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-extrabold">{tx(isEn, 'رموز الطاولات', 'Table QR Codes')}</h2>
-            <form onSubmit={handleAddTable} className="flex items-center gap-2">
-              <input
-                type="text"
-                value={newTableName}
-                onChange={(e) => setNewTableName(e.target.value)}
-                placeholder={tx(isEn, 'مثال: طاولة 1', 'e.g. Table 1')}
-                className="px-3.5 py-2 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
-              />
-              <button
-                type="submit"
-                disabled={adding}
-                className="px-4 py-2 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-bold text-sm inline-flex items-center gap-1"
-              >
-                <Plus className="w-4 h-4" />
-                {tx(isEn, 'إضافة طاولة', 'Add Table')}
-              </button>
-            </form>
-          </div>
+        <div className="sf-card p-5 space-y-4">
+          <h2 className="text-base font-extrabold text-[#14201A] dark:text-[#E8F2EB]">
+            {tx(isEn, 'الطاولات', 'Tables')}
+          </h2>
 
           {tables.length === 0 ? (
-            <div className="text-center py-8 text-sm font-bold text-slate-500 dark:text-slate-400">
+            <div className="text-center py-4 text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
               {tx(isEn, 'لا توجد طاولات بعد', 'No tables added yet')}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="space-y-2.5">
               {tables.map((tbl) => {
                 const tableUrl = `${baseMenuUrl}?table=${encodeURIComponent(tbl.label)}`;
                 return (
                   <div
                     key={tbl.id}
-                    className="rounded-2xl p-4 border border-orange-100 dark:border-slate-800 bg-orange-50/30 dark:bg-slate-800/50 text-center space-y-3"
+                    className="rounded-2xl p-3 border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] flex items-center justify-between gap-3"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-sm">{tbl.label}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="shrink-0 bg-white p-1 rounded-xl border border-[#CFE3D5]">
+                        <QrCodeImage value={tableUrl} size={56} />
+                      </div>
+                      <span className="font-extrabold text-sm truncate">{tbl.label}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => void downloadQrPng(tableUrl, `${tbl.label}-qr.png`)}
+                        className="sf-btn min-h-[40px] px-3 text-xs"
+                      >
+                        PNG
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenStorefront(tbl.label)}
+                        className="sf-btn-mint min-h-[40px] px-3 text-xs"
+                      >
+                        {tx(isEn, 'فتح', 'Open')}
+                      </button>
                       <button
                         type="button"
                         onClick={() =>
@@ -205,29 +212,10 @@ export const ShareQrPage: React.FC<ShareQrPageProps> = ({
                             ? onLocalTableDelete(tbl.id)
                             : void deleteShopTable(shop.id, tbl.id)
                         }
-                        className="text-slate-400 hover:text-amber-600"
+                        className="sf-btn min-h-[40px] w-10 px-0 text-[#4B5B52] hover:text-amber-700"
                         aria-label={tx(isEn, 'حذف الطاولة', 'Delete table')}
                       >
                         <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="flex justify-center">
-                      <QrCodeImage value={tableUrl} size={130} />
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void downloadQrPng(tableUrl, `${tbl.label}-qr.png`)}
-                        className="flex-1 py-2 rounded-xl bg-[#FF6A00] text-white font-bold text-xs"
-                      >
-                        PNG
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onOpenStorefront(tbl.label)}
-                        className="flex-1 py-2 rounded-xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 font-bold text-xs"
-                      >
-                        {tx(isEn, 'فتح', 'Open')}
                       </button>
                     </div>
                   </div>
@@ -235,8 +223,26 @@ export const ShareQrPage: React.FC<ShareQrPageProps> = ({
               })}
             </div>
           )}
+
+          <form onSubmit={handleAddTable} className="flex items-center gap-2 pt-1">
+            <input
+              type="text"
+              value={newTableName}
+              onChange={(e) => setNewTableName(e.target.value)}
+              placeholder={tx(isEn, 'مثال: طاولة 1', 'e.g. Table 1')}
+              className="sf-inp flex-1"
+            />
+            <button
+              type="submit"
+              disabled={adding}
+              className="sf-btn-primary text-xs px-4 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              {tx(isEn, 'إضافة طاولة', 'Add Table')}
+            </button>
+          </form>
         </div>
-      </div>
+      </main>
     </div>
   );
 };

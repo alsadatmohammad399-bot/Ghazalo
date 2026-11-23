@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
 import {
   BarChart3,
-  Bell,
   Boxes,
+  Bell,
   Check,
   Copy,
-  CreditCard,
   Edit3,
-  ExternalLink,
+  Eye,
   Globe,
   Home,
   ImagePlus,
@@ -21,6 +19,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  Phone,
   Plus,
   QrCode,
   Settings,
@@ -30,10 +29,11 @@ import {
   Sun,
   Tag,
   Trash2,
-  Upload,
   Utensils,
   X,
 } from 'lucide-react';
+import { MenuTemplateShowcase } from '../components/MenuTemplateShowcase';
+import { MultiMenuUploader } from '../components/MultiMenuUploader';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
 import { auth } from '../firebase';
@@ -52,7 +52,6 @@ import {
 } from '../utils/calculations';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
-import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { getCategoryCulinaryRank, sortProductsCulinary } from '../utils/menuSorting';
 import { getProductOptions, parseVariantsInput } from '../utils/productVariants';
 import {
@@ -66,8 +65,6 @@ import {
   findLocalRestaurantBySlugOrShopId,
   shopToDemoRecord,
   upsertLocalRestaurant,
-  type GhazaloUserSession,
-  type VisibleStoreItem,
 } from '../utils/storeRegistry';
 import {
   getShopDisplayName,
@@ -79,8 +76,8 @@ import {
 import {
   SUBSCRIPTION_PRICING,
   SUPPORT_CONTACT,
+  getMenuTemplateConfig,
   normalizeMenuTemplateId,
-  type DemoRestaurantRecord,
   type ExtractedMenuItem,
   type MenuTemplateId,
   type Order,
@@ -94,10 +91,6 @@ interface DashboardPageProps {
   orders: Order[];
   userName: string;
   userEmail: string;
-  ghazaloUser?: GhazaloUserSession | null;
-  availableStores?: VisibleStoreItem[];
-  onSelectStore?: (record: DemoRestaurantRecord) => void;
-  onCreateNewStore?: (restaurantName: string) => void;
   isAdminUser?: boolean;
   forceZeroFeesGlobally?: boolean;
   darkMode: boolean;
@@ -118,10 +111,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   orders,
   userName,
   userEmail,
-  ghazaloUser,
-  availableStores = [],
-  onSelectStore,
-  onCreateNewStore,
   isAdminUser = false,
   forceZeroFeesGlobally = false,
   darkMode,
@@ -137,17 +126,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
-  const [createStoreOpen, setCreateStoreOpen] = useState(false);
-  const [newStoreNameInput, setNewStoreNameInput] = useState('');
   const [productsModalOpen, setProductsModalOpen] = useState(false);
   const [offersModalOpen, setOffersModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [designModalOpen, setDesignModalOpen] = useState(false);
   const [reportsModalOpen, setReportsModalOpen] = useState(false);
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState(false);
+  const [contactModalOpen, setContactModalOpen] = useState(false);
   const [selectedSubscriptionPlan, setSelectedSubscriptionPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [menuLinkCopied, setMenuLinkCopied] = useState(false);
   const { isEn, setLang } = useUiLang();
   const [themePref, setThemePref] = useState<'فاتح' | 'داكن' | 'النظام'>(darkMode ? 'داكن' : 'فاتح');
+
+  const latestProductsRef = useRef<Product[]>(products);
+  useEffect(() => {
+    latestProductsRef.current = products;
+  }, [products]);
 
   // Product Form State
   const [prodName, setProdName] = useState('');
@@ -174,8 +168,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [offerLabel, setOfferLabel] = useState('عرض خاص');
   const [addingOffer, setAddingOffer] = useState(false);
 
-  // AI Upload inside Products Manager
-  const aiFileRef = useRef<HTMLInputElement | null>(null);
+  // Photo Backfill message inside Products Manager
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
 
@@ -188,7 +181,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [editTemplate, setEditTemplate] = useState<MenuTemplateId>(
     normalizeMenuTemplateId(shop.menuTemplate)
   );
-  const [editThemeColor, setEditThemeColor] = useState(shop.themeColor || 'برتقالي');
+  const [editThemeColor, setEditThemeColor] = useState(shop.themeColor || 'أخضر');
+  const [editThemeMode, setEditThemeMode] = useState<'light' | 'dark'>(
+    shop.themeMode === 'dark' ? 'dark' : 'light'
+  );
   const [editLogoUrl, setEditLogoUrl] = useState(shop.logoUrl || '');
   const [editShowLogoOnItems, setEditShowLogoOnItems] = useState(
     shop.showLogoOnItems !== undefined ? shop.showLogoOnItems : true
@@ -196,6 +192,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [logoError, setLogoError] = useState('');
   const [editCoverImage, setEditCoverImage] = useState(shop.coverImage || '');
   const [coverError, setCoverError] = useState('');
+  const [designSavedToast, setDesignSavedToast] = useState('');
 
   // Delivery & Optional Fees (All OFF by default)
   const [editDeliveryFee, setEditDeliveryFee] = useState(String(shop.deliveryFee ?? 0));
@@ -220,12 +217,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [savingSettings, setSavingSettings] = useState(false);
 
   useEffect(() => {
-    if (!settingsModalOpen) return;
+    if (!settingsModalOpen && !designModalOpen) return;
     setEditNameAr(shop.nameAr);
     setEditWhatsapp(shop.whatsapp || '');
     setEditAddress(shop.address || '');
     setEditTemplate(normalizeMenuTemplateId(shop.menuTemplate));
-    setEditThemeColor(shop.themeColor || 'برتقالي');
+    setEditThemeColor(shop.themeColor || 'أخضر');
+    setEditThemeMode(shop.themeMode === 'dark' ? 'dark' : 'light');
     setEditLogoUrl(shop.logoUrl || '');
     setEditShowLogoOnItems(shop.showLogoOnItems !== undefined ? shop.showLogoOnItems : true);
     setEditCoverImage(shop.coverImage || '');
@@ -242,9 +240,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setEditEnablePackagingFee(Boolean(shop.enablePackagingFee));
     setEditPackagingFee(shop.packagingFee ? String(shop.packagingFee) : '0');
     setDeliverySavedToast('');
+    setDesignSavedToast('');
     setLogoError('');
     setCoverError('');
-  }, [settingsModalOpen, shop]);
+  }, [settingsModalOpen, designModalOpen, shop]);
 
   const storeSlug = useMemo(() => deriveShopSlug(shop), [shop]);
   const menuUrl = getAbsoluteMenuUrl(shop);
@@ -267,7 +266,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   );
 
   const persistShopLocal = (updates: Partial<Shop>): Shop => {
-    const updatedShop: Shop = { ...shop, ...updates };
+    const updatedShop: Shop = { ...shop, ...updates, updatedAt: Date.now() };
     const existing = findLocalRestaurantBySlugOrShopId(shop.id) || findLocalRestaurantBySlugOrShopId(storeSlug);
     upsertLocalRestaurant(
       shopToDemoRecord(
@@ -279,19 +278,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           resetCode: existing?.resetCode,
           resetCodeExpiresAt: existing?.resetCodeExpiresAt,
         },
-        products
+        latestProductsRef.current
       )
     );
-    void syncPublicStoreSnapshot(updatedShop, products);
+    void syncPublicStoreSnapshot(updatedShop, latestProductsRef.current);
     onShopUpdated?.(updatedShop);
     return updatedShop;
   };
 
   const persistProductsLocal = (nextProducts: Product[]) => {
+    latestProductsRef.current = nextProducts;
+    const updatedShop: Shop = { ...shop, updatedAt: Date.now() };
     const existing = findLocalRestaurantBySlugOrShopId(shop.id) || findLocalRestaurantBySlugOrShopId(storeSlug);
     upsertLocalRestaurant(
       shopToDemoRecord(
-        shop,
+        updatedShop,
         {
           email: existing?.email || userEmail,
           phone: existing?.phone || shop.whatsapp || '',
@@ -302,7 +303,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         nextProducts
       )
     );
-    void syncPublicStoreSnapshot(shop, nextProducts);
+    void syncPublicStoreSnapshot(updatedShop, nextProducts);
     onProductsUpdated?.(nextProducts);
   };
 
@@ -625,135 +626,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     }
   };
 
-  const handleAiMenuUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (selectedFiles.length === 0) return;
-    setAiBusy(true);
-    setAiMessage('');
-
-    try {
-      const preparedFiles = await Promise.all(
-        selectedFiles.map(async (file) => {
-          const lowerName = file.name.toLowerCase();
-          if (
-            lowerName.endsWith('.xlsx') ||
-            lowerName.endsWith('.xls') ||
-            lowerName.endsWith('.csv')
-          ) {
-            const buf = await file.arrayBuffer();
-            const wb = XLSX.read(buf, { type: 'array' });
-            const csvText = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
-            return { fileName: file.name, textContent: csvText };
-          }
-          if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
-            const base64Data = await new Promise<string>((resolve, reject) => {
-              const r = new FileReader();
-              r.onload = () => {
-                const s = String(r.result || '');
-                resolve(s.includes(',') ? s.split(',')[1] : s);
-              };
-              r.onerror = reject;
-              r.readAsDataURL(file);
-            });
-            return { fileName: file.name, mimeType: 'application/pdf', base64Data };
-          }
-
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const r = new FileReader();
-            r.onload = () => resolve(String(r.result || ''));
-            r.onerror = reject;
-            r.readAsDataURL(file);
-          });
-          const compressedUrl = await new Promise<string>((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-              const maxDim = 2000;
-              if (img.width <= maxDim && img.height <= maxDim) {
-                resolve(dataUrl);
-                return;
-              }
-              const scale = Math.min(maxDim / img.width, maxDim / img.height);
-              const canvas = document.createElement('canvas');
-              canvas.width = Math.round(img.width * scale);
-              canvas.height = Math.round(img.height * scale);
-              const ctx = canvas.getContext('2d');
-              if (!ctx) {
-                resolve(dataUrl);
-                return;
-              }
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              resolve(canvas.toDataURL('image/jpeg', 0.85));
-            };
-            img.onerror = () => resolve(dataUrl);
-            img.src = dataUrl;
-          });
-          const mimeMatch = compressedUrl.match(/^data:([^;]+);/);
-          const mimeType = mimeMatch ? mimeMatch[1] : file.type || 'image/jpeg';
-          const commaIdx = compressedUrl.indexOf(',');
-          const base64Data = commaIdx >= 0 ? compressedUrl.slice(commaIdx + 1) : compressedUrl;
-          return { fileName: file.name, mimeType, base64Data };
-        })
-      );
-
-      const res = await fetch('/api/ai/extract-menu', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          files: preparedFiles,
-          businessName: shop.nameAr,
-          language: shop.menuLanguage || 'العربية',
-        }),
-      });
-      const data = (await res.json()) as { items?: ExtractedMenuItem[]; error?: string };
-      if (!res.ok) throw new Error(data.error || 'تعذر قراءة المنيو');
-      if (data.items && data.items.length > 0) {
-        const addedLocal: Product[] = data.items.map((item, idx) => ({
-          id: `prod-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
-          shopId: shop.id,
-          shopOwnerId: shop.ownerId,
-          name: item.name,
-          category: item.category || 'أصناف متنوعة',
-          price: Number(item.price) || 0,
-          description: item.description || '',
-          variants: item.variants || [],
-          imageUrl: item.imageUrl || resolveDishPhotoClient(item.name, item.category || ''),
-          available: true,
-          sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : idx,
-          isOffer: Boolean(item.isOffer),
-          originalPrice: item.originalPrice,
-          offerLabel: item.offerLabel,
-        }));
-        persistProductsLocal([...addedLocal, ...products]);
-        if (canUseFirestore) {
-          try {
-            await addProductsBatch(shop.id, shop.ownerId, data.items);
-          } catch {
-            // persisted locally
-          }
-        }
-        setAiMessage(
-          tx(
-            isEn,
-            `تم استخراج ${data.items.length} صنف من ${selectedFiles.length} ملف بالذكاء الاصطناعي بنجاح`,
-            `Successfully extracted ${data.items.length} items from ${selectedFiles.length} file(s) with AI`
-          )
-        );
-      } else {
-        setAiMessage(
-          tx(
-            isEn,
-            'لم يتم العثور على أصناف في الملفات المرفوعة',
-            'No menu items were found in the uploaded files'
-          )
-        );
+  const handleExtractedProductsChunk = async (items: ExtractedMenuItem[]) => {
+    if (!items || items.length === 0) return;
+    const addedLocal: Product[] = items.map((item, idx) => ({
+      id: `prod-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+      shopId: shop.id,
+      shopOwnerId: shop.ownerId,
+      name: item.name,
+      category: item.category || 'أصناف متنوعة',
+      price: Number(item.price) || 0,
+      description: item.description || '',
+      variants: item.variants || [],
+      imageUrl: item.imageUrl || resolveDishPhotoClient(item.name, item.category || ''),
+      available: true,
+      sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : idx,
+      isOffer: Boolean(item.isOffer),
+      originalPrice: item.originalPrice,
+      offerLabel: item.offerLabel,
+    }));
+    const merged = [...addedLocal, ...latestProductsRef.current];
+    persistProductsLocal(merged);
+    if (canUseFirestore) {
+      try {
+        await addProductsBatch(shop.id, shop.ownerId, items);
+      } catch {
+        // persisted locally and synced to public snapshot
       }
-    } catch (err: unknown) {
-      setAiMessage(
-        err instanceof Error ? err.message : tx(isEn, 'حدث خطأ', 'An error occurred')
-      );
-    } finally {
-      setAiBusy(false);
     }
   };
 
@@ -767,6 +665,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       address: editAddress.trim(),
       menuTemplate: editTemplate,
       themeColor: editThemeColor,
+      themeMode: editThemeMode,
       logoUrl: editLogoUrl,
       showLogoOnItems: Boolean(editLogoUrl && editShowLogoOnItems),
       coverImage: editCoverImage,
@@ -783,6 +682,36 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       enablePackagingFee: Boolean(editEnablePackagingFee),
       packagingFee: editEnablePackagingFee ? Math.max(0, Number(editPackagingFee) || 0) : 0,
     };
+  };
+
+  const handleSaveDesignOnly = async () => {
+    setSavingSettings(true);
+    setDesignSavedToast('');
+    try {
+      const updates: Partial<Shop> = {
+        menuTemplate: editTemplate,
+        themeColor: editThemeColor,
+        themeMode: editThemeMode,
+      };
+      const updatedShop = persistShopLocal(updates);
+      if (canUseFirestore) {
+        try {
+          await updateShop(shop.id, updates);
+        } catch {
+          // local + public snapshot already synced
+        }
+      }
+      await syncPublicStoreSnapshot(updatedShop, latestProductsRef.current);
+      setDesignSavedToast(
+        tx(
+          isEn,
+          'تم تفعيل القالب والمظهر وتحديث المنيو العام فوراً ✅',
+          'Template & appearance activated on your public menu ✅'
+        )
+      );
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
   const handleSaveDeliveryOnly = async () => {
@@ -811,7 +740,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setSavingSettings(true);
     try {
       const updates = buildSettingsUpdates();
-      persistShopLocal(updates);
+      const updatedShop = persistShopLocal(updates);
       if (canUseFirestore) {
         try {
           await updateShop(shop.id, updates);
@@ -819,6 +748,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           // saved locally
         }
       }
+      await syncPublicStoreSnapshot(updatedShop, latestProductsRef.current);
       setSettingsModalOpen(false);
     } finally {
       setSavingSettings(false);
@@ -828,12 +758,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const displayShopName = getShopDisplayName(shop, isEn);
 
   return (
-    <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-slate-50/50 dark:bg-slate-950 pb-20">
-      {/* Top Ghazalo Subscription / 7-Day Trial Banner */}
-      <div className="bg-gradient-to-l from-[#FF6A00] via-orange-500 to-amber-500 text-white px-4 py-2.5 shadow-xs">
-        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2.5 text-xs sm:text-sm font-extrabold">
-          <div className="flex items-center gap-2 tabular-nums">
-            <Sparkles className="w-4 h-4 shrink-0" />
+    <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] pb-24">
+      {/* Top Sofrtek Trial / Paid Subscription Yellow Banner (#FEF9C3 matching HTML prototype) */}
+      <div className="bg-[#FEF9C3] border-b border-[#FACC15]/50 text-[#14201A] px-4 py-2.5">
+        <div className="max-w-[560px] mx-auto flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold">
+          <div className="flex items-center gap-1.5 tabular-nums">
+            <Sparkles className="w-4 h-4 text-[#15803D] shrink-0" />
             {isPaidSubscription ? (
               <span>
                 {tx(
@@ -846,8 +776,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <span>
                 {tx(
                   isEn,
-                  `متبقي لك ${daysRemaining} ايام من التجربة المجانية`,
-                  `${daysRemaining} days left in your free trial`
+                  `تجربة مجانية - باقي ${daysRemaining} أيام`,
+                  `Free trial - ${daysRemaining} days left`
                 )}
               </span>
             )}
@@ -859,9 +789,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 setSelectedSubscriptionPlan('monthly');
                 setSubscriptionModalOpen(true);
               }}
-              className="px-3 py-1 rounded-full bg-white text-[#FF6A00] hover:bg-orange-50 text-xs font-extrabold transition-colors"
+              className="px-3 py-1 rounded-full bg-[#15803D] text-white text-[11px] font-extrabold"
             >
-              {tx(isEn, 'تفعيل شهري', 'Monthly')}
+              {tx(isEn, `شهري ${SUBSCRIPTION_PRICING.MONTHLY_EGP}ج`, `Monthly ${SUBSCRIPTION_PRICING.MONTHLY_EGP}`)}
             </button>
             <button
               type="button"
@@ -869,20 +799,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 setSelectedSubscriptionPlan('yearly');
                 setSubscriptionModalOpen(true);
               }}
-              className="px-3 py-1 rounded-full bg-slate-900 text-white hover:bg-slate-800 text-xs font-extrabold transition-colors"
+              className="px-3 py-1 rounded-full bg-[#14201A] text-white text-[11px] font-extrabold"
             >
-              {tx(isEn, 'تفعيل سنوي', 'Yearly')}
+              {tx(isEn, `سنوي ${SUBSCRIPTION_PRICING.YEARLY_EGP}ج`, `Yearly ${SUBSCRIPTION_PRICING.YEARLY_EGP}`)}
             </button>
             <a
               href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
-                `مرحباً غزالة، أرغب في تفعيل اشتراك مطعم ${shop.nameAr} (${storeSlug})`
+                `مرحباً Ghazalo، أرغب في تفعيل اشتراك مطعم ${shop.nameAr} (${storeSlug})`
               )}`}
               target="_blank"
               rel="noreferrer"
-              className="px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-extrabold inline-flex items-center gap-1 transition-colors"
+              className="px-2.5 py-1 rounded-full bg-[#FFFFFF] border border-[#CFE3D5] text-[#14532D] text-[11px] font-extrabold inline-flex items-center gap-1"
             >
-              <MessageCircle className="w-3.5 h-3.5" />
-              {tx(isEn, 'تواصل للتفعيل', 'Activate via WhatsApp')}
+              <MessageCircle className="w-3 h-3" />
+              {tx(isEn, 'واتساب', 'WhatsApp')}
             </a>
           </div>
         </div>
@@ -890,7 +820,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
       {/* 1-Day Expiration Urgent Alert */}
       {shopAccess.isExpiringSoon && (
-        <div className="bg-amber-100 dark:bg-amber-950/60 border-b border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200 px-4 py-2 text-center text-xs sm:text-sm font-extrabold flex flex-wrap items-center justify-center gap-2">
+        <div className="bg-[#FEF9C3] border-b border-[#FACC15] text-[#14201A] px-4 py-2 text-center text-xs font-extrabold flex flex-wrap items-center justify-center gap-2">
           <span>
             {tx(
               isEn,
@@ -901,77 +831,76 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <button
             type="button"
             onClick={() => setSubscriptionModalOpen(true)}
-            className="px-3 py-1 rounded-full bg-[#FF6A00] text-white text-xs font-extrabold"
+            className="px-3 py-1 rounded-full bg-[#15803D] text-white text-xs font-extrabold"
           >
             {tx(isEn, 'فعل الاشتراك الآن', 'Activate Now')}
           </button>
         </div>
       )}
 
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-orange-100 dark:border-slate-800 px-4 sm:px-6 h-14 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-400 flex items-center justify-center"
-            aria-label={tx(isEn, 'القائمة', 'Menu')}
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <span className="font-extrabold text-base sm:text-lg">
-            {tx(isEn, 'لوحة التحكم', 'Dashboard')}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 relative">
-          <button
-            type="button"
-            onClick={() => setLang(isEn ? 'ar' : 'en')}
-            className="px-3 h-9 rounded-full bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-[#FF6A00] dark:text-orange-300 font-extrabold text-xs inline-flex items-center gap-1.5"
-            title={tx(isEn, 'تغيير اللغة إلى الإنجليزية', 'Switch to Arabic')}
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>{isEn ? 'عربي' : 'EN'}</span>
-          </button>
-
-          <PWAInstallButton
-            variant="compact"
-            label={tx(isEn, 'تثبيت التطبيق', 'Install App')}
-          />
-          <button
-            type="button"
-            onClick={() => void handleToggleOpen()}
-            className={`px-4 py-1.5 rounded-2xl text-xs font-extrabold transition-colors ${
-              shop.isOpen
-                ? 'bg-[#FF6A00] text-white'
-                : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
-            }`}
-          >
-            {shop.isOpen ? tx(isEn, 'مفتوح', 'Open') : tx(isEn, 'مغلق', 'Closed')}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setBellOpen((prev) => !prev)}
-            className="w-10 h-10 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-400 flex items-center justify-center relative"
-            aria-label={tx(isEn, 'الإشعارات', 'Notifications')}
-          >
-            <Bell className="w-5 h-5" />
-            <span
-              className={`absolute -top-1 ${
-                isEn ? '-right-1' : '-left-1'
-              } w-5 h-5 rounded-full bg-[#FF6A00] text-white text-[11px] font-extrabold flex items-center justify-center tabular-nums`}
+      {/* Sticky Header — Centered 560px Sofrtek rhythm */}
+      <header className="sticky top-0 z-30 bg-[#FFFFFF] dark:bg-[#18231C] border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+        <div className="max-w-[560px] mx-auto px-4 py-2.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              className="sf-btn min-h-[44px] w-11 px-0"
+              aria-label={tx(isEn, 'القائمة', 'Menu')}
             >
-              {Math.max(1, newOrders.length)}
-            </span>
-          </button>
+              <Menu className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleToggleOpen()}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold border-[1.5px] transition-colors ${
+                shop.isOpen
+                  ? 'bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] border-[#86EFAC] dark:border-[#15803D]'
+                  : 'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] text-[#4B5B52]'
+              }`}
+            >
+              {tx(isEn, 'لوحة التحكم · ', 'Dashboard · ')}
+              {shop.isOpen ? tx(isEn, 'مفتوح', 'Open') : tx(isEn, 'مغلق', 'Closed')}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5 relative">
+            <button
+              type="button"
+              onClick={() => setLang(isEn ? 'ar' : 'en')}
+              className="sf-btn min-h-[40px] px-2.5 text-xs"
+              title={tx(isEn, 'تغيير اللغة إلى الإنجليزية', 'Switch to Arabic')}
+            >
+              <Globe className="w-3.5 h-3.5 text-[#15803D]" />
+              <span>{isEn ? 'عربي' : 'EN'}</span>
+            </button>
+
+            <PWAInstallButton
+              variant="compact"
+              label={tx(isEn, 'التطبيق', 'App')}
+            />
+
+            <button
+              type="button"
+              onClick={() => setBellOpen((prev) => !prev)}
+              className="sf-btn min-h-[44px] w-11 px-0 relative"
+              aria-label={tx(isEn, 'الإشعارات', 'Notifications')}
+            >
+              <Bell className="w-5 h-5" />
+              <span
+                className={`absolute -top-1 ${
+                  isEn ? '-right-1' : '-left-1'
+                } w-5 h-5 rounded-full bg-[#15803D] text-white text-[11px] font-extrabold flex items-center justify-center tabular-nums`}
+              >
+                {Math.max(1, newOrders.length)}
+              </span>
+            </button>
 
             {bellOpen && (
               <div
                 className={`absolute ${
                   isEn ? 'right-0' : 'left-0'
-                } top-12 w-72 bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 shadow-xl z-40 space-y-2`}
+                } top-12 w-72 sf-card shadow-xl z-40 space-y-2`}
               >
                 <div className="flex items-center justify-between font-extrabold text-sm">
                   <span>{tx(isEn, 'الإشعارات', 'Notifications')}</span>
@@ -979,11 +908,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     <X className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="rounded-2xl bg-orange-50/70 dark:bg-slate-800 p-3 text-xs font-bold text-slate-700 dark:text-slate-200">
+                <div className="rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] p-3 text-xs font-bold text-[#14532D] dark:text-[#BBF7D0]">
                   {tx(
                     isEn,
-                    'مرحباً بك في غزالة Ghazalo! متجرك جاهز لاستقبال الطلبات بدون أي عمولة.',
-                    'Welcome to Ghazalo! Your store is ready to receive commission-free orders.'
+                    'مرحباً بك! متجرك جاهز لاستقبال الطلبات بدون أي عمولة.',
+                    'Welcome! Your store is ready to receive commission-free orders.'
                   )}
                 </div>
                 {newOrders.slice(0, 3).map((ord) => (
@@ -993,7 +922,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       setBellOpen(false);
                       onOpenOrders();
                     }}
-                    className="cursor-pointer rounded-2xl bg-amber-50 dark:bg-amber-950/30 p-3 text-xs font-bold"
+                    className="cursor-pointer rounded-2xl bg-[#FEF9C3] p-3 text-xs font-bold text-[#14201A]"
                   >
                     {tx(isEn, 'طلب جديد', 'New Order')} #{ord.orderNumber} -{' '}
                     {formatMoney(ord.total, shop.country)}
@@ -1001,324 +930,160 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 ))}
               </div>
             )}
-
-            <button
-              type="button"
-              onClick={onLogout}
-              className="px-3 h-9 rounded-full bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 font-extrabold text-xs inline-flex items-center gap-1.5 transition-colors"
-              title={tx(isEn, 'تسجيل الخروج', 'Logout')}
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{tx(isEn, 'تسجيل الخروج', 'Logout')}</span>
-            </button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
-          {/* Welcome */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3.5">
-              {ghazaloUser?.photo ? (
-                <img
-                  src={ghazaloUser.photo}
-                  alt={ghazaloUser.name}
-                  className="w-12 h-12 rounded-2xl object-cover border-2 border-[#FF6A00] shrink-0"
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-950/60 text-[#FF6A00] font-extrabold text-lg flex items-center justify-center shrink-0">
-                  {(ghazaloUser?.name || userName || 'غ').slice(0, 1)}
-                </div>
+      {/* Main Centered 560px Sofrtek Stack */}
+      <main className="max-w-[560px] mx-auto px-4 pt-3.5 space-y-3.5">
+        {/* Welcome Heading */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-[26px] sm:text-[30px] font-extrabold text-[#14201A] dark:text-[#E8F2EB] leading-snug">
+              {tx(isEn, `أهلاً بيك في ${displayShopName}`, `Welcome to ${displayShopName}`)}
+            </h1>
+            <p className="text-sm font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(
+                isEn,
+                'تابع المبيعات والطلبات من مكان واحد',
+                'Track your sales, menu, and orders in one place'
               )}
-              <div className="space-y-0.5">
-                <h1 className="text-xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
-                  {tx(
-                    isEn,
-                    `أهلا يا ${ghazaloUser?.name || userName}`,
-                    `Welcome, ${ghazaloUser?.name || userName}`
-                  )}
-                </h1>
-                <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
-                  {tx(
-                    isEn,
-                    `تدير الآن: ${displayShopName}`,
-                    `Managing: ${displayShopName}`
-                  )}
-                  {ghazaloUser?.isGuest
-                    ? tx(isEn, ' • وضع التجربة (ضيف)', ' • Guest Trial Mode')
-                    : ''}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSettingsModalOpen(true)}
-              className="px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-xs font-extrabold text-[#FF6A00] hover:bg-orange-50 inline-flex items-center gap-1.5"
-            >
-              <Settings className="w-4 h-4" />
-              <span>{tx(isEn, 'اعدادات التوصيل والقالب', 'Delivery & Theme Settings')}</span>
-            </button>
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setSettingsModalOpen(true)}
+            className="sf-btn min-h-[42px] px-3 text-xs text-[#15803D] dark:text-[#BBF7D0]"
+          >
+            <Settings className="w-4 h-4" />
+            <span>{tx(isEn, 'التوصيل والقالب', 'Settings')}</span>
+          </button>
+        </div>
 
-          {/* Demo Restaurants & User Stores Switcher */}
-          {availableStores.length > 0 && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-3.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="space-y-0.5">
-                  <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
-                    {tx(
-                      isEn,
-                      'مطاعمك والمطاعم التجريبية (اختر مطعماً للإدارة)',
-                      'Your Stores & Demo Restaurants'
-                    )}
-                  </h2>
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    {tx(
-                      isEn,
-                      'يمكنك التبديل بين أي مطعم تجريبي أو إنشاء مطعمك الخاص فوراً',
-                      'Switch between demo restaurants or create your own store anytime'
-                    )}
-                  </p>
-                </div>
-                {onCreateNewStore && (
-                  <button
-                    type="button"
-                    onClick={() => setCreateStoreOpen((v) => !v)}
-                    className="px-3.5 py-2 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{tx(isEn, 'إضافة متجر جديد', 'Create New Store')}</span>
-                  </button>
-                )}
-              </div>
-
-              {createStoreOpen && onCreateNewStore && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!newStoreNameInput.trim()) return;
-                    onCreateNewStore(newStoreNameInput.trim());
-                    setNewStoreNameInput('');
-                    setCreateStoreOpen(false);
-                  }}
-                  className="flex flex-wrap items-center gap-2 p-3 rounded-2xl bg-orange-50/70 dark:bg-slate-800 border border-orange-200 dark:border-slate-700"
-                >
-                  <input
-                    type="text"
-                    required
-                    value={newStoreNameInput}
-                    onChange={(e) => setNewStoreNameInput(e.target.value)}
-                    placeholder={tx(isEn, 'اكتب اسم مطعمك الجديد...', 'Enter new store name...')}
-                    className="flex-1 min-w-[180px] px-3.5 py-2 rounded-xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-[#FF6A00] text-white text-xs font-extrabold"
-                  >
-                    {tx(isEn, 'إنشاء وفتح', 'Create & Open')}
-                  </button>
-                </form>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                {availableStores.map((item) => {
-                  const itemSlug = item.record.storeSlug || item.record.shopId;
-                  const isCurrent =
-                    itemSlug.toLowerCase() === storeSlug.toLowerCase() ||
-                    item.record.shopId === shop.id;
-                  const itemCount = item.record.products?.length || 0;
-                  return (
-                    <div
-                      key={itemSlug}
-                      className={`rounded-2xl p-3 border transition-all flex items-center justify-between gap-2.5 ${
-                        isCurrent
-                          ? 'border-[#FF6A00] bg-orange-50/80 dark:bg-orange-950/30 ring-1 ring-[#FF6A00]'
-                          : 'border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 hover:border-orange-300'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onSelectStore?.(item.record)}
-                        className="flex-1 flex items-center gap-2.5 text-start min-w-0"
-                      >
-                        <span className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-700 flex items-center justify-center text-xl shrink-0">
-                          {item.logoEmoji}
-                        </span>
-                        <div className="min-w-0 space-y-0.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                              {item.record.nameAr}
-                            </span>
-                            {item.isOwnedByUser && !item.isDemo ? (
-                              <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold">
-                                {tx(isEn, 'متجرك', 'Yours')}
-                              </span>
-                            ) : (
-                              <span className="px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-slate-700 text-[#FF6A00] dark:text-orange-300 text-[10px] font-extrabold">
-                                {item.category}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                            {isCurrent
-                              ? tx(isEn, 'النشط حالياً', 'Currently Active')
-                              : tx(isEn, 'اضغط للإدارة', 'Click to manage')}{' '}
-                            • {itemCount} {tx(isEn, 'صنف', 'items')}
-                          </div>
-                        </div>
-                      </button>
-
-                      <a
-                        href={`/menu/${itemSlug}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="w-8 h-8 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-[#FF6A00] flex items-center justify-center shrink-0"
-                        title={tx(isEn, 'فتح المنيو', 'Open Menu')}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-        {/* QR Card */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-orange-100 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-1">
-              <h2 className="text-base font-extrabold">
-                {tx(isEn, 'رمز QR ورابط المنيو المباشر', 'QR Code & Direct Menu Link')}
-              </h2>
-              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                {tx(
-                  isEn,
-                  'شارك رابط المنيو أو رمز QR مباشرة مع عملائك',
-                  'Share your menu link or QR code directly with customers'
-                )}
-              </p>
-            </div>
-            <div className="flex flex-col items-stretch sm:items-end gap-2 w-full sm:w-auto">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleCopyMenuUrl()}
-                  className="px-4 py-2 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
-                >
-                  {menuLinkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>
-                    {menuLinkCopied
-                      ? tx(isEn, 'تم نسخ اللينك ✅', 'Link copied ✅')
-                      : tx(isEn, 'نسخ لينك المنيو', 'Copy Menu Link')}
-                  </span>
-                </button>
-                <a
-                  href={getWhatsAppShareUrl(menuUrl)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3.5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors"
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  <span>{tx(isEn, 'مشاركة واتساب', 'WhatsApp')}</span>
-                </a>
-              </div>
-              <div
-                dir="ltr"
-                className="text-[11px] font-bold text-[#FF6A00] bg-orange-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-orange-200/70 dark:border-slate-700 break-all text-left"
+        {/* QR & Direct Menu Link Card + Yellow Cashier POS Button (exact Sofrtek `dash()` rhythm) */}
+        <div className="sf-card space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <b className="text-base font-extrabold">{tx(isEn, 'رمز QR للمنيو', 'Menu QR Code')}</b>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleCopyMenuUrl()}
+                className="px-3 py-1.5 rounded-full bg-[#15803D] text-white text-xs font-extrabold inline-flex items-center gap-1"
               >
-                {menuUrl}
-              </div>
+                {menuLinkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>
+                  {menuLinkCopied
+                    ? tx(isEn, 'تم نسخ اللينك ✅', 'Copied ✅')
+                    : tx(isEn, 'نسخ اللينك', 'Copy Link')}
+                </span>
+              </button>
+              <a
+                href={getWhatsAppShareUrl(menuUrl)}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] text-xs font-extrabold inline-flex items-center gap-1"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>{tx(isEn, 'مشاركة', 'Share')}</span>
+              </a>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="shrink-0">
-              <QrCodeImage value={menuUrl} size={150} />
+
+          <div
+            dir="ltr"
+            className="text-[11px] font-bold text-[#15803D] dark:text-[#BBF7D0] bg-[#F6FBF7] dark:bg-[#0F1712] px-3 py-2 rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] break-all text-left"
+          >
+            {menuUrl}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="shrink-0 bg-white p-1.5 rounded-2xl border border-[#CFE3D5]">
+              <QrCodeImage value={menuUrl} size={130} />
             </div>
-            <div className="grid grid-cols-2 gap-3 w-full sm:max-w-md">
+            <div className="flex-1 flex flex-col gap-1.5">
               <button
                 type="button"
                 onClick={() => void downloadQrPng(menuUrl, `${shop.nameAr}-qr.png`)}
-                className="py-3 px-4 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-sm transition-colors"
+                className="sf-btn-primary w-full min-h-[42px] text-sm"
               >
-                {tx(isEn, 'تحميل QR', 'Download QR')}
+                {tx(isEn, 'تحميل', 'Download QR')}
               </button>
               <button
                 type="button"
                 onClick={onOpenStorefront}
-                className="py-3 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50 border border-orange-200 dark:border-slate-700 font-extrabold text-sm transition-colors"
+                className="sf-btn w-full min-h-[42px] text-sm"
               >
                 {tx(isEn, 'عرض المنيو', 'View Menu')}
               </button>
               <button
                 type="button"
                 onClick={onOpenShareQr}
-                className="py-3 px-4 rounded-2xl bg-white dark:bg-slate-800 hover:bg-orange-50 border border-orange-200 dark:border-slate-700 font-extrabold text-sm transition-colors"
+                className="sf-btn w-full min-h-[42px] text-sm"
               >
                 {tx(isEn, 'رموز الطاولات', 'Table QRs')}
               </button>
               <button
                 type="button"
                 onClick={onOpenCashier}
-                className="py-3 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm transition-colors"
+                className="sf-btn-yellow w-full min-h-[42px] text-sm"
               >
-                {tx(isEn, 'الكاشير POS', 'Cashier POS')}
+                {tx(isEn, 'الكاشير', 'Cashier POS')}
               </button>
             </div>
           </div>
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1">
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+        {/* KPI Cards: 2-column grid + Active Items card */}
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="sf-card space-y-1">
+            <span className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
               {tx(isEn, 'طلبات اليوم', "Today's Orders")}
-            </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+            </span>
+            <h2 className="text-2xl font-extrabold text-[#14201A] dark:text-[#E8F2EB] tabular-nums">
               {orders.length}
-            </div>
+            </h2>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1">
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+          <div className="sf-card space-y-1">
+            <span className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
               {tx(isEn, 'مبيعات اليوم', "Today's Sales")}
-            </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+            </span>
+            <h2 className="text-2xl font-extrabold text-[#15803D] dark:text-[#4ADE80] tabular-nums">
               {formatMoney(todaySales, shop.country, 0)}
-            </div>
-          </div>
-
-          <div
-            onClick={() => setProductsModalOpen(true)}
-            className="col-span-2 lg:col-span-1 cursor-pointer bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 shadow-xs space-y-1 hover:border-orange-300 transition-colors"
-          >
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              {tx(isEn, 'الأصناف النشطة', 'Active Items')}
-            </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
-              {activeProductsCount}
-            </div>
+            </h2>
           </div>
         </div>
 
-        {/* Chart: الأصناف حسب التصنيف */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-orange-100 dark:border-slate-800 shadow-xs space-y-4">
+        <div
+          onClick={() => setProductsModalOpen(true)}
+          className="sf-card cursor-pointer hover:border-[#15803D] transition-colors space-y-1"
+        >
+          <span className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+            {tx(isEn, 'الأصناف النشطة', 'Active Items')}
+          </span>
+          <h2 className="text-2xl font-extrabold text-[#14201A] dark:text-[#E8F2EB] tabular-nums">
+            {activeProductsCount}
+          </h2>
+        </div>
+
+        {/* Category Breakdown Horizontal Bar Chart */}
+        <div className="sf-card space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-extrabold">
+            <b className="text-base font-extrabold">
               {tx(isEn, 'الأصناف حسب التصنيف', 'Items by Category')}
-            </h2>
+            </b>
             <button
               type="button"
               onClick={() => setProductsModalOpen(true)}
-              className="text-xs font-extrabold text-[#FF6A00] dark:text-orange-400 hover:underline"
+              className="text-xs font-extrabold text-[#15803D] dark:text-[#4ADE80] hover:underline"
             >
               {tx(isEn, 'إدارة الأصناف', 'Manage Items')}
             </button>
           </div>
 
           {categoryBreakdown.length === 0 ? (
-            <div className="text-center py-6 space-y-3">
-              <p className="text-sm font-bold text-slate-500 dark:text-slate-400">
+            <div className="text-center py-5 space-y-3">
+              <p className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
                 {tx(
                   isEn,
                   'المتجر فارغ حالياً. أضف أصنافك يدوياً أو ارفع صورة المنيو بالذكاء الاصطناعي.',
@@ -1328,29 +1093,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <button
                 type="button"
                 onClick={() => setProductsModalOpen(true)}
-                className="px-5 py-2.5 rounded-2xl bg-[#FF6A00] text-white font-bold text-xs"
+                className="sf-btn-primary text-xs px-5"
               >
                 {tx(isEn, 'إضافة أصناف الآن', 'Add Items Now')}
               </button>
             </div>
           ) : (
-            <div className="space-y-3">
-              {categoryBreakdown.map((cat) => {
-                const widthPct = Math.round((cat.count / maxCatCount) * 100);
+            <div className="space-y-2.5">
+              {categoryBreakdown.slice(0, 6).map((cat) => {
+                const widthPct = Math.max(12, Math.round((cat.count / maxCatCount) * 100));
                 return (
-                  <div key={cat.name} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs font-extrabold">
-                      <span>{cat.name}</span>
-                      <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                        {cat.count}
-                      </span>
-                    </div>
-                    <div className="w-full h-3 rounded-full bg-orange-50 dark:bg-slate-800 overflow-hidden">
+                  <div key={cat.name} className="flex items-center gap-2.5">
+                    <span className="w-24 text-xs font-bold truncate shrink-0">{cat.name}</span>
+                    <div className="flex-1">
                       <div
                         style={{ width: `${widthPct}%` }}
-                        className="h-full rounded-full bg-[#FF6A00]"
+                        className="h-3.5 rounded-full bg-[#15803D]"
                       />
                     </div>
+                    <span className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] tabular-nums w-6 text-end">
+                      {cat.count}
+                    </span>
                   </div>
                 );
               })}
@@ -1358,188 +1121,269 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           )}
         </div>
 
-        {/* Quick Steps */}
-        <div className="space-y-3">
-          <h2 className="text-base font-extrabold">{tx(isEn, 'خطوات سريعة', 'Quick Actions')}</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+        {/* Quick Actions Grid */}
+        <b className="block text-base font-extrabold">{tx(isEn, 'خطوات سريعة', 'Quick Actions')}</b>
+        <div className="grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={onOpenCashier}
+            className="sf-card text-start hover:border-[#15803D] transition-colors space-y-1 cursor-pointer"
+          >
+            <div className="w-9 h-9 rounded-xl bg-[#FACC15] text-[#14201A] flex items-center justify-center">
+              <Monitor className="w-4 h-4" />
+            </div>
+            <div className="font-extrabold text-sm">{tx(isEn, 'الكاشير', 'Cashier')}</div>
+            <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(isEn, 'بيع من الصالة', 'In-store POS')}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenOrders}
+            className="sf-card text-start hover:border-[#15803D] transition-colors space-y-1 cursor-pointer"
+          >
+            <div className="w-9 h-9 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center">
+              <ShoppingBag className="w-4 h-4" />
+            </div>
+            <div className="font-extrabold text-sm">{tx(isEn, 'الطلبات', 'Orders')}</div>
+            <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(isEn, 'متابعة طلبات اليوم', "Track today's orders")}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setProductsModalOpen(true)}
+            className="sf-card text-start hover:border-[#15803D] transition-colors space-y-1 cursor-pointer"
+          >
+            <div className="w-9 h-9 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center">
+              <Boxes className="w-4 h-4" />
+            </div>
+            <div className="font-extrabold text-sm">{tx(isEn, 'الأصناف', 'Items & Menu')}</div>
+            <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(isEn, 'الأسعار والتوفر والصور', 'Prices & dish photos')}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setOffersModalOpen(true)}
+            className="sf-card text-start bg-[#DCFCE7]/50 dark:bg-[#173323]/60 hover:border-[#15803D] transition-colors space-y-1 cursor-pointer"
+          >
+            <div className="w-9 h-9 rounded-xl bg-[#15803D] text-white flex items-center justify-center">
+              <Tag className="w-4 h-4" />
+            </div>
+            <div className="font-extrabold text-sm">
+              {tx(isEn, `قائمة العروض (${offerProducts.length})`, `Offers (${offerProducts.length})`)}
+            </div>
+            <div className="text-xs font-semibold text-[#14532D] dark:text-[#BBF7D0]">
+              {tx(isEn, 'إضافة وإدارة الخصومات', 'Deals & discounts')}
+            </div>
+          </button>
+
+          {/* Active Template Studio Quick Launch Card */}
+          <div className="col-span-2 sf-card flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
-              onClick={onOpenCashier}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-start hover:border-orange-300 transition-colors space-y-1.5"
+              onClick={() => setDesignModalOpen(true)}
+              className="flex items-center gap-3 text-start flex-1 min-w-[200px] cursor-pointer"
             >
-              <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center">
-                <Monitor className="w-5 h-5" />
+              <div
+                style={{ backgroundColor: `${getShopThemeHex(shop.themeColor)}18` }}
+                className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border border-[#CFE3D5] dark:border-[#2C3D32]"
+              >
+                <Palette style={{ color: getShopThemeHex(shop.themeColor) }} className="w-5 h-5" />
               </div>
-              <div className="font-extrabold text-base">{tx(isEn, 'الكاشير', 'Cashier')}</div>
-              <div className="text-xs font-semibold text-slate-500">
-                {tx(isEn, 'بيع من الصالة', 'In-store POS')}
+              <div className="min-w-0">
+                <div className="font-extrabold text-sm flex items-center gap-2 flex-wrap">
+                  <span>{tx(isEn, 'قالب ومظهر المنيو', 'Menu Template & Theme')}</span>
+                  <span className="text-xs font-black text-[#15803D] dark:text-[#BBF7D0]">
+                    ·{' '}
+                    {translateTemplateMeta(
+                      getMenuTemplateConfig(shop.menuTemplate).id,
+                      getMenuTemplateConfig(shop.menuTemplate).name,
+                      '',
+                      isEn
+                    ).name}
+                  </span>
+                </div>
+                <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA] flex items-center gap-2">
+                  <span
+                    style={{ backgroundColor: getShopThemeHex(shop.themeColor) }}
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                  />
+                  <span>
+                    {translateThemeColor(shop.themeColor || 'أخضر', isEn)} ·{' '}
+                    {shop.themeMode === 'dark' ? tx(isEn, 'داكن', 'Dark') : tx(isEn, 'فاتح', 'Light')}
+                  </span>
+                </div>
               </div>
             </button>
 
-            <button
-              type="button"
-              onClick={onOpenOrders}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-start hover:border-orange-300 transition-colors space-y-1.5"
-            >
-              <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
-                <ShoppingBag className="w-5 h-5" />
-              </div>
-              <div className="font-extrabold text-base">{tx(isEn, 'الطلبات', 'Orders')}</div>
-              <div className="text-xs font-semibold text-slate-500">
-                {tx(isEn, 'متابعة طلبات اليوم', "Track today's orders")}
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setProductsModalOpen(true)}
-              className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-start hover:border-orange-300 transition-colors space-y-1.5"
-            >
-              <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
-                <Boxes className="w-5 h-5" />
-              </div>
-              <div className="font-extrabold text-base">
-                {tx(isEn, 'الأصناف والمنيو', 'Menu & Items')}
-              </div>
-              <div className="text-xs font-semibold text-slate-500">
-                {tx(isEn, 'الأسعار ورفع الصور', 'Prices & dish photos')}
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOffersModalOpen(true)}
-              className="bg-orange-50/80 dark:bg-orange-950/30 rounded-3xl p-5 border border-orange-200 dark:border-orange-800 text-start hover:border-[#FF6A00] transition-colors space-y-1.5"
-            >
-              <div className="w-10 h-10 rounded-2xl glass-btn-primary flex items-center justify-center">
-                <Tag className="w-5 h-5" />
-              </div>
-              <div className="font-extrabold text-base text-orange-950 dark:text-orange-200">
-                {tx(isEn, `قائمة العروض (${offerProducts.length})`, `Offers (${offerProducts.length})`)}
-              </div>
-              <div className="text-xs font-semibold text-[#FF6A00] dark:text-orange-300">
-                {tx(isEn, 'إضافة وإدارة الخصومات', 'Manage deals & discounts')}
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSettingsModalOpen(true)}
-              className="col-span-2 lg:col-span-1 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 text-start hover:border-orange-300 transition-colors space-y-1.5"
-            >
-              <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-950 text-[#FF6A00] dark:text-orange-300 flex items-center justify-center">
-                <Palette className="w-5 h-5" />
-              </div>
-              <div className="font-extrabold text-base">
-                {tx(isEn, 'القوالب والتوصيل', 'Templates & Delivery')}
-              </div>
-              <div className="text-xs font-semibold text-slate-500">
-                {tx(isEn, 'الشكل وسعر التوصيل', 'Look & delivery fee')}
-              </div>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setDesignModalOpen(true)}
+                className="sf-btn-primary min-h-[40px] px-3.5 text-xs whitespace-nowrap"
+              >
+                <Palette className="w-3.5 h-3.5" />
+                {tx(isEn, 'تغيير القالب', 'Change Template')}
+              </button>
+              <button
+                type="button"
+                onClick={onOpenStorefront}
+                className="sf-btn min-h-[40px] px-3 text-xs whitespace-nowrap"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                {tx(isEn, 'معاينة', 'Preview')}
+              </button>
+            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setSettingsModalOpen(true)}
+            className="col-span-2 sf-card text-start hover:border-[#15803D] transition-colors flex flex-row items-center gap-3 cursor-pointer"
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center shrink-0">
+              <Settings className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-extrabold text-sm">
+                {tx(isEn, 'التوصيل واللوجو والخلفية', 'Delivery, Logo & Cover Settings')}
+              </div>
+              <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+                {tx(isEn, 'سعر التوصيل وأوقات العمل وشعار المطعم', 'Delivery fee, working hours & cover photo')}
+              </div>
+            </div>
+          </button>
         </div>
 
-        {/* PWA App Install Banner for Android / iOS / Desktop POS */}
+        {/* PWA App Install Banner */}
         <PWAInstallButton variant="card" />
 
         {/* Needs Attention + Recent Orders */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 space-y-3">
-            <h2 className="text-base font-extrabold">
-              {tx(isEn, 'يحتاج انتباهك', 'Needs Attention')}
-            </h2>
-            {newOrders.length === 0 ? (
-              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                {tx(isEn, 'لا شيء ينتظرك الآن', 'Nothing pending right now')}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {newOrders.slice(0, 3).map((ord) => (
-                  <div
-                    key={ord.id}
-                    onClick={onOpenOrders}
-                    className="cursor-pointer rounded-2xl bg-amber-50 dark:bg-amber-950/30 p-3 flex items-center justify-between text-xs font-bold"
-                  >
-                    <span>
-                      {tx(isEn, 'طلب جديد', 'New Order')} #{ord.orderNumber}
-                    </span>
-                    <span className="tabular-nums">{formatMoney(ord.total, shop.country)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="sf-card space-y-2.5">
+          <b className="text-base font-extrabold">{tx(isEn, 'يحتاج انتباهك', 'Needs Attention')}</b>
+          {newOrders.length === 0 ? (
+            <p className="text-sm font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(
+                isEn,
+                'لا شيء ينتظرك الآن. ستظهر هنا الطلبات الجديدة والأصناف التي نفدت',
+                'Nothing pending right now'
+              )}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {newOrders.slice(0, 3).map((ord) => (
+                <div
+                  key={ord.id}
+                  onClick={onOpenOrders}
+                  className="cursor-pointer rounded-2xl bg-[#FEF9C3] p-3 flex items-center justify-between text-xs font-bold text-[#14201A]"
+                >
+                  <span>
+                    {tx(isEn, 'طلب جديد', 'New Order')} #{ord.orderNumber}
+                  </span>
+                  <span className="tabular-nums">{formatMoney(ord.total, shop.country)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 space-y-3">
-            <h2 className="text-base font-extrabold">{tx(isEn, 'آخر الطلبات', 'Recent Orders')}</h2>
-            {orders.length === 0 ? (
-              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                {tx(isEn, 'لا توجد طلبات بعد', 'No orders yet')}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {orders.slice(0, 4).map((ord) => (
-                  <div
-                    key={ord.id}
-                    onClick={onOpenOrders}
-                    className="cursor-pointer rounded-2xl bg-orange-50/50 dark:bg-slate-800 p-3 flex items-center justify-between text-xs font-bold"
-                  >
-                    <span>
-                      #{ord.orderNumber} - {ord.customerName || tx(isEn, 'عميل', 'Customer')}
-                    </span>
-                    <span className="text-[#FF6A00] dark:text-orange-400 tabular-nums">
-                      {formatMoney(ord.total, shop.country)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="sf-card space-y-2.5">
+          <b className="text-base font-extrabold">{tx(isEn, 'آخر الطلبات', 'Recent Orders')}</b>
+          {orders.length === 0 ? (
+            <p className="text-sm font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(
+                isEn,
+                'لا توجد طلبات بعد. ستظهر هنا أول ما يطلب زبائنك من المنيو',
+                'No orders yet'
+              )}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {orders.slice(0, 4).map((ord) => (
+                <div
+                  key={ord.id}
+                  onClick={onOpenOrders}
+                  className="cursor-pointer rounded-2xl bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] p-3 flex items-center justify-between text-xs font-bold"
+                >
+                  <span>
+                    #{ord.orderNumber} · {ord.customerName || tx(isEn, 'عميل', 'Customer')}
+                  </span>
+                  <span className="text-[#15803D] dark:text-[#4ADE80] tabular-nums">
+                    {formatMoney(ord.total, shop.country)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
 
-      {/* Floating WhatsApp Support Button */}
+      {/* Floating Green WhatsApp Support Button (.wa from Sofrtek) */}
       <a
         href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}`}
         target="_blank"
         rel="noreferrer"
-        aria-label={tx(isEn, 'دعم واتساب', 'WhatsApp Support')}
+        aria-label={tx(isEn, 'واتساب', 'WhatsApp Support')}
         className={`fixed bottom-5 ${
-          isEn ? 'right-5' : 'left-5'
-        } z-30 w-14 h-14 rounded-full bg-[#FF6A00] hover:bg-[#e55f00] text-white shadow-lg flex items-center justify-center transition-transform hover:scale-105`}
+          isEn ? 'right-4' : 'left-4'
+        } z-30 min-h-[52px] px-4 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-sm shadow-lg inline-flex items-center gap-1.5`}
       >
-        <MessageCircle className="w-7 h-7" />
+        <MessageCircle className="w-5 h-5" />
+        <span>{tx(isEn, 'واتساب', 'WhatsApp')}</span>
       </a>
 
-      {/* Side Drawer */}
+      {/* Side Drawer (`sideM()` from Sofrtek) */}
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setDrawerOpen(false)} />
-          <div className="relative z-10 w-80 max-w-[85vw] bg-white dark:bg-slate-900 h-full p-5 flex flex-col justify-between overflow-y-auto shadow-2xl">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
-                <span className="font-extrabold text-lg">{displayShopName}</span>
+          <div className="fixed inset-0 bg-[#14201A]/50 backdrop-blur-xs" onClick={() => setDrawerOpen(false)} />
+          <div className="relative z-10 w-[290px] max-w-[85vw] bg-[#F6FBF7] dark:bg-[#0F1712] h-full p-4 flex flex-col justify-between overflow-y-auto shadow-2xl">
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between pb-2">
+                <b className="text-xl font-extrabold">{tx(isEn, 'القائمة', 'Menu')}</b>
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                  className="sf-btn min-h-[40px] w-10 px-0"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="space-y-1 text-sm font-bold">
+              <div className="space-y-2 text-sm font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    onOpenStorefront();
+                  }}
+                  className="sf-btn w-full justify-start"
+                >
+                  <Utensils className="w-4 h-4 text-[#15803D]" />
+                  {tx(isEn, 'المنيو', 'Store Menu')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDrawerOpen(false)}
+                  className="sf-btn-mint w-full justify-start"
+                >
+                  <Home className="w-4 h-4" />
+                  {tx(isEn, 'الرئيسية', 'Home')}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
                     setDrawerOpen(false);
                     setProductsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="sf-btn w-full justify-start"
                 >
-                  <Utensils className="w-4 h-4 text-[#FF6A00]" />
-                  {tx(isEn, 'المنيو والأصناف', 'Menu & Items')}
+                  <LayoutGrid className="w-4 h-4 text-[#15803D]" />
+                  {tx(isEn, 'الأصناف والمنيو AI', 'Items & AI Menu')}
                 </button>
                 <button
                   type="button"
@@ -1547,26 +1391,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setOffersModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="sf-btn w-full justify-start"
                 >
-                  <Tag className="w-4 h-4 text-[#FF6A00]" />
+                  <Tag className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, `قائمة العروض (${offerProducts.length})`, `Offers (${offerProducts.length})`)}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen(false)}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] dark:text-orange-300 text-start"
-                >
-                  <Home className="w-4 h-4" />
-                  {tx(isEn, 'الرئيسية', 'Home')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen(false)}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
-                >
-                  <LayoutGrid className="w-4 h-4 text-[#FF6A00]" />
-                  {tx(isEn, 'نظرة عامة', 'Overview')}
                 </button>
                 <button
                   type="button"
@@ -1574,9 +1402,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setBellOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="sf-btn w-full justify-start"
                 >
-                  <Bell className="w-4 h-4 text-[#FF6A00]" />
+                  <Bell className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'الإشعارات', 'Notifications')}
                 </button>
                 <button
@@ -1585,9 +1413,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     onOpenShareQr();
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="sf-btn w-full justify-start"
                 >
-                  <Share2 className="w-4 h-4 text-[#FF6A00]" />
+                  <Share2 className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'مشاركة المنيو', 'Share Menu & QR')}
                 </button>
                 <button
@@ -1596,9 +1424,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     onOpenOrders();
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="sf-btn w-full justify-start"
                 >
-                  <ShoppingBag className="w-4 h-4 text-[#FF6A00]" />
+                  <ShoppingBag className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'الطلبات', 'Orders')}
                 </button>
                 <button
@@ -1607,9 +1435,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setReportsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="sf-btn w-full justify-start"
                 >
-                  <BarChart3 className="w-4 h-4 text-[#FF6A00]" />
+                  <BarChart3 className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'التقارير', 'Reports')}
                 </button>
                 <button
@@ -1618,10 +1446,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     setDrawerOpen(false);
                     setSettingsModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl hover:bg-orange-50 dark:hover:bg-slate-800 text-start"
+                  className="sf-btn w-full justify-start"
                 >
-                  <Settings className="w-4 h-4 text-[#FF6A00]" />
-                  {tx(isEn, 'الإعدادات واعدادات التوصيل', 'Settings & Delivery')}
+                  <Settings className="w-4 h-4 text-[#15803D]" />
+                  {tx(isEn, 'الإعدادات والتوصيل', 'Settings & Delivery')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    setContactModalOpen(true);
+                  }}
+                  className="sf-btn w-full justify-start"
+                >
+                  <Phone className="w-4 h-4 text-[#15803D]" />
+                  {tx(isEn, 'تواصل معانا', 'Contact Us')}
                 </button>
                 {isAdminUser && (
                   <button
@@ -1630,7 +1469,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       setDrawerOpen(false);
                       onOpenAdmin();
                     }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-start"
+                    className="sf-btn-yellow w-full justify-start"
                   >
                     <QrCode className="w-4 h-4" />
                     {tx(isEn, 'تفعيل المتاجر (Admin)', 'Admin Stores Portal')}
@@ -1639,13 +1478,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </div>
             </div>
 
-            {/* Bottom Account & Preferences */}
-            <div className="pt-4 mt-4 border-t border-orange-100 dark:border-slate-800 space-y-3 text-xs font-bold">
-              <div className="bg-orange-50/70 dark:bg-slate-800 rounded-2xl p-3">
-                <div className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+            {/* Bottom Account Card inside Drawer */}
+            <div className="sf-card mt-4 space-y-2.5 text-xs font-bold">
+              <div>
+                <div className="font-extrabold text-sm text-[#14201A] dark:text-[#E8F2EB] truncate">
                   {userName}
                 </div>
-                <div className="text-slate-500 dark:text-slate-400 truncate" dir="ltr">
+                <div className="text-[#4B5B52] dark:text-[#A3B5AA] truncate" dir="ltr">
                   {userEmail}
                 </div>
               </div>
@@ -1654,36 +1493,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 type="button"
                 onClick={() => {
                   setDrawerOpen(false);
-                  setSettingsModalOpen(true);
-                }}
-                className="w-full text-start px-2 py-1.5 hover:text-[#FF6A00]"
-              >
-                {tx(isEn, 'الإعدادات', 'Settings')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDrawerOpen(false);
                   setSubscriptionModalOpen(true);
                 }}
-                className="w-full text-start px-2 py-1.5 hover:text-[#FF6A00]"
+                className="w-full text-start text-[#15803D] dark:text-[#BBF7D0] hover:underline"
               >
                 {tx(isEn, 'الاشتراك والدفع', 'Subscription & Billing')}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDrawerOpen(false);
-                  setBellOpen(true);
-                }}
-                className="w-full text-start px-2 py-1.5 hover:text-[#FF6A00]"
-              >
-                {tx(isEn, 'الإشعارات', 'Notifications')}
-              </button>
 
-              <div className="flex items-center justify-between px-2 py-1">
+              <div className="flex items-center justify-between pt-1">
                 <span>{tx(isEn, 'اللغة', 'Language')}</span>
-                <div className="inline-flex gap-1 bg-orange-50 dark:bg-slate-800 p-1 rounded-xl">
+                <div className="inline-flex gap-1">
                   {(
                     [
                       { code: 'ar' as const, label: 'عربي' },
@@ -1696,9 +1515,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         key={item.code}
                         type="button"
                         onClick={() => setLang(item.code)}
-                        className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-colors ${
-                          active ? 'bg-[#FF6A00] text-white' : 'text-slate-600 dark:text-slate-300'
-                        }`}
+                        className={active ? 'sf-chip-on px-2.5 py-1 text-[11px]' : 'sf-chip px-2.5 py-1 text-[11px]'}
                       >
                         {item.label}
                       </button>
@@ -1707,9 +1524,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-between px-2 py-1">
+              <div className="flex items-center justify-between">
                 <span>{tx(isEn, 'المظهر', 'Theme')}</span>
-                <div className="inline-flex gap-1 bg-orange-50 dark:bg-slate-800 p-1 rounded-xl">
+                <div className="inline-flex gap-1">
                   {(
                     [
                       { id: 'فاتح' as const, label: tx(isEn, 'فاتح', 'Light'), mode: 'light' as const },
@@ -1724,9 +1541,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         setThemePref(m.id);
                         onSetThemeMode(m.mode);
                       }}
-                      className={`px-2 py-0.5 rounded-lg text-[11px] ${
-                        themePref === m.id ? 'bg-[#FF6A00] text-white' : ''
-                      }`}
+                      className={themePref === m.id ? 'sf-chip-on px-2 py-1 text-[11px]' : 'sf-chip px-2 py-1 text-[11px]'}
                     >
                       {m.label}
                     </button>
@@ -1736,13 +1551,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
               <PWAInstallButton
                 variant="drawer"
-                label={tx(isEn, 'تثبيت التطبيق (Android / iOS / PC)', 'Install App (Android / iOS / PC)')}
+                label={tx(isEn, 'تثبيت التطبيق', 'Install App')}
               />
 
               <button
                 type="button"
                 onClick={onLogout}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-orange-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-amber-50"
+                className="sf-btn w-full min-h-[42px] text-xs"
               >
                 <LogOut className="w-4 h-4" />
                 {tx(isEn, 'تسجيل الخروج', 'Sign Out')}
@@ -1754,69 +1569,50 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
       {/* Products Manager + Gemini AI Modal */}
       {productsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-5 sm:p-6 max-h-[90vh] flex flex-col justify-between shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/50 backdrop-blur-xs">
+          <div className="sf-card max-w-2xl w-full p-5 sm:p-6 max-h-[90vh] flex flex-col justify-between shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
               <h3 className="text-lg font-extrabold">
-                {tx(isEn, 'إدارة الأصناف والأسعار', 'Manage Menu Items & Prices')}
+                {tx(isEn, 'الأصناف والأسعار', 'Manage Menu Items & Prices')}
               </h3>
               <button
                 type="button"
                 onClick={() => setProductsModalOpen(false)}
-                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="sf-btn min-h-[38px] w-10 px-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="overflow-y-auto space-y-4 flex-1 pe-1">
-              {/* Gemini AI Quick Extract */}
-              <div className="bg-orange-50/70 dark:bg-orange-950/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border border-orange-100 dark:border-orange-900">
-                <div className="space-y-0.5">
-                  <div className="font-extrabold text-sm flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-[#FF6A00]" />
-                    {tx(isEn, 'استيراد سريع بالذكاء الاصطناعي', 'Quick AI Menu Import')}
+              {/* Multi-Image + File AI Extract */}
+              <div className="bg-[#DCFCE7]/50 dark:bg-[#173323]/60 rounded-2xl p-4 border border-[#86EFAC] dark:border-[#2C3D32] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-extrabold text-sm text-[#14532D] dark:text-[#BBF7D0] flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-[#15803D]" />
+                    {tx(isEn, 'رفع صور المنيو (صورة أو عدة صفحات)', 'Upload Menu Photos (Single or Multiple Pages)')}
                   </div>
-                  <div className="text-xs font-semibold text-slate-500">
-                    {tx(
-                      isEn,
-                      'ارفع صورة أو أكثر للمنيو أو ملف PDF أو Excel لإضافة الأصناف تلقائياً',
-                      'Upload menu photos, PDF, or Excel files to auto-extract items'
-                    )}
-                  </div>
-                </div>
-                <input
-                  ref={aiFileRef}
-                  type="file"
-                  multiple
-                  accept="image/*,.pdf,.xlsx,.xls,.csv"
-                  onChange={handleAiMenuUpload}
-                  className="hidden"
-                />
-                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     disabled={aiBusy}
                     onClick={() => void handleBackfillShopPhotos()}
-                    className="px-3.5 py-2 rounded-2xl bg-white dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-[#FF6A00] dark:text-orange-300 font-bold text-xs inline-flex items-center gap-1.5"
+                    className="sf-btn min-h-[38px] px-3 text-xs text-[#14532D]"
                   >
-                    <ImagePlus className="w-4 h-4" />
-                    {tx(isEn, 'تعبئة صور حقيقية للأصناف', 'Auto-fill Dish Photos')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={aiBusy}
-                    onClick={() => aiFileRef.current?.click()}
-                    className="px-4 py-2 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-bold text-xs inline-flex items-center gap-1.5"
-                  >
-                    {aiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    {aiBusy
-                      ? tx(isEn, 'جاري الاستخراج...', 'Extracting...')
-                      : tx(isEn, 'رفع صور المنيو', 'Upload Menu Files')}
+                    {aiBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                    {tx(isEn, 'تعبئة صور للأصناف', 'Auto-fill Dish Photos')}
                   </button>
                 </div>
+
+                <MultiMenuUploader
+                  compact
+                  businessName={shop.nameAr}
+                  language={shop.menuLanguage || 'العربية'}
+                  isEn={isEn}
+                  onExtractedChunk={handleExtractedProductsChunk}
+                />
+
                 {aiMessage && (
-                  <div className="w-full text-xs font-bold text-[#FF6A00] dark:text-orange-300">
+                  <div className="w-full text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0]">
                     {aiMessage}
                   </div>
                 )}
@@ -1825,7 +1621,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               {/* Add Product Form */}
               <form
                 onSubmit={handleAddProduct}
-                className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-orange-100 dark:border-slate-700 space-y-3"
+                className="bg-[#F6FBF7] dark:bg-[#0F1712] rounded-2xl p-4 border border-[#CFE3D5] dark:border-[#2C3D32] space-y-3"
               >
                 <div className="font-extrabold text-sm">
                   {tx(isEn, 'إضافة صنف يدوي', 'Add Item Manually')}
@@ -1837,7 +1633,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={prodName}
                     onChange={(e) => setProdName(e.target.value)}
                     placeholder={tx(isEn, 'اسم الصنف', 'Item name')}
-                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="sf-inp min-h-[42px] text-xs"
                   />
                   <input
                     type="text"
@@ -1845,7 +1641,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={prodCategory}
                     onChange={(e) => setProdCategory(e.target.value)}
                     placeholder={tx(isEn, 'التصنيف (مثال: مشويات)', 'Category (e.g. Grills)')}
-                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="sf-inp min-h-[42px] text-xs"
                   />
                   <input
                     type="number"
@@ -1858,7 +1654,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         ? tx(isEn, 'السعر الأساسي (تلقائي)', 'Base price (auto)')
                         : tx(isEn, 'السعر', 'Price')
                     }
-                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                    className="sf-inp min-h-[42px] text-xs tabular-nums"
                   />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1871,14 +1667,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       'وصف أو تفاصيل العرض كما هي في المنيو',
                       'Description or meal details'
                     )}
-                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="sf-inp min-h-[42px] text-xs"
                   />
                   <input
                     type="text"
                     value={prodBarcode}
                     onChange={(e) => setProdBarcode(e.target.value)}
                     placeholder={tx(isEn, 'الباركود (اختياري)', 'Barcode (optional)')}
-                    className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="sf-inp min-h-[42px] text-xs"
                   />
                 </div>
                 <input
@@ -1887,15 +1683,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   onChange={(e) => setProdVariants(e.target.value)}
                   placeholder={tx(
                     isEn,
-                    'خيارات وأسعار (اختياري، افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000 أو نص كيلو - 215، كيلو - 420)',
+                    'خيارات وأسعار (اختياري، افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000)',
                     'Options & prices (optional, comma-separated: Small - 80, Large - 140)'
                   )}
-                  className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                  className="sf-inp min-h-[42px] text-xs"
                 />
                 <button
                   type="submit"
                   disabled={addingProd}
-                  className="px-5 py-2.5 rounded-xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-bold text-xs inline-flex items-center gap-1.5"
+                  className="sf-btn-primary min-h-[42px] px-5 text-xs"
                 >
                   <Plus className="w-4 h-4" />
                   {addingProd
@@ -1907,7 +1703,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               {/* Products List */}
               <div className="space-y-2">
                 {sortedProducts.length === 0 ? (
-                  <p className="text-center text-sm font-bold text-slate-500 py-6">
+                  <p className="text-center text-sm font-bold text-[#4B5B52] py-6">
                     {tx(isEn, 'لا توجد أصناف مضافة حتى الآن.', 'No items added yet.')}
                   </p>
                 ) : (
@@ -1915,168 +1711,168 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     const pOptions = getProductOptions(p);
                     const isEditingThis = editingProdId === p.id;
                     return (
-                    <div
-                      key={p.id}
-                      className="bg-orange-50/40 dark:bg-slate-800 rounded-2xl p-3 text-xs space-y-2.5"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="relative w-11 h-11 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border border-orange-100 dark:border-slate-700">
-                            {p.imageUrl ? (
-                              <img
-                                src={p.imageUrl}
-                                alt={p.name}
-                                referrerPolicy="no-referrer"
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <Utensils className="w-4 h-4 text-orange-400" />
-                            )}
-                            {shop.logoUrl && shop.showLogoOnItems && (
-                              <img
-                                src={shop.logoUrl}
-                                alt={tx(isEn, 'شعار', 'Logo')}
-                                className="w-4 h-4 rounded-full object-cover border border-white absolute top-0.5 right-0.5 bg-white"
-                              />
-                            )}
-                          </div>
-                          <div className="min-w-0 space-y-0.5">
-                            <div className="font-extrabold truncate">{p.name}</div>
-                            <div className="text-slate-500 font-semibold">
-                              {p.category} · {formatMoney(p.price, shop.country)}
-                              {p.isOffer && p.originalPrice
-                                ? tx(isEn, ` (بدلاً من ${p.originalPrice})`, ` (was ${p.originalPrice})`)
-                                : ''}
+                      <div
+                        key={p.id}
+                        className="bg-[#F6FBF7] dark:bg-[#0F1712] rounded-2xl p-3 text-xs space-y-2.5 border border-[#CFE3D5] dark:border-[#2C3D32]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="relative w-11 h-11 rounded-xl bg-[#FFFFFF] dark:bg-[#18231C] flex items-center justify-center shrink-0 overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32]">
+                              {p.imageUrl ? (
+                                <img
+                                  src={p.imageUrl}
+                                  alt={p.name}
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <Utensils className="w-4 h-4 text-[#15803D]" />
+                              )}
+                              {shop.logoUrl && shop.showLogoOnItems && (
+                                <img
+                                  src={shop.logoUrl}
+                                  alt={tx(isEn, 'شعار', 'Logo')}
+                                  className="w-4 h-4 rounded-full object-cover border border-white absolute top-0.5 right-0.5 bg-white"
+                                />
+                              )}
                             </div>
-                            {p.description && (
-                              <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
-                                {p.description}
+                            <div className="min-w-0 space-y-0.5">
+                              <div className="font-extrabold truncate">{p.name}</div>
+                              <div className="text-[#4B5B52] dark:text-[#A3B5AA] font-semibold">
+                                {p.category} · {formatMoney(p.price, shop.country)}
+                                {p.isOffer && p.originalPrice
+                                  ? tx(isEn, ` (بدلاً من ${p.originalPrice})`, ` (was ${p.originalPrice})`)
+                                  : ''}
                               </div>
-                            )}
-                            {pOptions.length > 0 && (
-                              <div className="flex flex-wrap gap-1 pt-0.5">
-                                {pOptions.map((opt) => (
-                                  <span
-                                    key={opt.raw}
-                                    className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-orange-200 dark:border-slate-700 text-[#FF6A00] dark:text-orange-300 text-[10px] font-extrabold tabular-nums"
-                                  >
-                                    {opt.label}
-                                    {opt.hasExplicitPrice ? ` · ${opt.price}` : ''}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
+                              {p.description && (
+                                <div className="text-[11px] text-[#4B5B52] dark:text-[#A3B5AA] line-clamp-1">
+                                  {p.description}
+                                </div>
+                              )}
+                              {pOptions.length > 0 && (
+                                <div className="flex flex-wrap gap-1 pt-0.5">
+                                  {pOptions.map((opt) => (
+                                    <span
+                                      key={opt.raw}
+                                      className="px-2 py-0.5 rounded-lg bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] text-[10px] font-extrabold tabular-nums"
+                                    >
+                                      {opt.label}
+                                      {opt.hasExplicitPrice ? ` · ${opt.price}` : ''}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => startEditProduct(p)}
+                              className={`p-1.5 rounded-xl border ${
+                                isEditingThis
+                                  ? 'bg-[#15803D] text-white border-[#15803D]'
+                                  : 'bg-[#FFFFFF] dark:bg-[#18231C] text-[#4B5B52] border-[#CFE3D5] dark:border-[#2C3D32]'
+                              }`}
+                              aria-label={tx(isEn, 'تعديل', 'Edit')}
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleProductOffer(p)}
+                              className={`px-2.5 py-1 rounded-xl font-bold inline-flex items-center gap-1 ${
+                                p.isOffer
+                                  ? 'bg-[#FACC15] text-[#14201A]'
+                                  : 'bg-[#FFFFFF] dark:bg-[#18231C] text-[#4B5B52] border border-[#CFE3D5] dark:border-[#2C3D32]'
+                              }`}
+                            >
+                              <Tag className="w-3 h-3" />
+                              {tx(isEn, 'عرض', 'Offer')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleAvailability(p)}
+                              className={`px-3 py-1 rounded-full font-extrabold ${
+                                p.available !== false
+                                  ? 'bg-[#15803D] text-white'
+                                  : 'bg-[#FFFFFF] border border-[#CFE3D5] text-[#4B5B52]'
+                              }`}
+                            >
+                              {p.available !== false
+                                ? tx(isEn, 'متوفر', 'In Stock')
+                                : tx(isEn, 'نفد', 'Out')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteProductItem(p.id)}
+                              className="p-1.5 text-[#4B5B52] hover:text-amber-700"
+                              aria-label={tx(isEn, 'حذف', 'Delete')}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => startEditProduct(p)}
-                            className={`p-1.5 rounded-xl border ${
-                              isEditingThis
-                                ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
-                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-orange-100 dark:border-slate-700'
-                            }`}
-                            aria-label={tx(isEn, 'تعديل', 'Edit')}
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleToggleProductOffer(p)}
-                            className={`px-2.5 py-1 rounded-xl font-bold inline-flex items-center gap-1 ${
-                              p.isOffer
-                                ? 'bg-amber-400 text-slate-900'
-                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-orange-100 dark:border-slate-700'
-                            }`}
-                          >
-                            <Tag className="w-3 h-3" />
-                            {tx(isEn, 'عرض', 'Offer')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleToggleAvailability(p)}
-                            className={`px-3 py-1 rounded-xl font-bold ${
-                              p.available !== false
-                                ? 'bg-orange-100 text-[#FF6A00]'
-                                : 'bg-slate-200 text-slate-600'
-                            }`}
-                          >
-                            {p.available !== false
-                              ? tx(isEn, 'متاح', 'In Stock')
-                              : tx(isEn, 'نفد', 'Out')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteProductItem(p.id)}
-                            className="p-1.5 text-slate-400 hover:text-amber-600"
-                            aria-label={tx(isEn, 'حذف', 'Delete')}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
 
-                      {isEditingThis && (
-                        <div className="pt-2 border-t border-orange-200/70 dark:border-slate-700 space-y-2">
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {isEditingThis && (
+                          <div className="pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] space-y-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <input
+                                type="text"
+                                value={editProdName}
+                                onChange={(e) => setEditProdName(e.target.value)}
+                                placeholder={tx(isEn, 'اسم الصنف', 'Item name')}
+                                className="sm:col-span-2 sf-inp min-h-[38px] text-xs"
+                              />
+                              <input
+                                type="number"
+                                min={0}
+                                value={editProdPrice}
+                                onChange={(e) => setEditProdPrice(e.target.value)}
+                                placeholder={tx(isEn, 'السعر', 'Price')}
+                                className="sf-inp min-h-[38px] text-xs tabular-nums"
+                              />
+                            </div>
                             <input
                               type="text"
-                              value={editProdName}
-                              onChange={(e) => setEditProdName(e.target.value)}
-                              placeholder={tx(isEn, 'اسم الصنف', 'Item name')}
-                              className="sm:col-span-2 px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                              value={editProdDesc}
+                              onChange={(e) => setEditProdDesc(e.target.value)}
+                              placeholder={tx(isEn, 'الوصف أو نص العرض', 'Description or offer text')}
+                              className="sf-inp min-h-[38px] text-xs"
                             />
                             <input
-                              type="number"
-                              min={0}
-                              value={editProdPrice}
-                              onChange={(e) => setEditProdPrice(e.target.value)}
-                              placeholder={tx(isEn, 'السعر', 'Price')}
-                              className="px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                              type="text"
+                              value={editProdVariants}
+                              onChange={(e) => setEditProdVariants(e.target.value)}
+                              placeholder={tx(
+                                isEn,
+                                'الخيارات والأسعار (افصل بفاصلة)',
+                                'Options & prices (comma-separated)'
+                              )}
+                              className="sf-inp min-h-[38px] text-xs"
                             />
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingProdId(null)}
+                                className="sf-btn min-h-[36px] px-3 text-xs"
+                              >
+                                {tx(isEn, 'إلغاء', 'Cancel')}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingProdEdit}
+                                onClick={() => void handleSaveProductEdit(p.id)}
+                                className="sf-btn-primary min-h-[36px] px-4 text-xs"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                {savingProdEdit
+                                  ? tx(isEn, 'جاري الحفظ...', 'Saving...')
+                                  : tx(isEn, 'حفظ التعديل', 'Save Changes')}
+                              </button>
+                            </div>
                           </div>
-                          <input
-                            type="text"
-                            value={editProdDesc}
-                            onChange={(e) => setEditProdDesc(e.target.value)}
-                            placeholder={tx(isEn, 'الوصف أو نص العرض', 'Description or offer text')}
-                            className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
-                          />
-                          <input
-                            type="text"
-                            value={editProdVariants}
-                            onChange={(e) => setEditProdVariants(e.target.value)}
-                            placeholder={tx(
-                              isEn,
-                              'الخيارات والأسعار (افصل بفاصلة: 2 فرخة - 550، 4 فرخة - 1000)',
-                              'Options & prices (comma-separated: Small - 80, Large - 140)'
-                            )}
-                            className="w-full px-3 py-2 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
-                          />
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setEditingProdId(null)}
-                              className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-bold"
-                            >
-                              {tx(isEn, 'إلغاء', 'Cancel')}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={savingProdEdit}
-                              onClick={() => void handleSaveProductEdit(p.id)}
-                              className="px-4 py-1.5 rounded-xl bg-[#FF6A00] text-white font-bold inline-flex items-center gap-1"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                              {savingProdEdit
-                                ? tx(isEn, 'جاري الحفظ...', 'Saving...')
-                                : tx(isEn, 'حفظ التعديل', 'Save Changes')}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
                     );
                   })
                 )}
@@ -2086,13 +1882,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
       )}
 
-      {/* Offers Manager Modal ("قائمة العروض") */}
+      {/* Offers Manager Modal */}
       {offersModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-5 sm:p-6 max-h-[90vh] flex flex-col justify-between shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-orange-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/50 backdrop-blur-xs">
+          <div className="sf-card max-w-2xl w-full p-5 sm:p-6 max-h-[90vh] flex flex-col justify-between shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
               <div className="flex items-center gap-2">
-                <Tag className="w-5 h-5 text-[#FF6A00]" />
+                <Tag className="w-5 h-5 text-[#15803D]" />
                 <h3 className="text-lg font-extrabold">
                   {tx(isEn, 'إدارة قائمة العروض والخصومات', 'Manage Offers & Discounts')}
                 </h3>
@@ -2100,19 +1896,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <button
                 type="button"
                 onClick={() => setOffersModalOpen(false)}
-                className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="sf-btn min-h-[38px] w-10 px-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="overflow-y-auto space-y-4 flex-1 pe-1">
-              {/* Create Standalone Offer Box */}
               <form
                 onSubmit={handleAddOffer}
-                className="bg-orange-50/60 dark:bg-slate-800 rounded-2xl p-4 border border-orange-200 dark:border-slate-700 space-y-3"
+                className="bg-[#DCFCE7] dark:bg-[#173323] rounded-2xl p-4 border border-[#86EFAC] dark:border-[#2C3D32] space-y-3"
               >
-                <div className="font-extrabold text-sm text-orange-950 dark:text-orange-200">
+                <div className="font-extrabold text-sm text-[#14532D] dark:text-[#BBF7D0]">
                   {tx(isEn, 'إضافة عرض جديد لقائمة العروض', 'Add a New Offer')}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -2126,14 +1921,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       'اسم العرض (مثال: بوكس المشويات العائلي)',
                       'Offer title (e.g. Family Grill Box)'
                     )}
-                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="sf-inp min-h-[42px] text-xs"
                   />
                   <input
                     type="text"
                     value={offerCategory}
                     onChange={(e) => setOfferCategory(e.target.value)}
                     placeholder={tx(isEn, 'القسم (مثال: عروض خاصة)', 'Category (e.g. Special Offers)')}
-                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="sf-inp min-h-[42px] text-xs"
                   />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -2144,7 +1939,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={offerOriginalPrice}
                     onChange={(e) => setOfferOriginalPrice(e.target.value)}
                     placeholder={tx(isEn, 'السعر قبل الخصم', 'Original price')}
-                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                    className="sf-inp min-h-[42px] text-xs tabular-nums"
                   />
                   <input
                     type="number"
@@ -2153,20 +1948,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={offerSalePrice}
                     onChange={(e) => setOfferSalePrice(e.target.value)}
                     placeholder={tx(isEn, 'سعر العرض بعد الخصم', 'Sale price')}
-                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold tabular-nums"
+                    className="sf-inp min-h-[42px] text-xs tabular-nums"
                   />
                   <input
                     type="text"
                     value={offerLabel}
                     onChange={(e) => setOfferLabel(e.target.value)}
                     placeholder={tx(isEn, 'شارة (مثال: عرض اليوم)', 'Badge (e.g. Hot Deal)')}
-                    className="px-3 py-2.5 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    className="sf-inp min-h-[42px] text-xs"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={addingOffer}
-                  className="px-5 py-2.5 rounded-full glass-btn-primary font-extrabold text-xs inline-flex items-center gap-1.5"
+                  className="sf-btn-primary min-h-[42px] px-5 text-xs"
                 >
                   <Plus className="w-4 h-4" />
                   {addingOffer
@@ -2175,7 +1970,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </button>
               </form>
 
-              {/* Active Offers List */}
               <div className="space-y-2">
                 <div className="font-extrabold text-sm">
                   {tx(
@@ -2185,7 +1979,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   )}
                 </div>
                 {offerProducts.length === 0 ? (
-                  <div className="text-center text-xs font-bold text-slate-500 py-4 bg-white dark:bg-slate-800 rounded-2xl border border-orange-100 dark:border-slate-700">
+                  <div className="text-center text-xs font-bold text-[#4B5B52] py-4 bg-[#F6FBF7] dark:bg-[#0F1712] rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32]">
                     {tx(
                       isEn,
                       'لا توجد عروض مفعلة بعد. أضف عرضاً جديداً أو اختر صنفاً من بالأسفل.',
@@ -2196,22 +1990,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   offerProducts.map((p) => (
                     <div
                       key={p.id}
-                      className="flex items-center justify-between gap-3 bg-orange-50/70 dark:bg-slate-800 rounded-2xl p-3 border border-orange-200 dark:border-slate-700 text-xs"
+                      className="flex items-center justify-between gap-3 bg-[#DCFCE7]/50 dark:bg-[#173323] rounded-2xl p-3 border border-[#86EFAC] dark:border-[#2C3D32] text-xs"
                     >
                       <div className="space-y-0.5 min-w-0">
                         <div className="font-extrabold truncate">
                           {p.name}{' '}
-                          <span className="text-[#FF6A00] dark:text-orange-300">
+                          <span className="text-[#15803D] dark:text-[#4ADE80]">
                             · {p.offerLabel || tx(isEn, 'عرض خاص', 'Special Offer')}
                           </span>
                         </div>
-                        <div className="font-bold text-slate-600 dark:text-slate-300 tabular-nums">
+                        <div className="font-bold text-[#4B5B52] dark:text-[#A3B5AA] tabular-nums">
                           {p.originalPrice ? (
                             <span className="line-through opacity-60 me-2">
                               {formatMoney(p.originalPrice, shop.country, 0)}
                             </span>
                           ) : null}
-                          <span className="text-[#FF6A00] dark:text-orange-400 font-extrabold">
+                          <span className="text-[#15803D] dark:text-[#4ADE80] font-extrabold">
                             {formatMoney(p.price, shop.country, 0)}
                           </span>
                         </div>
@@ -2219,7 +2013,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       <button
                         type="button"
                         onClick={() => void handleToggleProductOffer(p)}
-                        className="px-3 py-1.5 rounded-full glass-btn text-amber-900 dark:text-amber-200 font-bold shrink-0"
+                        className="sf-btn min-h-[36px] px-3 text-xs shrink-0"
                       >
                         {tx(isEn, 'إيقاف العرض', 'Disable Offer')}
                       </button>
@@ -2228,7 +2022,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 )}
               </div>
 
-              {/* Promote Existing Dishes */}
               {sortedProducts.filter((p) => !p.isOffer).length > 0 && (
                 <div className="space-y-2">
                   <div className="font-extrabold text-sm">
@@ -2244,18 +2037,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       .map((p) => (
                         <div
                           key={p.id}
-                          className="flex items-center justify-between gap-2 bg-white dark:bg-slate-800 rounded-2xl p-2.5 border border-orange-100 dark:border-slate-700 text-xs"
+                          className="flex items-center justify-between gap-2 bg-[#F6FBF7] dark:bg-[#0F1712] rounded-2xl p-2.5 border border-[#CFE3D5] dark:border-[#2C3D32] text-xs"
                         >
                           <div className="min-w-0">
                             <div className="font-bold truncate">{p.name}</div>
-                            <div className="text-slate-500 tabular-nums">
+                            <div className="text-[#4B5B52] tabular-nums">
                               {formatMoney(p.price, shop.country, 0)}
                             </div>
                           </div>
                           <button
                             type="button"
                             onClick={() => void handleToggleProductOffer(p)}
-                            className="px-3 py-1.5 rounded-full glass-btn-primary font-bold shrink-0"
+                            className="sf-btn-primary min-h-[34px] px-3 text-xs shrink-0"
                           >
                             {tx(isEn, '+ إضافة للعروض', '+ Add to Offers')}
                           </button>
@@ -2271,10 +2064,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
       {/* Settings, Delivery, Fees & Design Modal */}
       {settingsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/50 backdrop-blur-xs">
           <form
             onSubmit={handleSaveSettings}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl"
+            className="sf-card max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 shadow-xl"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">
@@ -2283,41 +2076,37 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <button
                 type="button"
                 onClick={() => setSettingsModalOpen(false)}
-                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="sf-btn min-h-[36px] w-9 px-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Quick Interface Language Switch inside Settings */}
-            <div className="flex items-center justify-between rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/30 dark:bg-slate-800/50 px-4 py-2.5">
+            {/* Interface Language Switch inside Settings */}
+            <div className="flex items-center justify-between rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] px-4 py-2.5">
               <span className="text-xs font-extrabold">{tx(isEn, 'لغة لوحة التحكم', 'Interface Language')}</span>
-              <div className="inline-flex gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border border-orange-100 dark:border-slate-700">
+              <div className="inline-flex gap-1">
                 <button
                   type="button"
                   onClick={() => setLang('ar')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold ${
-                    !isEn ? 'bg-[#FF6A00] text-white' : 'text-slate-600 dark:text-slate-300'
-                  }`}
+                  className={!isEn ? 'sf-chip-on px-3 py-1 text-xs' : 'sf-chip px-3 py-1 text-xs'}
                 >
                   عربي
                 </button>
                 <button
                   type="button"
                   onClick={() => setLang('en')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold ${
-                    isEn ? 'bg-[#FF6A00] text-white' : 'text-slate-600 dark:text-slate-300'
-                  }`}
+                  className={isEn ? 'sf-chip-on px-3 py-1 text-xs' : 'sf-chip px-3 py-1 text-xs'}
                 >
                   English
                 </button>
               </div>
             </div>
 
-            {/* Section 5: اعدادات التوصيل */}
-            <div className="rounded-2xl border-2 border-orange-200 dark:border-orange-900/60 bg-orange-50/40 dark:bg-slate-800/80 p-4 space-y-3">
+            {/* Delivery Settings */}
+            <div className="rounded-2xl border-2 border-[#86EFAC] dark:border-[#2C3D32] bg-[#DCFCE7]/50 dark:bg-[#173323]/60 p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-extrabold text-sm text-[#FF6A00]">
+                <h4 className="font-extrabold text-sm text-[#14532D] dark:text-[#BBF7D0]">
                   {tx(isEn, 'اعدادات التوصيل', 'Delivery Settings')}
                 </h4>
                 <button
@@ -2325,8 +2114,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   onClick={() => setEditFreeDelivery((v) => !v)}
                   className={`px-3 py-1 rounded-full text-xs font-extrabold transition-colors ${
                     editFreeDelivery
-                      ? 'bg-[#FF6A00] text-white'
-                      : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                      ? 'bg-[#15803D] text-white'
+                      : 'bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32]'
                   }`}
                 >
                   {tx(isEn, 'التوصيل مجاني', 'Free Delivery')}: {editFreeDelivery ? 'ON' : 'OFF'}
@@ -2345,7 +2134,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={editFreeDelivery ? '0' : editDeliveryFee}
                     onChange={(e) => setEditDeliveryFee(e.target.value)}
                     placeholder={tx(isEn, 'مثال: 20', 'e.g. 20')}
-                    className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold tabular-nums disabled:opacity-60"
+                    className="sf-inp min-h-[42px] text-sm tabular-nums disabled:opacity-60"
                   />
                 </div>
                 <div>
@@ -2357,7 +2146,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     value={editDeliveryTime}
                     onChange={(e) => setEditDeliveryTime(e.target.value)}
                     placeholder={tx(isEn, '30-45 دقيقة', '30-45 mins')}
-                    className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold"
+                    className="sf-inp min-h-[42px] text-sm"
                   />
                 </div>
               </div>
@@ -2380,7 +2169,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     'مثال: 200 (لو الطلب فوق 200 جنيه التوصيل مجاني)',
                     'e.g. 200 (free delivery on orders above 200)'
                   )}
-                  className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold tabular-nums"
+                  className="sf-inp min-h-[42px] text-sm tabular-nums"
                 />
               </div>
 
@@ -2388,32 +2177,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 type="button"
                 disabled={savingSettings}
                 onClick={() => void handleSaveDeliveryOnly()}
-                className="w-full py-2.5 rounded-2xl bg-[#FF6A00] hover:bg-[#e55f00] text-white font-extrabold text-xs transition-colors"
+                className="sf-btn-primary w-full min-h-[42px] text-xs"
               >
                 {savingSettings
                   ? tx(isEn, 'جاري الحفظ...', 'Saving...')
                   : tx(isEn, 'حفظ اعدادات التوصيل', 'Save Delivery Settings')}
               </button>
               {deliverySavedToast && (
-                <div className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 text-center">
+                <div className="text-xs font-extrabold text-[#15803D] dark:text-[#4ADE80] text-center">
                   {deliverySavedToast}
                 </div>
               )}
             </div>
 
-            {/* Section 5B: Fees & Taxes (All OFF by default) */}
-            <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 space-y-2.5">
+            {/* Fees & Taxes (All OFF by default) */}
+            <div className="rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] p-4 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <h4 className="font-extrabold text-sm">
                   {tx(isEn, 'الرسوم والضرائب (معطلة افتراضياً)', 'Fees & Taxes (OFF by default)')}
                 </h4>
-                <span className="text-[11px] font-bold text-[#FF6A00]">
+                <span className="text-[11px] font-bold text-[#15803D]">
                   {tx(isEn, 'سعر الأكل + التوصيل = الإجمالي', 'Subtotal + Delivery = Total')}
                 </span>
               </div>
 
               {forceZeroFeesGlobally && (
-                <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-3 py-2 text-[11px] font-extrabold text-amber-900 dark:text-amber-200">
+                <div className="rounded-xl bg-[#FEF9C3] border border-[#FACC15] px-3 py-2 text-[11px] font-extrabold text-[#14201A]">
                   {tx(
                     isEn,
                     'تنبيه: تم إلغاء جميع الرسوم والضرائب لكل المطاعم على مستوى المنصة من لوحة الأدمن.',
@@ -2422,7 +2211,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
               )}
 
-              {/* Service Fee Toggle */}
               <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
                 <span>{tx(isEn, 'تفعيل رسوم الخدمة', 'Enable Service Fee')}</span>
                 <div className="flex items-center gap-2">
@@ -2434,7 +2222,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       value={editServiceFeePct}
                       onChange={(e) => setEditServiceFeePct(e.target.value)}
                       placeholder="%"
-                      className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-center tabular-nums"
+                      className="w-16 px-2 py-1 rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] text-center tabular-nums"
                     />
                   )}
                   <button
@@ -2442,8 +2230,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     onClick={() => setEditEnableServiceFee((v) => !v)}
                     className={`px-3 py-1 rounded-full text-[11px] font-extrabold ${
                       editEnableServiceFee
-                        ? 'bg-[#FF6A00] text-white'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                        ? 'bg-[#15803D] text-white'
+                        : 'bg-[#FFFFFF] border border-[#CFE3D5] text-[#4B5B52]'
                     }`}
                   >
                     {editEnableServiceFee ? 'ON' : 'OFF'}
@@ -2451,7 +2239,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
               </div>
 
-              {/* VAT Toggle */}
               <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
                 <span>{tx(isEn, 'تفعيل الضريبة / VAT', 'Enable VAT / Tax')}</span>
                 <div className="flex items-center gap-2">
@@ -2463,7 +2250,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       value={editVatPct}
                       onChange={(e) => setEditVatPct(e.target.value)}
                       placeholder="%"
-                      className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-center tabular-nums"
+                      className="w-16 px-2 py-1 rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] text-center tabular-nums"
                     />
                   )}
                   <button
@@ -2471,8 +2258,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     onClick={() => setEditEnableVat((v) => !v)}
                     className={`px-3 py-1 rounded-full text-[11px] font-extrabold ${
                       editEnableVat
-                        ? 'bg-[#FF6A00] text-white'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                        ? 'bg-[#15803D] text-white'
+                        : 'bg-[#FFFFFF] border border-[#CFE3D5] text-[#4B5B52]'
                     }`}
                   >
                     {editEnableVat ? 'ON' : 'OFF'}
@@ -2480,7 +2267,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
               </div>
 
-              {/* Packaging Fee Toggle */}
               <div className="flex items-center justify-between gap-2 text-xs font-bold py-1">
                 <span>{tx(isEn, 'تفعيل رسوم التغليف', 'Enable Packaging Fee')}</span>
                 <div className="flex items-center gap-2">
@@ -2491,7 +2277,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       value={editPackagingFee}
                       onChange={(e) => setEditPackagingFee(e.target.value)}
                       placeholder={tx(isEn, 'ج', 'EGP')}
-                      className="w-16 px-2 py-1 rounded-xl border border-orange-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-center tabular-nums"
+                      className="w-16 px-2 py-1 rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] text-center tabular-nums"
                     />
                   )}
                   <button
@@ -2499,8 +2285,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     onClick={() => setEditEnablePackagingFee((v) => !v)}
                     className={`px-3 py-1 rounded-full text-[11px] font-extrabold ${
                       editEnablePackagingFee
-                        ? 'bg-[#FF6A00] text-white'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                        ? 'bg-[#15803D] text-white'
+                        : 'bg-[#FFFFFF] border border-[#CFE3D5] text-[#4B5B52]'
                     }`}
                   >
                     {editEnablePackagingFee ? 'ON' : 'OFF'}
@@ -2517,7 +2303,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 type="text"
                 value={editNameAr}
                 onChange={(e) => setEditNameAr(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                className="sf-inp"
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2531,7 +2317,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   value={editWhatsapp}
                   onChange={(e) => setEditWhatsapp(e.target.value)}
                   placeholder={SUPPORT_CONTACT.WHATSAPP_NUMBER}
-                  className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                  className="sf-inp"
                 />
               </div>
               <div>
@@ -2542,69 +2328,91 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   type="text"
                   value={editAddress}
                   onChange={(e) => setEditAddress(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-2xl border border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold"
+                  className="sf-inp"
                 />
               </div>
             </div>
 
-            {/* Template Switcher */}
-            <div className="space-y-2 pt-1">
+            {/* Template Switcher + Live Preview */}
+            <div className="space-y-2.5 pt-1">
               <label className="block text-xs font-extrabold">
-                {tx(isEn, 'شكل وقالب المنيو', 'Menu Template')}
+                {tx(isEn, 'شكل وقالب المنيو', 'Menu Template & Live Preview')}
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                {MENU_TEMPLATES.map((tpl) => {
-                  const tplMeta = translateTemplateMeta(tpl.id, tpl.name, tpl.tagline, isEn);
-                  return (
-                    <button
-                      key={tpl.id}
-                      type="button"
-                      onClick={() => setEditTemplate(tpl.id)}
-                      className={`p-2.5 rounded-2xl border text-start text-xs transition-colors ${
-                        editTemplate === tpl.id
-                          ? 'bg-orange-50 dark:bg-orange-950/60 border-[#FF6A00] font-extrabold'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 font-bold'
-                      }`}
-                    >
-                      <div>{tplMeta.name}</div>
-                      <div className="text-[11px] font-medium text-slate-500 truncate">
-                        {tplMeta.tagline}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+              <MenuTemplateShowcase
+                selectedTemplate={editTemplate}
+                onSelectTemplate={setEditTemplate}
+                themeColor={editThemeColor}
+                themeMode={editThemeMode}
+                shopName={editNameAr || displayShopName}
+                logoUrl={editLogoUrl}
+                showLogoOnItems={editShowLogoOnItems}
+                coverImage={editCoverImage}
+                isEn={isEn}
+                sampleItemName={sortedProducts[0]?.name}
+                sampleItemCategory={sortedProducts[0]?.category}
+                sampleItemPrice={sortedProducts[0]?.price}
+              />
             </div>
 
-            {/* Color Picker */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-extrabold">
-                {tx(isEn, 'لون الهوية', 'Brand Accent Color')}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {['برتقالي', 'أخضر', 'أحمر', 'أزرق مخضر', 'أسود', 'لون آخر'].map((c) => (
+            {/* Color Picker + Display Mode */}
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-extrabold">
+                  {tx(isEn, 'لون الهوية', 'Brand Accent Color')}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {['أخضر', 'برتقالي', 'أحمر', 'أزرق مخضر', 'أسود', 'لون آخر'].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setEditThemeColor(c)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold border inline-flex items-center gap-1.5 ${
+                        editThemeColor === c
+                          ? 'border-[#15803D] bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]'
+                          : 'border-[#CFE3D5] dark:border-[#2C3D32]'
+                      }`}
+                    >
+                      <span
+                        style={{ backgroundColor: getShopThemeHex(c) }}
+                        className="w-3 h-3 rounded-full"
+                      />
+                      {translateThemeColor(c, isEn)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] px-4 py-2.5">
+                <span className="text-xs font-extrabold">
+                  {tx(isEn, 'مظهر عرض المنيو للعملاء', 'Public Menu Display Mode')}
+                </span>
+                <div className="inline-flex gap-1.5">
                   <button
-                    key={c}
                     type="button"
-                    onClick={() => setEditThemeColor(c)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold border inline-flex items-center gap-1.5 ${
-                      editThemeColor === c
-                        ? 'border-[#FF6A00] bg-orange-50 dark:bg-orange-950/50'
-                        : 'border-slate-200 dark:border-slate-700'
-                    }`}
+                    onClick={() => setEditThemeMode('light')}
+                    className={`${
+                      editThemeMode === 'light' ? 'sf-chip-on' : 'sf-chip'
+                    } px-3 py-1 text-xs inline-flex items-center gap-1`}
                   >
-                    <span
-                      style={{ backgroundColor: getShopThemeHex(c) }}
-                      className="w-3 h-3 rounded-full"
-                    />
-                    {translateThemeColor(c, isEn)}
+                    <Sun className="w-3.5 h-3.5" />
+                    {tx(isEn, 'فاتح', 'Light')}
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => setEditThemeMode('dark')}
+                    className={`${
+                      editThemeMode === 'dark' ? 'sf-chip-on' : 'sf-chip'
+                    } px-3 py-1 text-xs inline-flex items-center gap-1`}
+                  >
+                    <Moon className="w-3.5 h-3.5" />
+                    {tx(isEn, 'داكن', 'Dark')}
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Brand Logo Editor */}
-            <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
+            <div className="rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-extrabold">
                   {tx(isEn, 'لوجو المطعم على الأصناف', 'Store Logo on Dish Cards')}
@@ -2620,7 +2428,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <button
                     type="button"
                     onClick={() => logoInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-full glass-btn-primary text-xs font-bold inline-flex items-center gap-1"
+                    className="sf-btn-primary min-h-[36px] px-3 text-xs"
                   >
                     <ImagePlus className="w-3.5 h-3.5" />
                     {editLogoUrl ? tx(isEn, 'تغيير', 'Change') : tx(isEn, 'رفع لوجو', 'Upload Logo')}
@@ -2629,7 +2437,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     <button
                       type="button"
                       onClick={() => setEditLogoUrl('')}
-                      className="px-2.5 py-1.5 rounded-full glass-btn text-xs font-bold text-amber-800"
+                      className="sf-btn min-h-[36px] px-2.5 text-xs"
                     >
                       {tx(isEn, 'حذف', 'Remove')}
                     </button>
@@ -2654,8 +2462,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     onClick={() => setEditShowLogoOnItems((v) => !v)}
                     className={`px-3 py-1 rounded-full text-xs font-bold ${
                       editShowLogoOnItems
-                        ? 'bg-[#FF6A00] text-white'
-                        : 'bg-slate-200 dark:bg-slate-700'
+                        ? 'bg-[#15803D] text-white'
+                        : 'bg-[#FFFFFF] border border-[#CFE3D5]'
                     }`}
                   >
                     {editShowLogoOnItems ? tx(isEn, 'مفعل', 'Active') : tx(isEn, 'متوقف', 'Paused')}
@@ -2664,14 +2472,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               )}
             </div>
 
-            {/* Restaurant Cover / Background Behind Name & Logo */}
-            <div className="rounded-2xl border border-orange-100 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800 p-3.5 space-y-2.5">
+            {/* Restaurant Cover */}
+            <div className="rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-extrabold">
                     {tx(isEn, 'خلفية المطعم (ورا الاسم واللوجو)', 'Store Cover Banner')}
                   </div>
-                  <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  <div className="text-[11px] font-medium text-[#4B5B52] dark:text-[#A3B5AA]">
                     {tx(
                       isEn,
                       'صورة تظهر خلف اسم مطعمك واللوجو في أعلى المنيو',
@@ -2690,7 +2498,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <button
                     type="button"
                     onClick={() => coverInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-full glass-btn-primary text-xs font-bold inline-flex items-center gap-1"
+                    className="sf-btn-primary min-h-[36px] px-3 text-xs"
                   >
                     <ImagePlus className="w-3.5 h-3.5" />
                     {editCoverImage
@@ -2701,7 +2509,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     <button
                       type="button"
                       onClick={() => setEditCoverImage('')}
-                      className="px-2.5 py-1.5 rounded-full glass-btn text-xs font-bold text-amber-800"
+                      className="sf-btn min-h-[36px] px-2.5 text-xs"
                     >
                       {tx(isEn, 'حذف', 'Remove')}
                     </button>
@@ -2709,7 +2517,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
               </div>
               {coverError && <p className="text-xs font-bold text-amber-800">{coverError}</p>}
-              <div className="relative h-24 rounded-2xl overflow-hidden border border-orange-200/70 dark:border-slate-700 flex items-end p-3">
+              <div className="relative h-24 rounded-2xl overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32] flex items-end p-3">
                 {editCoverImage ? (
                   <>
                     <img
@@ -2743,14 +2551,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <div className="min-w-0">
                     <div
                       className={`font-extrabold text-xs truncate ${
-                        editCoverImage ? 'text-white' : 'text-slate-900 dark:text-white'
+                        editCoverImage ? 'text-white' : 'text-[#14201A] dark:text-[#E8F2EB]'
                       }`}
                     >
                       {editNameAr || displayShopName}
                     </div>
                     <div
                       className={`text-[10px] font-bold ${
-                        editCoverImage ? 'text-orange-200' : 'text-[#FF6A00] dark:text-orange-300'
+                        editCoverImage ? 'text-[#BBF7D0]' : 'text-[#15803D]'
                       }`}
                     >
                       {tx(isEn, 'معاينة الخلفية واللوجو', 'Cover & Logo Preview')}
@@ -2763,7 +2571,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <button
               type="submit"
               disabled={savingSettings}
-              className="w-full py-3 rounded-full glass-btn-primary font-extrabold text-sm"
+              className="sf-btn-primary w-full text-sm"
             >
               {savingSettings
                 ? tx(isEn, 'جاري الحفظ...', 'Saving...')
@@ -2773,40 +2581,165 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
       )}
 
+      {/* Quick Design & Templates Studio Modal */}
+      {designModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/55 backdrop-blur-xs">
+          <div className="sf-card max-w-xl w-full max-h-[92vh] flex flex-col justify-between p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+              <div className="flex items-center gap-2">
+                <Palette style={{ color: getShopThemeHex(editThemeColor) }} className="w-5 h-5" />
+                <h3 className="text-lg font-extrabold">
+                  {tx(isEn, 'استوديو قوالب ومظهر المنيو', 'Menu Template & Theme Studio')}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDesignModalOpen(false)}
+                className="sf-btn min-h-[36px] w-9 px-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto space-y-4 flex-1 pe-1">
+              <MenuTemplateShowcase
+                selectedTemplate={editTemplate}
+                onSelectTemplate={setEditTemplate}
+                themeColor={editThemeColor}
+                themeMode={editThemeMode}
+                shopName={displayShopName}
+                logoUrl={shop.logoUrl || ''}
+                showLogoOnItems={Boolean(shop.showLogoOnItems)}
+                coverImage={shop.coverImage || ''}
+                isEn={isEn}
+                sampleItemName={sortedProducts[0]?.name}
+                sampleItemCategory={sortedProducts[0]?.category}
+                sampleItemPrice={sortedProducts[0]?.price}
+              />
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-extrabold">
+                  {tx(isEn, 'لون الهوية الرئيسي في المنيو', 'Menu Brand Accent Color')}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {['أخضر', 'برتقالي', 'أحمر', 'أزرق مخضر', 'أسود', 'لون آخر'].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setEditThemeColor(c)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold border inline-flex items-center gap-1.5 cursor-pointer ${
+                        editThemeColor === c
+                          ? 'border-[#15803D] bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]'
+                          : 'border-[#CFE3D5] dark:border-[#2C3D32]'
+                      }`}
+                    >
+                      <span
+                        style={{ backgroundColor: getShopThemeHex(c) }}
+                        className="w-3 h-3 rounded-full"
+                      />
+                      {translateThemeColor(c, isEn)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] px-4 py-2.5">
+                <span className="text-xs font-extrabold">
+                  {tx(isEn, 'وضع إضاءة المنيو للعملاء', 'Menu Lighting Mode')}
+                </span>
+                <div className="inline-flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditThemeMode('light')}
+                    className={`${
+                      editThemeMode === 'light' ? 'sf-chip-on' : 'sf-chip'
+                    } px-3 py-1 text-xs inline-flex items-center gap-1`}
+                  >
+                    <Sun className="w-3.5 h-3.5" />
+                    {tx(isEn, 'فاتح', 'Light')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditThemeMode('dark')}
+                    className={`${
+                      editThemeMode === 'dark' ? 'sf-chip-on' : 'sf-chip'
+                    } px-3 py-1 text-xs inline-flex items-center gap-1`}
+                  >
+                    <Moon className="w-3.5 h-3.5" />
+                    {tx(isEn, 'داكن', 'Dark')}
+                  </button>
+                </div>
+              </div>
+
+              {designSavedToast && (
+                <div className="rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] px-4 py-2.5 text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0] text-center">
+                  {designSavedToast}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] flex flex-wrap gap-2.5">
+              <button
+                type="button"
+                disabled={savingSettings}
+                onClick={() => void handleSaveDesignOnly()}
+                className="sf-btn-primary flex-1 min-h-[44px] text-xs sm:text-sm"
+              >
+                <Check className="w-4 h-4" />
+                {savingSettings
+                  ? tx(isEn, 'جاري التفعيل...', 'Applying...')
+                  : tx(isEn, 'حفظ وتفعيل القالب الآن', 'Save & Activate Template')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDesignModalOpen(false);
+                  onOpenStorefront();
+                }}
+                className="sf-btn min-h-[44px] px-4 text-xs sm:text-sm"
+              >
+                <Eye className="w-4 h-4" />
+                {tx(isEn, 'معاينة المنيو', 'Preview Menu')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Reports Modal */}
       {reportsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/50 backdrop-blur-xs">
+          <div className="sf-card max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">{tx(isEn, 'ملخص التقارير', 'Reports Summary')}</h3>
               <button
                 type="button"
                 onClick={() => setReportsModalOpen(false)}
-                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="sf-btn min-h-[36px] w-9 px-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="space-y-2.5 text-sm font-bold">
-              <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
+              <div className="flex justify-between p-3 rounded-2xl bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32]">
                 <span>{tx(isEn, 'إجمالي الطلبات', 'Total Orders')}</span>
                 <span className="tabular-nums">{orders.length}</span>
               </div>
-              <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
+              <div className="flex justify-between p-3 rounded-2xl bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32]">
                 <span>{tx(isEn, 'طلبات الكاشير', 'Cashier POS Orders')}</span>
                 <span className="tabular-nums">
                   {orders.filter((o) => o.source === 'cashier').length}
                 </span>
               </div>
-              <div className="flex justify-between p-3 rounded-2xl bg-orange-50/60 dark:bg-slate-800">
+              <div className="flex justify-between p-3 rounded-2xl bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32]">
                 <span>{tx(isEn, 'طلبات المنيو', 'Online Menu Orders')}</span>
                 <span className="tabular-nums">
                   {orders.filter((o) => o.source === 'menu').length}
                 </span>
               </div>
-              <div className="flex justify-between p-3 rounded-2xl bg-orange-100 dark:bg-orange-950/60">
+              <div className="flex justify-between p-3 rounded-2xl bg-[#DCFCE7] dark:bg-[#173323]">
                 <span>{tx(isEn, 'إجمالي المبيعات', 'Total Sales')}</span>
-                <span className="text-[#FF6A00] dark:text-orange-300 tabular-nums">
+                <span className="text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
                   {formatMoney(todaySales, shop.country)}
                 </span>
               </div>
@@ -2815,23 +2748,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
       )}
 
-      {/* Subscription Modal */}
+      {/* Subscription Modal (Strictly Admin-only activation via WhatsApp/Gmail) */}
       {subscriptionModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 space-y-4 border border-orange-100 dark:border-slate-800 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/50 backdrop-blur-xs">
+          <div className="sf-card max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold">
-                {tx(isEn, 'الاشتراك والتفعيل — غزالة Ghazalo', 'Subscription & Activation — Ghazalo')}
+                {tx(isEn, 'الاشتراك والتفعيل — Ghazalo', 'Subscription & Activation — Ghazalo')}
               </h3>
               <button
                 type="button"
                 onClick={() => setSubscriptionModalOpen(false)}
-                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center"
+                className="sf-btn min-h-[36px] w-9 px-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800 rounded-2xl p-4 space-y-1">
+            <div className="bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] rounded-2xl p-4 space-y-1 text-[#14532D] dark:text-[#BBF7D0]">
               <div className="font-extrabold text-sm">
                 {tx(isEn, 'الحالة الحالية:', 'Current Status:')}{' '}
                 {isPaidSubscription
@@ -2842,10 +2775,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     )
                   : tx(isEn, 'فترة تجريبية مجانية (7 أيام)', '7-Day Free Trial')}
               </div>
-              <div className="text-xs font-bold text-slate-600 dark:text-slate-300 tabular-nums">
+              <div className="text-xs font-bold tabular-nums">
                 {tx(isEn, `الأيام المتبقية: ${daysRemaining} يوم`, `Days remaining: ${daysRemaining} days`)}
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-2.5 text-center">
               <button
                 type="button"
@@ -2853,38 +2787,26 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 aria-pressed={selectedSubscriptionPlan === 'monthly'}
                 className={`relative rounded-2xl p-3 space-y-1 transition-all cursor-pointer text-center ${
                   selectedSubscriptionPlan === 'monthly'
-                    ? 'border-2 border-[#FF6A00] bg-orange-50/70 dark:bg-orange-950/35 shadow-sm'
-                    : 'border border-orange-200 dark:border-slate-700 hover:border-[#FF6A00]/60 bg-white dark:bg-slate-900/40'
+                    ? 'border-2 border-[#15803D] bg-[#DCFCE7]/70 dark:bg-[#173323] shadow-sm'
+                    : 'border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C]'
                 }`}
               >
                 <div className="flex items-center justify-center gap-1">
                   {selectedSubscriptionPlan === 'monthly' && (
-                    <span className="w-4 h-4 rounded-full bg-[#FF6A00] text-white inline-flex items-center justify-center shrink-0">
+                    <span className="w-4 h-4 rounded-full bg-[#15803D] text-white inline-flex items-center justify-center shrink-0">
                       <Check className="w-2.5 h-2.5" />
                     </span>
                   )}
-                  <span
-                    className={`text-xs font-bold ${
-                      selectedSubscriptionPlan === 'monthly'
-                        ? 'text-[#FF6A00] dark:text-orange-300'
-                        : 'text-slate-500 dark:text-slate-400'
-                    }`}
-                  >
+                  <span className="text-xs font-bold">
                     {tx(isEn, 'اشتراك شهري (30 يوم)', 'Monthly Plan (30 days)')}
                   </span>
                 </div>
-                <div className="text-base font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                <div className="text-base font-extrabold text-[#15803D] dark:text-[#4ADE80] tabular-nums">
                   {SUBSCRIPTION_PRICING.MONTHLY_EGP} {tx(isEn, 'جنيه / شهري', 'EGP / mo')}
                 </div>
-                <div
-                  className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                    selectedSubscriptionPlan === 'monthly'
-                      ? 'bg-[#FF6A00] text-white'
-                      : 'bg-orange-50 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                  }`}
-                >
+                <div className="inline-block px-2 py-0.5 rounded-full bg-[#F6FBF7] dark:bg-[#0F1712] text-[10px] font-extrabold">
                   {selectedSubscriptionPlan === 'monthly'
-                    ? tx(isEn, 'الباقة المحددة', 'Selected Plan')
+                    ? tx(isEn, 'الباقة المحددة', 'Selected')
                     : tx(isEn, 'تفعيل شهري', 'Select Monthly')}
                 </div>
               </button>
@@ -2895,30 +2817,24 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 aria-pressed={selectedSubscriptionPlan === 'yearly'}
                 className={`relative rounded-2xl p-3 space-y-1 transition-all cursor-pointer text-center ${
                   selectedSubscriptionPlan === 'yearly'
-                    ? 'border-2 border-[#FF6A00] bg-orange-50/70 dark:bg-orange-950/35 shadow-sm'
-                    : 'border border-orange-200 dark:border-slate-700 hover:border-[#FF6A00]/60 bg-white dark:bg-slate-900/40'
+                    ? 'border-2 border-[#15803D] bg-[#14201A] text-white shadow-sm'
+                    : 'border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C]'
                 }`}
               >
                 <div className="flex items-center justify-center gap-1">
                   {selectedSubscriptionPlan === 'yearly' && (
-                    <span className="w-4 h-4 rounded-full bg-[#FF6A00] text-white inline-flex items-center justify-center shrink-0">
+                    <span className="w-4 h-4 rounded-full bg-[#15803D] text-white inline-flex items-center justify-center shrink-0">
                       <Check className="w-2.5 h-2.5" />
                     </span>
                   )}
-                  <span
-                    className={`text-xs font-bold ${
-                      selectedSubscriptionPlan === 'yearly'
-                        ? 'text-[#FF6A00] dark:text-orange-300'
-                        : 'text-slate-500 dark:text-slate-400'
-                    }`}
-                  >
+                  <span className="text-xs font-bold">
                     {tx(isEn, 'اشتراك سنوي (365 يوم)', 'Yearly Plan (365 days)')}
                   </span>
                 </div>
-                <div className="text-base font-extrabold text-[#FF6A00] dark:text-orange-400 tabular-nums">
+                <div className="text-base font-extrabold text-[#4ADE80] tabular-nums">
                   {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / yr')}
                 </div>
-                <div className="inline-block px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[10px] font-extrabold">
+                <div className="inline-block px-2 py-0.5 rounded-full bg-[#FACC15] text-[#14201A] text-[10px] font-extrabold">
                   {tx(
                     isEn,
                     `وفّر ${SUBSCRIPTION_PRICING.YEARLY_SAVINGS_EGP} جنيه`,
@@ -2927,17 +2843,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </div>
               </button>
             </div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+
+            <p className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
               {tx(
                 isEn,
-                `لتجديد اشتراكك وتفعيل المنيو فوراً (${selectedSubscriptionPlan === 'monthly' ? 'اشتراك شهري 600 جنيه' : 'اشتراك سنوي 3000 جنيه'})، تواصل مباشرة مع إدارة غزالة عبر واتساب أو الإيميل:`,
-                `To renew and activate immediately (${selectedSubscriptionPlan === 'monthly' ? 'Monthly 600 EGP' : 'Yearly 3000 EGP'}), contact Ghazalo team via WhatsApp or Email:`
+                `التفعيل يتم عن طريق الإدارة فقط — لتفعيل ${selectedSubscriptionPlan === 'monthly' ? 'الاشتراك الشهري (600 جنيه / 30 يوم)' : 'الاشتراك السنوي (3000 جنيه / 365 يوم)'}، تواصل مباشرة عبر واتساب أو الجيميل:`,
+                `Activation is handled by admin only — to activate (${selectedSubscriptionPlan === 'monthly' ? 'Monthly 600 EGP / 30d' : 'Yearly 3000 EGP / 365d'}), contact us via WhatsApp or Gmail:`
               )}
             </p>
             <div className="space-y-2">
               <a
                 href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
-                  `مرحباً إدارة غزالة، أرغب في تفعيل ${
+                  `مرحباً إدارة Ghazalo، أرغب في تفعيل ${
                     selectedSubscriptionPlan === 'monthly'
                       ? `الاشتراك الشهري (${SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه / 30 يوم)`
                       : `الاشتراك السنوي (${SUBSCRIPTION_PRICING.YEARLY_EGP} جنيه / 365 يوم)`
@@ -2945,7 +2862,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 )}`}
                 target="_blank"
                 rel="noreferrer"
-                className="w-full py-3 rounded-full glass-btn-primary font-bold text-sm flex items-center justify-center gap-2"
+                className="sf-btn-primary w-full text-sm"
               >
                 <MessageCircle className="w-4 h-4" />
                 <span>
@@ -2957,7 +2874,76 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${encodeURIComponent(
                   `تفعيل ${selectedSubscriptionPlan === 'monthly' ? 'اشتراك شهري' : 'اشتراك سنوي'} لمتجر ${shop.nameAr}`
                 )}`}
-                className="w-full py-3 rounded-full glass-btn text-[#FF6A00] dark:text-orange-300 font-bold text-xs flex items-center justify-center gap-2"
+                className="sf-btn w-full text-xs text-[#15803D] dark:text-[#BBF7D0]"
+              >
+                <Mail className="w-4 h-4" />
+                <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Us Modal */}
+      {contactModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/50 backdrop-blur-xs">
+          <div className="sf-card max-w-md w-full p-6 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-extrabold">
+                {tx(isEn, 'تواصل معانا — خدمة العملاء', 'Contact Support Team')}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setContactModalOpen(false)}
+                className="sf-btn min-h-[36px] w-9 px-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed">
+              {tx(
+                isEn,
+                'للدعم الفني أو لتفعيل اشتراك مطعمك تواصل مباشرة معنا عبر الواتساب أو الجيميل:',
+                'For support or menu subscription activation, contact us directly via WhatsApp or Gmail:'
+              )}
+            </p>
+            <div className="space-y-2.5 rounded-2xl bg-[#F6FBF7] dark:bg-[#0F1712] p-4 border border-[#CFE3D5] dark:border-[#2C3D32] text-xs font-extrabold">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[#4B5B52] dark:text-[#A3B5AA]">
+                  {tx(isEn, 'رقم الموبايل:', 'Mobile:')}
+                </span>
+                <span dir="ltr" className="tabular-nums">
+                  {SUPPORT_CONTACT.PHONE_DISPLAY}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[#4B5B52] dark:text-[#A3B5AA]">
+                  {tx(isEn, 'الجيميل:', 'Gmail:')}
+                </span>
+                <span dir="ltr" className="text-[#15803D] dark:text-[#4ADE80] truncate">
+                  {SUPPORT_CONTACT.EMAIL}
+                </span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <a
+                href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
+                  `مرحباً إدارة Ghazalo، أتواصل بخصوص مطعم ${shop.nameAr} (${storeSlug})`
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="sf-btn-primary w-full text-sm"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>
+                  {tx(isEn, 'فتح واتساب', 'Open WhatsApp')} ({SUPPORT_CONTACT.PHONE_DISPLAY})
+                </span>
+              </a>
+              <a
+                href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${encodeURIComponent(
+                  `تواصل بخصوص متجر ${shop.nameAr}`
+                )}`}
+                className="sf-btn w-full text-xs text-[#15803D] dark:text-[#BBF7D0]"
               >
                 <Mail className="w-4 h-4" />
                 <span dir="ltr">{SUPPORT_CONTACT.EMAIL}</span>

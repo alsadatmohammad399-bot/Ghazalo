@@ -75,9 +75,9 @@ export async function copyMenuLink(menuUrl: string): Promise<boolean> {
 export async function syncPublicStoreSnapshot(
   shop: Shop,
   products?: Product[]
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await fetch('/api/public-stores', {
+    const res = await fetch('/api/public-stores', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -85,14 +85,15 @@ export async function syncPublicStoreSnapshot(
         products,
       }),
     });
+    return res.ok;
   } catch {
-    // non-blocking when offline
+    return false;
   }
 }
 
 export async function fetchPublicStoreSnapshot(
   slug: string
-): Promise<{ shop: Shop; products: Product[] } | null> {
+): Promise<{ shop: Shop; products: Product[]; updatedAt?: number } | null> {
   try {
     const res = await fetch(`/api/public-stores/${encodeURIComponent(slug)}`);
     if (!res.ok) return null;
@@ -101,11 +102,13 @@ export async function fetchPublicStoreSnapshot(
       found?: boolean;
       shop?: Shop;
       products?: Product[];
+      updatedAt?: number;
     };
     if (data.ok && data.found && data.shop) {
       return {
         shop: data.shop,
         products: Array.isArray(data.products) ? data.products : [],
+        updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : undefined,
       };
     }
     return null;

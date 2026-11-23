@@ -77,7 +77,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   return (
     <>
       {variant === 'card' ? (
-        <div className="bg-gradient-to-l from-[#FF6A00] to-orange-600 rounded-3xl p-5 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+        <div className="bg-[#15803D] rounded-[24px] p-5 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3.5">
             <img
               src="/pwa-192x192.png"
@@ -86,10 +86,10 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             />
             <div className="space-y-0.5">
               <div className="font-extrabold text-base flex items-center gap-1.5">
-                <span>{tx(isEn, 'تطبيق غزالو POS الرسمي', 'Official Ghazalo POS App')}</span>
-                <ShieldCheck className="w-4 h-4 text-orange-100" />
+                <span>{tx(isEn, 'تطبيق Ghazalo POS الرسمي', 'Official Ghazalo POS App')}</span>
+                <ShieldCheck className="w-4 h-4 text-[#DCFCE7]" />
               </div>
-              <div className="text-xs font-semibold text-orange-50">
+              <div className="text-xs font-semibold text-[#DCFCE7]">
                 {tx(
                   isEn,
                   'ثبّته مباشرة على أندرويد، آيفون iOS، والكمبيوتر مثل تطبيقات المتجر',
@@ -102,7 +102,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             type="button"
             disabled={installing}
             onClick={() => (isInstallable ? void triggerPlayStoreInstall() : openStoreModal())}
-            className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-white text-[#FF6A00] hover:bg-orange-50 font-extrabold text-xs inline-flex items-center justify-center gap-2 shrink-0 transition-colors"
+            className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-white text-[#15803D] hover:bg-[#DCFCE7] font-extrabold text-xs inline-flex items-center justify-center gap-2 shrink-0 transition-colors"
           >
             <Download className="w-4 h-4" />
             <span>
@@ -120,7 +120,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
         <button
           type="button"
           onClick={() => (isInstallable ? void triggerPlayStoreInstall() : openStoreModal())}
-          className="w-full text-start px-4 py-3 rounded-2xl bg-orange-50/80 dark:bg-orange-950/40 text-orange-800 dark:text-orange-200 hover:bg-orange-100 dark:hover:bg-orange-950/60 flex items-center justify-between gap-2 font-extrabold text-sm"
+          className="w-full text-start px-4 py-3 rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] hover:opacity-90 flex items-center justify-between gap-2 font-extrabold text-sm"
         >
           <span className="inline-flex items-center gap-2">
             <Download className="w-4 h-4" />
@@ -133,7 +133,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           type="button"
           disabled={installing}
           onClick={() => (isInstallable ? void triggerPlayStoreInstall() : openStoreModal())}
-          className="px-3 h-9 rounded-full glass-btn text-orange-700 dark:text-orange-200 font-extrabold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+          className="px-3 h-9 rounded-full glass-btn text-[#15803D] dark:text-[#BBF7D0] font-extrabold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
           title={tx(
             isEn,
             'تثبيت التطبيق على أندرويد وآيفون والكمبيوتر',
@@ -148,7 +148,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           type="button"
           disabled={installing}
           onClick={() => (isInstallable ? void triggerPlayStoreInstall() : openStoreModal())}
-          className="px-5 py-3 rounded-full glass-btn text-orange-700 dark:text-orange-200 font-extrabold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap"
+          className="px-5 py-3 rounded-full glass-btn text-[#15803D] dark:text-[#BBF7D0] font-extrabold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap"
         >
           <Download className="w-4 h-4" />
           <span>{resolvedLabel}</span>
@@ -159,12 +159,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
       {modalOpen && (
         <div
           dir={isEn ? 'ltr' : 'rtl'}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs no-print"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#14201A]/60 backdrop-blur-xs no-print"
           onClick={() => setModalOpen(false)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 max-h-[92vh] overflow-y-auto space-y-4 border border-orange-100 dark:border-slate-800 shadow-2xl"
+            className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-t-[24px] sm:rounded-[24px] max-w-md w-full p-5 sm:p-6 max-h-[92vh] overflow-y-auto space-y-4 border border-[#CFE3D5] dark:border-[#2C3D32] shadow-2xl"
           >
             {/* Store Listing Header */}
             <div className="flex items-start justify-between gap-3">
@@ -172,16 +172,16 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                 <img
                   src="/pwa-192x192.png"
                   alt="Ghazalo POS"
-                  className="w-16 h-16 rounded-2xl border border-orange-100 dark:border-slate-700 object-cover shadow-xs shrink-0"
+                  className="w-16 h-16 rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] object-cover shadow-xs shrink-0"
                 />
                 <div className="space-y-0.5">
-                  <h3 className="text-lg font-extrabold text-slate-900 dark:text-white leading-tight">
-                    {tx(isEn, 'غزالو POS · منيو وكاشير', 'Ghazalo POS · Menu & Cashier')}
+                  <h3 className="text-lg font-extrabold text-[#14201A] dark:text-[#E8F2EB] leading-tight">
+                    {tx(isEn, 'Ghazalo POS · منيو وكاشير', 'Ghazalo POS · Menu & Cashier')}
                   </h3>
-                  <div className="text-xs font-bold text-[#FF6A00]">
+                  <div className="text-xs font-bold text-[#15803D] dark:text-[#BBF7D0]">
                     Ghazalo Platform
                   </div>
-                  <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-2">
+                  <div className="text-[11px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA] flex items-center gap-2">
                     <span className="inline-flex items-center gap-0.5 text-amber-600 font-extrabold">
                       <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
                       4.9
@@ -196,29 +196,29 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="w-8 h-8 rounded-xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center shrink-0"
+                className="w-9 h-9 rounded-xl bg-[#F6FBF7] dark:bg-[#173323] border border-[#CFE3D5] dark:border-[#2C3D32] flex items-center justify-center shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Store Stats Row */}
-            <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-orange-100 dark:border-slate-800 text-center">
+            <div className="grid grid-cols-3 gap-2 py-2.5 border-y border-[#CFE3D5] dark:border-[#2C3D32] text-center">
               <div>
-                <div className="text-xs font-extrabold text-slate-900 dark:text-white">Android</div>
-                <div className="text-[10px] font-semibold text-slate-500">
+                <div className="text-xs font-extrabold text-[#14201A] dark:text-[#E8F2EB]">Android</div>
+                <div className="text-[10px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
                   {tx(isEn, 'موبايل وتابلت', 'Phone & Tablet')}
                 </div>
               </div>
-              <div className="border-x border-orange-100 dark:border-slate-800">
-                <div className="text-xs font-extrabold text-slate-900 dark:text-white">iPhone / iPad</div>
-                <div className="text-[10px] font-semibold text-slate-500">
+              <div className="border-x border-[#CFE3D5] dark:border-[#2C3D32]">
+                <div className="text-xs font-extrabold text-[#14201A] dark:text-[#E8F2EB]">iPhone / iPad</div>
+                <div className="text-[10px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
                   {tx(isEn, 'نظام iOS', 'iOS App')}
                 </div>
               </div>
               <div>
-                <div className="text-xs font-extrabold text-slate-900 dark:text-white">Windows / Mac</div>
-                <div className="text-[10px] font-semibold text-slate-500">
+                <div className="text-xs font-extrabold text-[#14201A] dark:text-[#E8F2EB]">Windows / Mac</div>
+                <div className="text-[10px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
                   {tx(isEn, 'برنامج كاشير PC', 'Desktop POS')}
                 </div>
               </div>
@@ -230,7 +230,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                   type="button"
                   disabled={installing}
                   onClick={() => void triggerPlayStoreInstall()}
-                  className="w-full py-3.5 rounded-full bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
+                  className="w-full py-3.5 rounded-2xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
                 >
                   <Download className="w-4 h-4" />
                   <span>
@@ -240,10 +240,10 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                   </span>
                 </button>
                 {installing && (
-                  <div className="w-full h-1.5 rounded-full bg-orange-100 dark:bg-slate-800 overflow-hidden">
+                  <div className="w-full h-1.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] overflow-hidden">
                     <div
                       style={{ width: `${installProgress}%` }}
-                      className="h-full bg-[#FF6A00] transition-all duration-150"
+                      className="h-full bg-[#15803D] transition-all duration-150"
                     />
                   </div>
                 )}
@@ -254,7 +254,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                   href={typeof window !== 'undefined' ? window.location.href : '/'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full py-3.5 rounded-full bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
+                  className="w-full py-3.5 rounded-2xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
                 >
                   <ExternalLink className="w-4 h-4" />
                   <span>
@@ -265,7 +265,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                     )}
                   </span>
                 </a>
-                <p className="text-[11px] font-semibold text-center text-slate-500">
+                <p className="text-[11px] font-semibold text-center text-[#4B5B52] dark:text-[#A3B5AA]">
                   {tx(
                     isEn,
                     'عند فتح الرابط في نافذة المتصفح الرئيسية سيظهر لك زر «تثبيت التطبيق» مباشرة مثل متجر Google Play.',
@@ -277,14 +277,14 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
 
             {/* Store Screenshots Preview */}
             <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-1 rounded-2xl overflow-hidden border border-orange-100 dark:border-slate-700 h-28 bg-slate-900">
+              <div className="col-span-1 rounded-2xl overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32] h-28 bg-[#14201A]">
                 <img
                   src="/screenshot-mobile.png"
                   alt={tx(isEn, 'معاينة التطبيق للموبايل', 'Mobile App Preview')}
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="col-span-2 rounded-2xl overflow-hidden border border-orange-100 dark:border-slate-700 h-28 bg-slate-900">
+              <div className="col-span-2 rounded-2xl overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32] h-28 bg-[#14201A]">
                 <img
                   src="/screenshot-desktop.png"
                   alt={tx(isEn, 'معاينة نظام الكاشير POS', 'Desktop POS Preview')}
@@ -294,7 +294,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             </div>
 
             {/* Platform Tabs for Safari / Desktop Fallback */}
-            <div className="grid grid-cols-3 gap-1.5 bg-orange-50/70 dark:bg-slate-800 p-1 rounded-2xl">
+            <div className="grid grid-cols-3 gap-1.5 bg-[#DCFCE7]/70 dark:bg-[#173323] p-1 rounded-2xl">
               {[
                 { id: 'android' as const, label: tx(isEn, 'أندرويد', 'Android'), icon: Smartphone },
                 { id: 'ios' as const, label: tx(isEn, 'آيفون iOS', 'iPhone iOS'), icon: Tablet },
@@ -308,8 +308,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                     onClick={() => setActiveTab(t.id)}
                     className={`py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 transition-colors ${
                       activeTab === t.id
-                        ? 'bg-white dark:bg-slate-900 text-[#FF6A00] shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300'
+                        ? 'bg-[#FFFFFF] dark:bg-[#18231C] text-[#15803D] dark:text-[#BBF7D0] shadow-xs'
+                        : 'text-[#4B5B52] dark:text-[#A3B5AA]'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -320,7 +320,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             </div>
 
             {activeTab === 'android' && (
-              <div className="rounded-2xl bg-orange-50/50 dark:bg-slate-800/80 p-3.5 space-y-2 text-xs font-bold text-slate-700 dark:text-slate-200">
+              <div className="rounded-2xl bg-[#F6FBF7] dark:bg-[#173323]/70 p-3.5 space-y-2 text-xs font-bold text-[#14201A] dark:text-[#E8F2EB]">
                 {isEn ? (
                   <>
                     <div>1. Open the app in <strong>Chrome</strong> on Android.</div>
@@ -331,19 +331,19 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                   <>
                     <div>1. افتح الموقع في متصفح <strong>Chrome</strong> على أندرويد.</div>
                     <div>2. سيظهر لك شريط <strong>تثبيت التطبيق (مثل متجر Play)</strong> أو من قائمة <strong>(⋮)</strong> اختر <strong>تثبيت التطبيق</strong>.</div>
-                    <div>3. يظهر التطبيق بأيقونة <strong>غزالو</strong> وسط تطبيقات هاتفك بدون الحاجة لملفات خارجية.</div>
+                    <div>3. يظهر التطبيق بأيقونة <strong>Ghazalo</strong> وسط تطبيقات هاتفك بدون الحاجة لملفات خارجية.</div>
                   </>
                 )}
               </div>
             )}
 
             {activeTab === 'ios' && (
-              <div className="rounded-2xl bg-orange-50/50 dark:bg-slate-800/80 p-3.5 space-y-2 text-xs font-bold text-slate-700 dark:text-slate-200">
+              <div className="rounded-2xl bg-[#F6FBF7] dark:bg-[#173323]/70 p-3.5 space-y-2 text-xs font-bold text-[#14201A] dark:text-[#E8F2EB]">
                 {isEn ? (
                   <>
                     <div>1. Open the link in <strong>Safari</strong> on your iPhone or iPad.</div>
                     <div className="inline-flex items-center gap-1 flex-wrap">
-                      2. Tap the Share button <Share className="w-3.5 h-3.5 text-[#FF6A00] inline" /> at the bottom.
+                      2. Tap the Share button <Share className="w-3.5 h-3.5 text-[#15803D] inline" /> at the bottom.
                     </div>
                     <div>3. Select <strong>Add to Home Screen</strong>.</div>
                   </>
@@ -351,7 +351,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                   <>
                     <div>1. افتح الرابط في متصفح <strong>Safari</strong> على الآيفون أو الآيباد.</div>
                     <div className="inline-flex items-center gap-1 flex-wrap">
-                      2. اضغط على أيقونة المشاركة <Share className="w-3.5 h-3.5 text-[#FF6A00] inline" /> بالأسفل.
+                      2. اضغط على أيقونة المشاركة <Share className="w-3.5 h-3.5 text-[#15803D] inline" /> بالأسفل.
                     </div>
                     <div>3. اختر <strong>إضافة إلى الشاشة الرئيسية (Add to Home Screen)</strong>.</div>
                   </>
@@ -360,7 +360,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             )}
 
             {activeTab === 'desktop' && (
-              <div className="rounded-2xl bg-orange-50/50 dark:bg-slate-800/80 p-3.5 space-y-2 text-xs font-bold text-slate-700 dark:text-slate-200">
+              <div className="rounded-2xl bg-[#F6FBF7] dark:bg-[#173323]/70 p-3.5 space-y-2 text-xs font-bold text-[#14201A] dark:text-[#E8F2EB]">
                 {isEn ? (
                   <>
                     <div>1. Open in <strong>Chrome</strong> or <strong>Edge</strong> on Windows/Mac.</div>
@@ -370,15 +370,15 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                 ) : (
                   <>
                     <div>1. افتح الرابط في <strong>Chrome</strong> أو <strong>Edge</strong> على الكمبيوتر.</div>
-                    <div>2. اضغط أيقونة التثبيت في شريط العنوان أو اختر <strong>تثبيت غزالو POS</strong>.</div>
+                    <div>2. اضغط أيقونة التثبيت في شريط العنوان أو اختر <strong>تثبيت Ghazalo POS</strong>.</div>
                     <div>3. يعمل كبرنامج كاشير مستقل على سطح المكتب مع اختصار مباشر للكاشير.</div>
                   </>
                 )}
               </div>
             )}
 
-            <div className="flex items-center gap-2 text-[11px] font-bold text-orange-800 dark:text-orange-300 bg-orange-50 dark:bg-orange-950/40 rounded-xl px-3 py-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-[#FF6A00]" />
+            <div className="flex items-center gap-2 text-[11px] font-bold text-[#14532D] dark:text-[#BBF7D0] bg-[#DCFCE7] dark:bg-[#173323] rounded-xl px-3 py-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-[#15803D]" />
               <span>
                 {tx(
                   isEn,

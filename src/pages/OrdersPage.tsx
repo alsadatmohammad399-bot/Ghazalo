@@ -77,31 +77,35 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
   };
 
   return (
-    <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-slate-50/70 dark:bg-slate-950 p-4 sm:p-6">
-      <div className="max-w-5xl mx-auto space-y-5">
-        <div className="flex items-center justify-between bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800">
+    <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] pb-20">
+      <header className="sticky top-0 z-20 bg-[#FFFFFF] dark:bg-[#18231C] border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+        <div className="max-w-[560px] mx-auto px-4 py-2.5 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={onBackDashboard}
-            className="inline-flex items-center gap-1.5 text-sm font-bold text-[#FF6A00]"
+            className="sf-btn min-h-[40px] px-3 text-xs text-[#15803D] dark:text-[#BBF7D0]"
           >
             {isEn ? <ArrowLeft className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
             {tx(isEn, 'لوحة التحكم', 'Dashboard')}
           </button>
-          <h1 className="text-lg sm:text-xl font-extrabold">{tx(isEn, 'الطلبات', 'Orders')}</h1>
+          <h1 className="text-lg font-extrabold text-[#14201A] dark:text-[#E8F2EB]">
+            {tx(isEn, 'الطلبات', 'Orders')}
+          </h1>
           <button
             type="button"
             onClick={onOpenCashier}
-            className="px-4 py-2 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-xs"
+            className="sf-btn-yellow min-h-[40px] px-3.5 text-xs"
           >
-            {tx(isEn, 'الكاشير', 'Cashier POS')}
+            {tx(isEn, 'الكاشير', 'Cashier')}
           </button>
         </div>
+      </header>
 
+      <main className="max-w-[560px] mx-auto px-4 pt-3.5 space-y-3.5">
         {/* Search */}
         <div className="relative">
           <Search
-            className={`w-4 h-4 text-slate-400 absolute ${
+            className={`w-4 h-4 text-[#4B5B52] dark:text-[#A3B5AA] absolute ${
               isEn ? 'left-4' : 'right-4'
             } top-1/2 -translate-y-1/2`}
           />
@@ -114,18 +118,13 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
               'رقم الطلب، اسم العميل، رقم الهاتف',
               'Order #, customer name, or phone number'
             )}
-            className={`w-full ${
-              isEn ? 'pl-11 pr-4' : 'pr-11 pl-4'
-            } py-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF6A00]`}
+            className={`sf-inp ${isEn ? 'pl-11 pr-4' : 'pr-11 pl-4'}`}
           />
         </div>
 
-        {/* Filters */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 border border-orange-100 dark:border-slate-800 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-extrabold text-slate-500 me-1">
-              {tx(isEn, 'الحالة:', 'Status:')}
-            </span>
+        {/* Horizontal Filter Chips */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
             {[
               { id: 'all', label: tx(isEn, 'الكل', 'All') },
               { id: 'new', label: tx(isEn, 'جديد', 'New') },
@@ -136,65 +135,63 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                 key={st.id}
                 type="button"
                 onClick={() => setStatusFilter(st.id as typeof statusFilter)}
-                className={`px-3.5 py-1.5 rounded-2xl text-xs font-bold border ${
-                  statusFilter === st.id
-                    ? 'bg-[#FF6A00] text-white border-[#FF6A00]'
-                    : 'bg-orange-50/40 dark:bg-slate-800 border-orange-100 dark:border-slate-700'
-                }`}
+                className={statusFilter === st.id ? 'sf-chip-on text-xs' : 'sf-chip text-xs'}
               >
                 {st.label}
               </button>
             ))}
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold text-slate-500">
-                {tx(isEn, 'المصدر:', 'Source:')}
-              </span>
-              <select
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value as typeof sourceFilter)}
-                className="px-3 py-1.5 rounded-xl bg-orange-50/50 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 text-xs font-bold"
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            {[
+              { id: 'all', label: tx(isEn, 'كل المصادر', 'All Sources') },
+              { id: 'cashier', label: tx(isEn, 'الكاشير', 'Cashier') },
+              { id: 'menu', label: tx(isEn, 'المنيو', 'Menu') },
+            ].map((src) => (
+              <button
+                key={src.id}
+                type="button"
+                onClick={() => setSourceFilter(src.id as typeof sourceFilter)}
+                className={sourceFilter === src.id ? 'sf-chip-on text-xs' : 'sf-chip text-xs'}
               >
-                <option value="all">{tx(isEn, 'كل المصادر', 'All Sources')}</option>
-                <option value="cashier">{tx(isEn, 'الكاشير', 'Cashier POS')}</option>
-                <option value="menu">{tx(isEn, 'المنيو', 'Online Menu')}</option>
-              </select>
-            </div>
+                {src.label}
+              </button>
+            ))}
+          </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold text-slate-500">
-                {tx(isEn, 'النوع:', 'Type:')}
-              </span>
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
-                className="px-3 py-1.5 rounded-xl bg-orange-50/50 dark:bg-slate-800 border border-orange-100 dark:border-slate-700 text-xs font-bold"
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            {[
+              { id: 'all', label: tx(isEn, 'كل الأنواع', 'All Types') },
+              { id: 'delivery', label: tx(isEn, 'توصيل', 'Delivery') },
+              { id: 'pickup', label: tx(isEn, 'استلام', 'Pickup') },
+              { id: 'dine_in', label: tx(isEn, 'محلي', 'Dine-in') },
+              { id: 'table', label: tx(isEn, 'طاولة', 'Table') },
+            ].map((tp) => (
+              <button
+                key={tp.id}
+                type="button"
+                onClick={() => setTypeFilter(tp.id as typeof typeFilter)}
+                className={typeFilter === tp.id ? 'sf-chip-on text-xs' : 'sf-chip text-xs'}
               >
-                <option value="all">{tx(isEn, 'كل الأنواع', 'All Types')}</option>
-                <option value="delivery">{tx(isEn, 'توصيل', 'Delivery')}</option>
-                <option value="pickup">{tx(isEn, 'استلام', 'Pickup')}</option>
-                <option value="dine_in">{tx(isEn, 'محلي', 'Dine-in')}</option>
-                <option value="table">{tx(isEn, 'طاولة', 'Table')}</option>
-              </select>
-            </div>
+                {tp.label}
+              </button>
+            ))}
           </div>
         </div>
 
         {/* Orders List or Empty Envelope State */}
         {filtered.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 border border-orange-100 dark:border-slate-800 text-center space-y-4">
-            <div className="w-20 h-20 rounded-3xl bg-orange-50 dark:bg-slate-800 text-[#FF6A00] mx-auto flex items-center justify-center">
-              <MailOpen className="w-10 h-10" />
+          <div className="sf-card py-10 px-6 text-center items-center flex flex-col gap-3">
+            <div className="w-16 h-16 rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center">
+              <MailOpen className="w-8 h-8" />
             </div>
-            <p className="text-base font-extrabold text-slate-700 dark:text-slate-200">
+            <p className="text-sm font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
               {tx(isEn, 'لا توجد طلبات في هذه الفئة', 'No orders in this filter')}
             </p>
             <button
               type="button"
               onClick={onOpenCashier}
-              className="px-6 py-3 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-extrabold text-sm"
+              className="sf-btn-primary text-sm px-6"
             >
               {tx(isEn, 'طلب جديد من الكاشير', 'New POS Order')}
             </button>
@@ -202,54 +199,47 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
         ) : (
           <div className="space-y-3">
             {filtered.map((ord) => (
-              <div
-                key={ord.id}
-                className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-orange-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-              >
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-extrabold text-base tabular-nums">
-                      #{ord.orderNumber}
-                    </span>
-                    <span className="text-xs font-bold text-slate-500">
-                      {ord.source === 'cashier'
-                        ? tx(isEn, 'الكاشير', 'Cashier')
-                        : tx(isEn, 'المنيو', 'Menu')}{' '}
-                      · {typeLabels[ord.orderType] || ord.orderType}
-                      {ord.tableLabel ? ` (${ord.tableLabel})` : ''}
-                    </span>
+              <div key={ord.id} className="sf-card space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-extrabold text-base text-[#14201A] dark:text-[#E8F2EB] tabular-nums">
+                    #{ord.orderNumber} ·{' '}
+                    {ord.source === 'cashier'
+                      ? tx(isEn, 'الكاشير', 'Cashier')
+                      : tx(isEn, 'المنيو', 'Menu')}
                   </div>
-                  <div className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                    {ord.customerName || tx(isEn, 'عميل', 'Customer')}{' '}
-                    {ord.customerPhone ? `- ${ord.customerPhone}` : ''}
-                  </div>
-                  {ord.itemSummary && ord.itemSummary.length > 0 && (
-                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      {ord.itemSummary.join(' • ')}
-                    </div>
-                  )}
+                  <span className="px-2.5 py-1 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] text-xs font-extrabold">
+                    {statusLabels[ord.status]}
+                  </span>
                 </div>
 
-                <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                  <div className={isEn ? 'text-right' : 'text-left'}>
-                    <div className="text-base font-extrabold text-[#FF6A00] tabular-nums">
-                      {formatMoney(ord.total, shop.country)}
-                    </div>
-                    <div className="text-xs font-bold text-slate-500">
-                      {statusLabels[ord.status]}
-                    </div>
+                <div className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
+                  {typeLabels[ord.orderType] || ord.orderType}
+                  {ord.tableLabel ? ` (${ord.tableLabel})` : ''} ·{' '}
+                  {ord.customerName || tx(isEn, 'عميل', 'Customer')}
+                  {ord.customerPhone ? ` - ${ord.customerPhone}` : ''}
+                </div>
+
+                {ord.itemSummary && ord.itemSummary.length > 0 && (
+                  <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA] bg-[#F6FBF7] dark:bg-[#0F1712] rounded-xl p-2.5 border border-[#CFE3D5]/60 dark:border-[#2C3D32]">
+                    {ord.itemSummary.join(' • ')}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <div className="text-base font-extrabold text-[#15803D] dark:text-[#4ADE80] tabular-nums">
+                    {formatMoney(ord.total, shop.country)}
                   </div>
                   {ord.status !== 'completed' && (
                     <button
                       type="button"
                       onClick={() => void handleAdvanceStatus(ord)}
-                      className="px-4 py-2 rounded-2xl bg-[#FF6A00] hover:bg-[#e85f00] text-white font-bold text-xs whitespace-nowrap"
+                      className="sf-btn-mint min-h-[42px] text-xs px-4"
                     >
                       {ord.status === 'new'
-                        ? tx(isEn, 'بدء التحضير', 'Start Preparing')
+                        ? tx(isEn, 'تحويل إلى قيد التحضير', 'Start Preparing')
                         : ord.status === 'preparing'
-                          ? tx(isEn, 'جاهز', 'Mark Ready')
-                          : tx(isEn, 'إتمام', 'Complete')}
+                          ? tx(isEn, 'تحويل إلى جاهز', 'Mark Ready')
+                          : tx(isEn, 'إتمام الطلب', 'Complete')}
                     </button>
                   )}
                 </div>
@@ -257,7 +247,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
             ))}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 };

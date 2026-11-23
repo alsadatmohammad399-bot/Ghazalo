@@ -1,6 +1,5 @@
 import { normalizeStoreSlug, type Product, type Shop } from '../types';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
-import { DEMO_STORES as RAW_DEMO_STORES } from './demoStores.js';
 
 export interface DemoStoreItemSeed {
   id: string;
@@ -14,45 +13,86 @@ export interface DemoStoreEntry {
   slug: string;
   name: string;
   nameEn: string;
-  category: string;
-  logoEmoji: string;
-  phone: string;
   city: string;
   address: string;
   bio: string;
   whatsapp: string;
-  isDemo: boolean;
   items: DemoStoreItemSeed[];
 }
 
-export const DEMO_STORES: DemoStoreEntry[] = RAW_DEMO_STORES.map((entry) => ({
-  slug: entry.slug,
-  name: entry.name,
-  nameEn: entry.nameEn || entry.name,
-  category: entry.category || 'عام',
-  logoEmoji: entry.logoEmoji || '🍽️',
-  phone: entry.phone || '01015861991',
-  city: entry.city || 'القاهرة',
-  address: entry.address || '',
-  bio: entry.bio || 'أشهى المأكولات والمشروبات الطازجة يومياً.',
-  whatsapp: entry.phone ? `2${entry.phone.replace(/^0/, '')}` : '201015861991',
-  isDemo: entry.isDemo !== false,
-  items: entry.items.map((it) => ({
-    id: it.id,
-    name: it.name,
-    category: it.category || entry.category || 'أطباق رئيسية',
-    price: Number(it.price) || 0,
-    description: it.description || '',
-  })),
-}));
+export const DEFAULT_DEMO_MENU_ITEMS: DemoStoreItemSeed[] = [
+  {
+    id: 'demo-item-kebda',
+    name: 'كبدة',
+    category: 'ساندوتشات وأطباق ساخنة',
+    price: 60,
+    description: 'كبدة إسكندراني طازجة بالثوم والفلفل والخلطة الخاصة',
+  },
+  {
+    id: 'demo-item-sogoq',
+    name: 'سجق',
+    category: 'ساندوتشات وأطباق ساخنة',
+    price: 70,
+    description: 'سجق بلدي متبل مشوي على الجريل',
+  },
+  {
+    id: 'demo-item-koshary',
+    name: 'كشري',
+    category: 'أطباق رئيسية',
+    price: 45,
+    description: 'كشري مصري أصلي بالصلصة والدقة والشطة',
+  },
+  {
+    id: 'demo-item-grilled-chicken',
+    name: 'فراخ مشوية',
+    category: 'مشويات',
+    price: 120,
+    description: 'فراخ مشوية على الفحم مع أرز وسلطات',
+  },
+];
 
-export const DEFAULT_DEMO_MENU_ITEMS: DemoStoreItemSeed[] =
-  DEMO_STORES.find((s) => s.slug === 'mtgry-algdyd')?.items || DEMO_STORES[0].items;
-
-const SLUG_ALIASES: Record<string, string> = {
-  'kebda-masr': 'kebda-msr',
-  'mtamy-algdyd': 'mtgry-algdyd',
-};
+export const DEMO_STORES: DemoStoreEntry[] = [
+  {
+    slug: 'mtgry-algdyd',
+    name: 'مطعمي الجديد',
+    nameEn: 'My New Restaurant',
+    city: 'القاهرة',
+    address: 'وسط البلد - القاهرة',
+    bio: 'أشهى المأكولات والمشويات المصرية الطازجة يومياً.',
+    whatsapp: '201015861991',
+    items: DEFAULT_DEMO_MENU_ITEMS,
+  },
+  {
+    slug: 'mtamy-algdyd',
+    name: 'مطعمي الجديد',
+    nameEn: 'My New Restaurant',
+    city: 'القاهرة',
+    address: 'وسط البلد - القاهرة',
+    bio: 'أشهى المأكولات والمشويات المصرية الطازجة يومياً.',
+    whatsapp: '201015861991',
+    items: DEFAULT_DEMO_MENU_ITEMS,
+  },
+  {
+    slug: 'kebda-masr',
+    name: 'كبدة مصر',
+    nameEn: 'Kebda Masr',
+    city: 'القاهرة',
+    address: 'وسط البلد - شارع 26 يوليو',
+    bio: 'أشهر ساندوتشات وأطباق الكبدة والسجق والمشويات في مصر.',
+    whatsapp: '201015861991',
+    items: DEFAULT_DEMO_MENU_ITEMS,
+  },
+  {
+    slug: 'koshary-corner',
+    name: 'ركن الكشري',
+    nameEn: 'Koshary Corner',
+    city: 'القاهرة',
+    address: 'مدينة نصر - شارع عباس العقاد',
+    bio: 'كشري مصري أصلي وطواجن ومشويات طازجة.',
+    whatsapp: '201015861991',
+    items: DEFAULT_DEMO_MENU_ITEMS,
+  },
+];
 
 export function mapSeedItemsToProducts(
   shopId: string,
@@ -83,7 +123,7 @@ export function buildShopFromDemoEntry(
   const now = Date.now();
   const shop: Shop = {
     id: slug,
-    ownerId: `demo-owner-${slug}`,
+    ownerId: `owner-${slug}`,
     storeSlug: slug,
     nameAr: entry.name,
     nameEn: entry.nameEn,
@@ -127,13 +167,8 @@ export function findDemoStoreBySlug(
 ): { shop: Shop; products: Product[] } | null {
   const raw = (rawSlug || '').trim().toLowerCase();
   const norm = normalizeStoreSlug(rawSlug);
-  const aliased = SLUG_ALIASES[raw] || (norm ? SLUG_ALIASES[norm] : undefined);
-
   const match = DEMO_STORES.find(
-    (s) =>
-      s.slug.toLowerCase() === raw ||
-      (norm && s.slug.toLowerCase() === norm) ||
-      (aliased && s.slug.toLowerCase() === aliased)
+    (s) => s.slug.toLowerCase() === raw || (norm && s.slug.toLowerCase() === norm)
   );
   if (!match) return null;
   return buildShopFromDemoEntry(match, match.slug);
@@ -148,6 +183,9 @@ export function readableNameFromSlug(rawSlug: string): string {
   }
   const clean = decoded.replace(/^\/?menu\//i, '').trim();
   if (!clean) return 'مطعمي الجديد';
+  if (/^[a-z0-9-_]+$/i.test(clean)) {
+    return clean;
+  }
   return clean;
 }
 

@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
+import { sortProductsCulinary } from '../utils/menuSorting';
 import {
   FIELD_LIMITS,
   normalizeMenuTemplateId,
@@ -139,10 +140,10 @@ export async function getAllStoreCredentials(): Promise<StoreCredentialRecord[]>
   }
 }
 
-export async function createShop(
+export async function createShopWithProducts(
   shopData: Omit<Shop, 'id' | 'createdAt' | 'updatedAt' | 'subscriptionStatus' | 'trialEndsAt'>,
   extractedItems: ExtractedMenuItem[] = []
-): Promise<Shop> {
+): Promise<{ shop: Shop; products: Product[] }> {
   const shopId = generateId('shop');
   const path = `shops/${shopId}`;
   const trialEndsAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
@@ -197,6 +198,8 @@ export async function createShop(
 
     await setDoc(doc(db, 'shops', shopId), cleanShop);
 
+    const createdProducts: Product[] = [];
+
     // Only write products if AI extracted items were reviewed & confirmed (empty store otherwise)
     if (extractedItems.length > 0) {
       const chunks: Array<Array<{ item: ExtractedMenuItem; idx: number }>> = [];
@@ -208,15 +211,23 @@ export async function createShop(
         const batch = writeBatch(db);
         for (const { item, idx } of chunk) {
           const prodId = generateId('prod');
+          const cleanPrice =
+            Number.isFinite(Number(item.price)) && Number(item.price) >= 0 ? Number(item.price) : 0;
+          const cleanCat = (item.category || 'أصناف متنوعة').trim().slice(0, FIELD_LIMITS.CATEGORY_MAX);
+          const cleanName = item.name.trim().slice(0, FIELD_LIMITS.PRODUCT_NAME_MAX);
+          const cleanImage =
+            (item.imageUrl || '').trim().slice(0, 500) ||
+            resolveDishPhotoClient(cleanName, cleanCat).slice(0, 500);
+
           const prodData: Record<string, unknown> = {
             id: prodId,
             shopId,
             shopOwnerId: shopData.ownerId,
-            name: item.name.trim().slice(0, FIELD_LIMITS.PRODUCT_NAME_MAX),
-            category: (item.category || 'أصناف متنوعة').trim().slice(0, FIELD_LIMITS.CATEGORY_MAX),
-            price: Number.isFinite(Number(item.price)) && Number(item.price) >= 0 ? Number(item.price) : 0,
+            name: cleanName,
+            category: cleanCat,
+            price: cleanPrice,
             description: (item.description || '').trim().slice(0, FIELD_LIMITS.DESCRIPTION_MAX),
-            imageUrl: (item.imageUrl || '').trim().slice(0, 500),
+            imageUrl: cleanImage,
             barcode: '',
             available: true,
             variants: (item.variants || []).slice(0, 20),
@@ -232,19 +243,49 @@ export async function createShop(
             prodData.offerLabel = item.offerLabel.trim().slice(0, FIELD_LIMITS.OFFER_LABEL_MAX);
           }
           batch.set(doc(db, 'shops', shopId, 'products', prodId), prodData);
+
+          createdProducts.push({
+            id: prodId,
+            shopId,
+            shopOwnerId: shopData.ownerId,
+            name: cleanName,
+            category: cleanCat,
+            price: cleanPrice,
+            description: String(prodData.description || ''),
+            imageUrl: cleanImage,
+            barcode: '',
+            available: true,
+            variants: (prodData.variants as string[]) || [],
+            sortOrder: Number(prodData.sortOrder),
+            isOffer: Boolean(prodData.isOffer),
+            originalPrice: prodData.originalPrice ? Number(prodData.originalPrice) : undefined,
+            offerLabel: prodData.offerLabel ? String(prodData.offerLabel) : undefined,
+          });
         }
         await batch.commit();
       }
     }
 
-    return {
+    const createdShop: Shop = {
       ...(cleanShop as unknown as Shop),
       id: shopId,
       trialEndsAt,
     };
+    return {
+      shop: createdShop,
+      products: sortProductsCulinary(createdProducts),
+    };
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }
+}
+
+export async function createShop(
+  shopData: Omit<Shop, 'id' | 'createdAt' | 'updatedAt' | 'subscriptionStatus' | 'trialEndsAt'>,
+  extractedItems: ExtractedMenuItem[] = []
+): Promise<Shop> {
+  const { shop } = await createShopWithProducts(shopData, extractedItems);
+  return shop;
 }
 
 export async function updateShop(
@@ -407,7 +448,8 @@ export async function saveAdminCustomPin(newPin: string): Promise<void> {
 
 export function subscribeToShop(
   shopId: string,
-  onData: (shop: Shop | null) => void
+  onData: (shop: Shop | null) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = `shops/${shopId}`;
   return onSnapshot(
@@ -416,7 +458,15 @@ export function subscribeToShop(
       onData(snap.exists() ? (snap.data() as Shop) : null);
     },
     (error) => {
-      handleFirestoreError(error, OperationType.GET, path);
+      if (onError) {
+        onError(error);
+        return;
+      }
+      try {
+        handleFirestoreError(error, OperationType.GET, path);
+      } catch {
+        // non-fatal listener error
+      }
     }
   );
 }
@@ -436,19 +486,36 @@ export function subscribeToAllShops(
   );
 }
 
+export async function fetchProductsOnce(shopId: string): Promise<Product[]> {
+  try {
+    const snap = await getDocs(collection(db, 'shops', shopId, 'products'));
+    return sortProductsCulinary(snap.docs.map((d) => d.data() as Product));
+  } catch {
+    return [];
+  }
+}
+
 export function subscribeToProducts(
   shopId: string,
-  onData: (products: Product[]) => void
+  onData: (products: Product[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = `shops/${shopId}/products`;
-  const q = query(collection(db, 'shops', shopId, 'products'), orderBy('createdAt', 'desc'));
   return onSnapshot(
-    q,
+    collection(db, 'shops', shopId, 'products'),
     (snap) => {
-      onData(snap.docs.map((d) => d.data() as Product));
+      onData(sortProductsCulinary(snap.docs.map((d) => d.data() as Product)));
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      if (onError) {
+        onError(error);
+        return;
+      }
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch {
+        // non-fatal listener error
+      }
     }
   );
 }
