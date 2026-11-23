@@ -94,7 +94,7 @@ service cloud.firestore {
         && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 90000))
         && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 24000))
         && (!('showLogoOnItems' in data) || data.showLogoOnItems is bool)
-        && (!('menuTemplate' in data) || (data.menuTemplate in ['classic', 'modern', 'minimal', 'compact', 'luxury', 'magazine']))
+        && (!('menuTemplate' in data) || (data.menuTemplate in ['classic', 'modern', 'minimal', 'compact', 'royal', 'luxury', 'magazine']))
         && (!('requestedPlan' in data) || (data.requestedPlan in ['', 'monthly_600', 'yearly_3000', 'yearly_6000']))
         && (!('paymentNote' in data) || (data.paymentNote is string && data.paymentNote.size() <= 200))
         && data.isOpen is bool

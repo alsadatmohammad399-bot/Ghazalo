@@ -1209,6 +1209,183 @@ async function startServer() {
     }
   });
 
+  app.post('/api/ai/menu-chat', async (req: Request, res: Response) => {
+    try {
+      if (!process.env.GEMINI_API_KEY) {
+        res.status(500).json({
+          error: 'مفتاح Gemini API غير متوفر في إعدادات الخادم (Secrets).',
+        });
+        return;
+      }
+
+      const body = req.body as {
+        shopName?: string;
+        language?: 'ar' | 'en';
+        country?: string;
+        message?: string;
+        history?: Array<{ role?: string; text?: string }>;
+        products?: Array<{
+          id?: string;
+          name?: string;
+          category?: string;
+          price?: number;
+          description?: string;
+          variants?: string[];
+          isOffer?: boolean;
+          offerLabel?: string;
+        }>;
+      };
+
+      const userMessage = String(body.message || '').trim().slice(0, 600);
+      if (!userMessage) {
+        res.status(400).json({ error: 'اكتب سؤالك للشيف أولاً.' });
+        return;
+      }
+
+      const isEn = body.language === 'en';
+      const catalog = Array.isArray(body.products)
+        ? body.products
+            .filter((p) => p && p.id && p.name)
+            .slice(0, 90)
+            .map((p) => ({
+              id: String(p.id),
+              name: String(p.name).slice(0, 120),
+              category: String(p.category || '').slice(0, 60),
+              price: Number(p.price || 0),
+              description: String(p.description || '').slice(0, 160),
+              isOffer: Boolean(p.isOffer),
+              variants: Array.isArray(p.variants) ? p.variants.slice(0, 6) : [],
+            }))
+        : [];
+
+      if (catalog.length === 0) {
+        res.status(400).json({ error: 'لا توجد أصناف في المنيو للترشيح حالياً.' });
+        return;
+      }
+
+      const historyText = Array.isArray(body.history)
+        ? body.history
+            .slice(-6)
+            .map((h) => `${h.role === 'user' ? 'Customer' : 'Chef'}: ${String(h.text || '').slice(0, 200)}`)
+            .join('\n')
+        : '';
+
+      const systemPrompt = isEn
+        ? `You are the friendly AI Chef Assistant for "${body.shopName || 'the restaurant'}".
+Help customers choose dishes ONLY from the provided JSON menu catalog below.
+Rules:
+1. Never invent dish names, prices, or IDs that are not in the catalog.
+2. Pick 1 to 2 matching product IDs in recommendedProductIds (use exact "id" strings from the catalog).
+3. Keep your reply warm, concise (2-3 sentences max), and helpful in English.
+4. Provide 2-3 short followUpChips (under 4 words each) for quick replies.
+
+Menu Catalog:
+${JSON.stringify(catalog)}`
+        : `أنت "الشيف الذكي" لمطعم "${body.shopName || 'المطعم'}".
+مهمتك مساعدة العميل بلهجة دافئة وودودة يختار أحلى وجبة أو عرض من المنيو الفعلي فقط.
+القواعد الصارمة:
+1. ممنوع تماماً اختراع أي صنف أو سعر أو معرّف id مش موجود في قائمة المنيو المرفقة.
+2. اختار من 1 إلى 2 من أنسب الأصناف لطلب العميل وضع الـ id الحقيقي بتاعهم في recommendedProductIds.
+3. اجعل ردك قصيراً ولطيفاً ومباشراً (جملتين أو 3 جمل بالكثير).
+4. أضف 2 إلى 3 أزرار متابعة قصيرة في followUpChips (مثل: "اقترحلي عرض توفير"، "حاجة أخف"، "مشروبات تناسبها").
+
+قائمة المنيو الفعلية (${body.country || 'مصر'}):
+${JSON.stringify(catalog)}`;
+
+      const promptWithHistory = historyText
+        ? `${systemPrompt}\n\nPrevious chat:\n${historyText}\n\nCustomer latest question: ${userMessage}`
+        : `${systemPrompt}\n\nCustomer question: ${userMessage}`;
+
+      const invokeChatModel = async (modelName: string): Promise<string> => {
+        const isHydrogen = modelName === 'gemini-4-hydrogen';
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: promptWithHistory,
+          config: {
+            ...(isHydrogen ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}),
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                reply: { type: Type.STRING },
+                recommendedProductIds: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+                followUpChips: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+              },
+              required: ['reply', 'recommendedProductIds'],
+            },
+          },
+        });
+        return response.text ?? '{}';
+      };
+
+      const isTransient = (err: unknown): boolean => {
+        const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
+        return (
+          msg.includes('503') ||
+          msg.includes('429') ||
+          msg.includes('unavailable') ||
+          msg.includes('quota') ||
+          msg.includes('high demand') ||
+          msg.includes('overloaded') ||
+          msg.includes('404')
+        );
+      };
+
+      let rawJson = '{}';
+      try {
+        rawJson = await invokeChatModel('gemini-4-hydrogen');
+      } catch (primaryErr) {
+        if (!isTransient(primaryErr)) throw primaryErr;
+        await new Promise((r) => setTimeout(r, 350));
+        rawJson = await invokeChatModel('gemini-3.1-flash-lite');
+      }
+
+      const validIds = new Set(catalog.map((p) => p.id));
+      let parsed: {
+        reply?: string;
+        recommendedProductIds?: string[];
+        followUpChips?: string[];
+      } = {};
+      try {
+        parsed = JSON.parse(rawJson.replace(/^```json\s*/i, '').replace(/```$/i, '').trim());
+      } catch {
+        parsed = { reply: isEn ? 'Here is a great pick for you from our menu:' : 'جرب ترشيح الشيف ده من المنيو:' };
+      }
+
+      const matchedIds = Array.isArray(parsed.recommendedProductIds)
+        ? parsed.recommendedProductIds.map((id) => String(id)).filter((id) => validIds.has(id)).slice(0, 2)
+        : [];
+
+      const chips = Array.isArray(parsed.followUpChips)
+        ? parsed.followUpChips.map((c) => String(c).trim()).filter(Boolean).slice(0, 3)
+        : [];
+
+      res.json({
+        reply: String(parsed.reply || '').trim() || (isEn ? 'Here is what I recommend:' : 'ده أنسب اختيار ليك من المنيو:'),
+        recommendedProductIds: matchedIds,
+        followUpChips: chips,
+      });
+    } catch (error: unknown) {
+      const msg = (error instanceof Error ? error.message : String(error || '')).toLowerCase();
+      console.error('Gemini menu-chat error:', error);
+      if (msg.includes('503') || msg.includes('429') || msg.includes('quota') || msg.includes('unavailable')) {
+        res.status(503).json({
+          error: 'الشيف الذكي مشغول لحظياً بسبب ضغط الطلبات — اضغط إعادة المحاولة أو استخدم اختيارات الشيف السريعة بالأسفل.',
+        });
+        return;
+      }
+      res.status(500).json({
+        error: 'تعذر التواصل مع الشيف الذكي حالياً، يمكنك المتابعة باستخدام الاختيارات السريعة.',
+      });
+    }
+  });
+
   if (!process.env.VERCEL) {
     if (process.env.NODE_ENV !== 'production') {
       const { createServer: createViteServer } = await import('vite');

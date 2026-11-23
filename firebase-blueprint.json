@@ -141,7 +141,7 @@
         },
         "menuTemplate": {
           "type": "string",
-          "enum": ["classic", "modern", "minimal", "compact", "luxury", "magazine"]
+          "enum": ["classic", "modern", "minimal", "compact", "royal", "luxury", "magazine"]
         },
         "requestedPlan": {
           "type": "string",

@@ -115,6 +115,10 @@ export function translateTemplateMeta(
     modern: { name: 'Modern', tagline: 'Bold full-width photo cards & sleek look' },
     minimal: { name: 'Minimal', tagline: 'Clean spacious layout focusing on items' },
     compact: { name: 'Compact', tagline: 'Dense grid showing more dishes per screen' },
+    royal: {
+      name: 'Royal Bistro + AI Chef',
+      tagline: 'Signature Navy/Ivory & Gold storefront with interactive AI Chef Assistant',
+    },
   };
   return map[id] || { name: fallbackName, tagline: fallbackTagline };
 }

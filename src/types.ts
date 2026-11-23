@@ -27,11 +27,11 @@ export const ADMIN_PORTAL_KEY: string =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_PORTAL_KEY) ||
   'ghz-991-owner';
 
-export type MenuTemplateId = 'classic' | 'modern' | 'minimal' | 'compact';
+export type MenuTemplateId = 'classic' | 'modern' | 'minimal' | 'compact' | 'royal';
 export type LegacyMenuTemplateId = 'luxury' | 'magazine';
 export type ShopMenuTemplateId = MenuTemplateId | LegacyMenuTemplateId;
 
-export type MenuTemplateLayoutMode = 'grid' | 'editorial' | 'minimal' | 'dense';
+export type MenuTemplateLayoutMode = 'grid' | 'editorial' | 'minimal' | 'dense' | 'royal';
 export type MenuTemplateDensity = 'comfortable' | 'airy' | 'clean' | 'compact';
 
 export interface MenuTemplateStyleTokens {
@@ -64,6 +64,7 @@ export interface MenuTemplateConfig {
   showDescription: boolean;
   showFavoritesButton: boolean;
   showCategoryKicker: boolean;
+  hasAiChef?: boolean;
   styles: MenuTemplateStyleTokens;
 }
 
@@ -218,6 +219,45 @@ export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> =
       cardPreviewClass: 'bg-[#F6FBF7] border-[#CFE3D5] text-[#14201A]',
     },
   },
+  royal: {
+    id: 'royal',
+    name: 'زين الشام (ملكي + شيف AI)',
+    englishName: 'Royal Damascene + AI Chef',
+    tagline: 'تصميم ملكي فاخر بالذهبي والكحلي/العاجي مع مساعد شيف الذكاء الاصطناعي لترشيح الوجبات والطلب السريع',
+    badge: 'شيف ذكي AI',
+    layoutMode: 'royal',
+    cardDensity: 'airy',
+    showCardImages: true,
+    showDescription: true,
+    showFavoritesButton: true,
+    showCategoryKicker: true,
+    hasAiChef: true,
+    styles: {
+      pageBackgroundClass: 'bg-[#F7F4ED] dark:bg-[#0E1526]',
+      contentContainerClass: 'max-w-5xl mx-auto px-4',
+      heroShellClass:
+        'bg-[#FFFFFF] dark:bg-[#1B2540] border-[#E3DCCB] dark:border-[#2A3550] rounded-[18px]',
+      offersSectionClass:
+        'bg-[#EFE9DA]/80 dark:bg-[#0A1120] border-[#E3DCCB] dark:border-[#2A3550] rounded-[18px]',
+      offersCardClass:
+        'bg-[#FFFFFF] dark:bg-[#1B2540] rounded-[14px] p-3 border border-[#E3DCCB] dark:border-[#2A3550] hover:border-[#A9813F] dark:hover:border-[#C9A35B]',
+      categoryActiveClass:
+        'bg-[#A9813F] dark:bg-[#C9A35B] text-white dark:text-[#0E1526] border border-[#A9813F] dark:border-[#C9A35B]',
+      categoryIdleClass:
+        'bg-[#FFFFFF] dark:bg-[#1B2540] text-[#20263A] dark:text-[#F5F1E8] border border-[#E3DCCB] dark:border-[#2A3550] hover:border-[#A9813F] dark:hover:border-[#C9A35B]',
+      gridContainerClass: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5',
+      listContainerClass: 'space-y-3',
+      cardClass:
+        'bg-[#FFFFFF] dark:bg-[#1B2540] rounded-[14px] p-3 border border-[#E3DCCB] dark:border-[#2A3550] hover:border-[#A9813F] dark:hover:border-[#C9A35B]',
+      cardImageBoxClass:
+        'relative h-40 rounded-[10px] bg-[#EFE9DA] dark:bg-[#0A1120]',
+      priceTextClass: 'text-[#A9813F] dark:text-[#C9A35B]',
+      primaryButtonClass:
+        'bg-[#A9813F] hover:bg-[#8E6A31] dark:bg-[#C9A35B] dark:hover:bg-[#DCB877] text-white dark:text-[#0E1526]',
+      badgeClass: 'bg-[#EFE9DA] dark:bg-[#2A3550] text-[#A9813F] dark:text-[#C9A35B]',
+      cardPreviewClass: 'bg-[#0E1526] border-[#C9A35B]/40 text-[#F5F1E8]',
+    },
+  },
 };
 
 export const MENU_TEMPLATES_LIST: MenuTemplateConfig[] = [
@@ -225,12 +265,14 @@ export const MENU_TEMPLATES_LIST: MenuTemplateConfig[] = [
   MENU_TEMPLATE_CONFIGS.modern,
   MENU_TEMPLATE_CONFIGS.minimal,
   MENU_TEMPLATE_CONFIGS.compact,
+  MENU_TEMPLATE_CONFIGS.royal,
 ];
 
 export function normalizeMenuTemplateId(id?: string | null): MenuTemplateId {
   if (id === 'modern' || id === 'luxury' || id === 'magazine') return 'modern';
   if (id === 'minimal') return 'minimal';
   if (id === 'compact') return 'compact';
+  if (id === 'royal' || id === 'zain' || id === 'bistro') return 'royal';
   return 'classic';
 }
 

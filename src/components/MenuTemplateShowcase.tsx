@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Moon, Plus, Sparkles, Sun, Utensils } from 'lucide-react';
+import { Check, ChefHat, Moon, Plus, Sparkles, Sun, Utensils } from 'lucide-react';
 import { getShopThemeHex } from '../utils/calculations';
 import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { translateTemplateMeta, tx } from '../utils/uiLang';
@@ -92,6 +92,34 @@ function TemplateMiniWireframe({
     );
   }
 
+  if (id === 'royal') {
+    return (
+      <div className="relative h-16 rounded-xl bg-[#0E1526] border border-[#C9A35B]/45 p-1.5 flex flex-col justify-between overflow-hidden">
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="h-2.5 w-20 rounded bg-[#C9A35B]/25 border border-[#C9A35B]/40 flex items-center px-1">
+            <span className="h-1 w-10 rounded-full bg-[#C9A35B]" />
+          </div>
+          <span className="inline-flex items-center gap-0.5 text-[8px] font-black text-[#C9A35B]">
+            <ChefHat className="w-2.5 h-2.5" />
+            AI
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-1">
+          {[0, 1, 2].map((c) => (
+            <div
+              key={c}
+              className="rounded-md bg-[#1B2540] border border-[#2A3550] p-1 flex items-center justify-between gap-1"
+            >
+              <span className="h-3 w-3 rounded bg-[#0A1120] border border-[#C9A35B]/30 shrink-0" />
+              <span className="h-1 flex-1 rounded-full bg-[#F5F1E8]/40" />
+              <span className="w-2.5 h-2.5 rounded-full bg-[#C9A35B] shrink-0" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // compact
   return (
     <div className="h-16 rounded-xl bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] p-1.5 grid grid-cols-2 gap-1 overflow-hidden">
@@ -136,11 +164,12 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
 
   return (
     <div className="space-y-3.5">
-      {/* 4 Template Cards with Visual Mini Wireframes */}
+      {/* Template Cards with Visual Mini Wireframes */}
       <div className="grid grid-cols-2 gap-2.5">
         {MENU_TEMPLATES.map((tpl) => {
           const selected = activeId === tpl.id;
           const tplMeta = translateTemplateMeta(tpl.id, tpl.name, tpl.tagline, isEn);
+          const isFeaturedRoyal = tpl.id === 'royal';
           return (
             <button
               key={tpl.id}
@@ -148,31 +177,55 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
               onClick={() => onSelectTemplate(tpl.id)}
               aria-pressed={selected}
               className={`p-3 rounded-[18px] border-[1.5px] text-start transition-all flex flex-col gap-2 cursor-pointer ${
+                isFeaturedRoyal ? 'col-span-2' : ''
+              } ${
                 selected
-                  ? 'bg-[#DCFCE7] dark:bg-[#173323] border-[#15803D] ring-2 ring-[#15803D]/20'
+                  ? isFeaturedRoyal
+                    ? 'bg-[#0E1526] text-[#F5F1E8] border-[#C9A35B] ring-2 ring-[#C9A35B]/30'
+                    : 'bg-[#DCFCE7] dark:bg-[#173323] border-[#15803D] ring-2 ring-[#15803D]/20'
                   : 'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32] hover:border-[#15803D]'
               }`}
             >
               <TemplateMiniWireframe id={tpl.id} accentHex={accentHex} active={selected} />
               <div className="space-y-0.5">
                 <div className="flex items-center justify-between gap-1">
-                  <span className="font-extrabold text-xs text-[#14201A] dark:text-[#E8F2EB]">
+                  <span
+                    className={`font-extrabold text-xs ${
+                      selected && isFeaturedRoyal
+                        ? 'text-[#C9A35B]'
+                        : 'text-[#14201A] dark:text-[#E8F2EB]'
+                    }`}
+                  >
                     {tplMeta.name}
                   </span>
                   {selected ? (
                     <span
-                      style={{ backgroundColor: accentHex }}
-                      className="w-5 h-5 rounded-full text-white flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: isFeaturedRoyal ? '#C9A35B' : accentHex }}
+                      className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                        isFeaturedRoyal ? 'text-[#0E1526]' : 'text-white'
+                      }`}
                     >
                       <Check className="w-3 h-3" />
                     </span>
                   ) : (
-                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] whitespace-nowrap shrink-0">
+                    <span
+                      className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0 ${
+                        isFeaturedRoyal
+                          ? 'bg-[#0E1526] text-[#C9A35B] border border-[#C9A35B]/40'
+                          : 'bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]'
+                      }`}
+                    >
                       {tpl.badge}
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA] leading-snug line-clamp-2">
+                <p
+                  className={`text-[11px] font-semibold leading-snug line-clamp-2 ${
+                    selected && isFeaturedRoyal
+                      ? 'text-[#F5F1E8]/80'
+                      : 'text-[#4B5B52] dark:text-[#A3B5AA]'
+                  }`}
+                >
                   {tplMeta.tagline}
                 </p>
               </div>
@@ -184,20 +237,33 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
       {/* Live Interactive Preview Box matching Selected Template + Color + Dark/Light Mode */}
       <div
         className={`rounded-[20px] border overflow-hidden transition-colors ${
-          isDarkPreview
-            ? 'bg-[#0F1712] border-[#2C3D32] text-[#E8F2EB]'
-            : 'bg-[#F6FBF7] border-[#CFE3D5] text-[#14201A]'
+          activeId === 'royal'
+            ? isDarkPreview
+              ? 'bg-[#0E1526] border-[#2A3550] text-[#F5F1E8]'
+              : 'bg-[#F7F4ED] border-[#E3DCCB] text-[#20263A]'
+            : isDarkPreview
+              ? 'bg-[#0F1712] border-[#2C3D32] text-[#E8F2EB]'
+              : 'bg-[#F6FBF7] border-[#CFE3D5] text-[#14201A]'
         }`}
       >
         <div
           className={`px-3.5 py-2 border-b flex items-center justify-between text-[11px] font-extrabold ${
-            isDarkPreview
-              ? 'bg-[#18231C] border-[#2C3D32] text-[#A3B5AA]'
-              : 'bg-white border-[#CFE3D5] text-[#4B5B52]'
+            activeId === 'royal'
+              ? isDarkPreview
+                ? 'bg-[#0A1120] border-[#2A3550] text-[#C9A35B]'
+                : 'bg-white border-[#E3DCCB] text-[#A9813F]'
+              : isDarkPreview
+                ? 'bg-[#18231C] border-[#2C3D32] text-[#A3B5AA]'
+                : 'bg-white border-[#CFE3D5] text-[#4B5B52]'
           }`}
         >
           <span className="inline-flex items-center gap-1.5">
-            <Sparkles style={{ color: accentHex }} className="w-3.5 h-3.5" />
+            <Sparkles
+              style={{
+                color: activeId === 'royal' ? (isDarkPreview ? '#C9A35B' : '#A9813F') : accentHex,
+              }}
+              className="w-3.5 h-3.5"
+            />
             <span>
               {tx(
                 isEn,
@@ -216,7 +282,13 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
           {/* Mini Hero Preview */}
           <div
             className={`relative rounded-[14px] overflow-hidden border p-2.5 flex items-center gap-2.5 ${
-              isDarkPreview ? 'bg-[#18231C] border-[#2C3D32]' : 'bg-white border-[#CFE3D5]'
+              activeId === 'royal'
+                ? isDarkPreview
+                  ? 'bg-[#1B2540] border-[#C9A35B]/35'
+                  : 'bg-white border-[#E3DCCB]'
+                : isDarkPreview
+                  ? 'bg-[#18231C] border-[#2C3D32]'
+                  : 'bg-white border-[#CFE3D5]'
             }`}
           >
             {coverImage && (
@@ -229,36 +301,68 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
                 <div className="absolute inset-0 bg-[#14201A]/75" />
               </>
             )}
-            <div className="relative z-10 flex items-center gap-2.5 min-w-0">
-              {logoUrl ? (
-                <img
-                  src={logoUrl}
-                  alt={shopName}
-                  className="w-9 h-9 rounded-xl object-cover border border-white bg-white shrink-0"
-                />
-              ) : (
-                <div
-                  style={{ backgroundColor: accentHex }}
-                  className="w-9 h-9 rounded-xl text-white font-extrabold text-xs flex items-center justify-center shrink-0"
-                >
-                  {(shopName || 'غ').trim().slice(0, 1)}
-                </div>
-              )}
-              <div className="min-w-0">
-                <div
-                  className={`font-extrabold text-xs truncate ${
-                    coverImage ? 'text-white' : ''
-                  }`}
-                >
-                  {shopName}
-                </div>
-                <div
-                  style={{ color: coverImage ? '#BBF7D0' : accentHex }}
-                  className="text-[10px] font-bold"
-                >
-                  {tx(isEn, 'مفتوح الآن · بدون رسوم إضافية', 'Open Now · Zero extra fees')}
+            <div className="relative z-10 flex items-center justify-between gap-2.5 w-full min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt={shopName}
+                    className={`w-9 h-9 rounded-xl object-cover border bg-white shrink-0 ${
+                      activeId === 'royal' ? 'border-[#C9A35B]' : 'border-white'
+                    }`}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      backgroundColor:
+                        activeId === 'royal'
+                          ? isDarkPreview
+                            ? '#C9A35B'
+                            : '#A9813F'
+                          : accentHex,
+                    }}
+                    className={`w-9 h-9 rounded-xl font-extrabold text-xs flex items-center justify-center shrink-0 ${
+                      activeId === 'royal' && isDarkPreview ? 'text-[#0E1526]' : 'text-white'
+                    }`}
+                  >
+                    {(shopName || 'غ').trim().slice(0, 1)}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div
+                    className={`font-extrabold text-xs truncate ${coverImage ? 'text-white' : ''}`}
+                  >
+                    {shopName}
+                  </div>
+                  <div
+                    style={{
+                      color: coverImage
+                        ? '#BBF7D0'
+                        : activeId === 'royal'
+                          ? isDarkPreview
+                            ? '#C9A35B'
+                            : '#A9813F'
+                          : accentHex,
+                    }}
+                    className="text-[10px] font-bold"
+                  >
+                    {tx(isEn, 'مفتوح الآن · بدون رسوم إضافية', 'Open Now · Zero extra fees')}
+                  </div>
                 </div>
               </div>
+
+              {activeId === 'royal' && (
+                <span
+                  className={`px-2 py-1 rounded-full text-[10px] font-black inline-flex items-center gap-1 shrink-0 ${
+                    isDarkPreview
+                      ? 'bg-[#C9A35B] text-[#0E1526]'
+                      : 'bg-[#A9813F] text-white'
+                  }`}
+                >
+                  <ChefHat className="w-3 h-3" />
+                  {tx(isEn, 'شيف AI', 'Chef AI')}
+                </span>
+              )}
             </div>
           </div>
 
@@ -437,8 +541,66 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
               ))}
             </div>
           )}
+
+          {activeId === 'royal' && (
+            <div className="grid grid-cols-2 gap-2">
+              {[0, 1].map((idx) => (
+                <div
+                  key={idx}
+                  className={`rounded-[14px] p-2.5 border space-y-2 ${
+                    isDarkPreview
+                      ? 'bg-[#1B2540] border-[#2A3550]'
+                      : 'bg-white border-[#E3DCCB]'
+                  }`}
+                >
+                  <div
+                    className={`h-14 rounded-[10px] flex items-center justify-center border ${
+                      isDarkPreview
+                        ? 'bg-[#0A1120] border-[#2A3550]'
+                        : 'bg-[#EFE9DA] border-[#E3DCCB]'
+                    }`}
+                  >
+                    <Utensils
+                      className={`w-5 h-5 ${isDarkPreview ? 'text-[#C9A35B]' : 'text-[#A9813F]'}`}
+                    />
+                  </div>
+                  <div className="space-y-0.5">
+                    <div
+                      className={`text-[10px] font-bold ${
+                        isDarkPreview ? 'text-[#C9A35B]' : 'text-[#A9813F]'
+                      }`}
+                    >
+                      {demoCategory}
+                    </div>
+                    <div className="font-extrabold text-[11px] truncate">
+                      {idx === 0 ? demoTitle : tx(isEn, 'فتة شاورما سوري', 'Syrian Shawarma Fatteh')}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span
+                      className={`text-[11px] font-black tabular-nums ${
+                        isDarkPreview ? 'text-[#C9A35B]' : 'text-[#A9813F]'
+                      }`}
+                    >
+                      {idx === 0 ? sampleItemPrice : 155} {tx(isEn, 'جنيه', 'EGP')}
+                    </span>
+                    <span
+                      className={`px-2 py-1 rounded-[8px] text-[10px] font-black ${
+                        isDarkPreview
+                          ? 'bg-[#C9A35B] text-[#0E1526]'
+                          : 'bg-[#A9813F] text-white'
+                      }`}
+                    >
+                      + {tx(isEn, 'أضف', 'Add')}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
+

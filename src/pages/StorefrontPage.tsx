@@ -30,8 +30,10 @@ import {
   Clock,
   Truck,
   ShieldCheck,
+  ChefHat,
 } from 'lucide-react';
 import { ShopInitialAvatar } from '../components/BrandLogo';
+import { ChefAiAssistant } from '../components/ChefAiAssistant';
 import { createOrder } from '../services/firestoreService';
 import {
   calculateOrderTotals,
@@ -126,6 +128,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [ordersPageOpen, setOrdersPageOpen] = useState(false);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
+  const [chefChatOpen, setChefChatOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [shareToast, setShareToast] = useState('');
 
@@ -544,7 +547,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const shopAccess = useMemo(() => getShopAccessState(shop), [shop]);
 
   const maxWidthClass =
-    templateId === 'modern' || templateId === 'compact'
+    templateId === 'modern' || templateId === 'compact' || templateId === 'royal'
       ? 'max-w-5xl mx-auto px-4'
       : templateId === 'minimal'
         ? 'max-w-2xl mx-auto px-4'
@@ -830,15 +833,24 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   return (
     <div
       dir={isEn ? 'ltr' : 'rtl'}
-      className={`${effectiveDark ? 'dark ' : ''}min-h-screen pb-28 text-[#14201A] dark:text-[#E8F2EB] transition-colors ${
-        templateId === 'minimal'
-          ? 'bg-[#FFFFFF] dark:bg-[#0B120E]'
-          : templateStyles.pageBackgroundClass
+      className={`${effectiveDark ? 'dark ' : ''}min-h-screen pb-28 transition-colors ${
+        templateId === 'royal'
+          ? 'bg-[#F7F4ED] dark:bg-[#0E1526] text-[#20263A] dark:text-[#F5F1E8]'
+          : templateId === 'minimal'
+            ? 'bg-[#FFFFFF] dark:bg-[#0B120E] text-[#14201A] dark:text-[#E8F2EB]'
+            : `${templateStyles.pageBackgroundClass} text-[#14201A] dark:text-[#E8F2EB]`
       }`}
     >
       {/* Generic Store Fallback Banner when opened via unknown slug */}
       {isFallbackMenu && (
-        <div style={{ backgroundColor: themeHex }} className="text-white px-4 py-2.5 shadow-xs">
+        <div
+          style={templateId === 'royal' ? undefined : { backgroundColor: themeHex }}
+          className={`px-4 py-2.5 shadow-xs ${
+            templateId === 'royal'
+              ? 'bg-[#A9813F] dark:bg-[#C9A35B] text-white dark:text-[#0E1526]'
+              : 'text-white'
+          }`}
+        >
           <div className={`${maxWidthClass} flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-extrabold`}>
             <span>
               {tx(
@@ -863,11 +875,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       {/* Top Sticky Menu Bar */}
       <header
         className={`sticky top-0 z-30 backdrop-blur-md border-b px-4 h-14 flex items-center justify-between transition-colors ${
-          templateId === 'modern'
-            ? 'bg-[#14201A]/95 text-white border-[#2C3D32]'
-            : templateId === 'minimal'
-              ? 'bg-[#FFFFFF]/95 dark:bg-[#0B120E]/95 border-[#CFE3D5]/70 dark:border-[#2C3D32]'
-              : 'bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 border-[#CFE3D5] dark:border-[#2C3D32] shadow-xs'
+          templateId === 'royal'
+            ? 'bg-[#FFFFFF]/95 dark:bg-[#0A1120]/95 text-[#20263A] dark:text-[#F5F1E8] border-[#E3DCCB] dark:border-[#2A3550]'
+            : templateId === 'modern'
+              ? 'bg-[#14201A]/95 text-white border-[#2C3D32]'
+              : templateId === 'minimal'
+                ? 'bg-[#FFFFFF]/95 dark:bg-[#0B120E]/95 border-[#CFE3D5]/70 dark:border-[#2C3D32]'
+                : 'bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 border-[#CFE3D5] dark:border-[#2C3D32] shadow-xs'
         }`}
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -960,7 +974,107 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
       {/* Store Hero Header — Styled Uniquely Per Active Template */}
       <div className={`${maxWidthClass} ${templateId === 'compact' ? 'pt-2.5' : 'pt-4'}`}>
-        {templateId === 'minimal' ? (
+        {templateId === 'royal' ? (
+          /* Royal Bistro Template Hero (Zain El Sham Navy/Ivory & Gold Signature) */
+          <div className="relative overflow-hidden rounded-[18px] border border-[#E3DCCB] dark:border-[#2A3550] bg-gradient-to-br from-[#EFE9DA] via-[#F7F4ED] to-[#FFFFFF] dark:from-[#0A1120] dark:via-[#0E1526] dark:to-[#1B2540] shadow-sm">
+            {shop.coverImage && (
+              <>
+                <img
+                  src={shop.coverImage}
+                  alt={displayShopName}
+                  referrerPolicy="no-referrer"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0A1120]/95 via-[#0E1526]/70 to-[#0E1526]/35" />
+              </>
+            )}
+
+            <div className="relative z-10 p-5 sm:p-7 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4 min-w-0">
+                  {shop.logoUrl ? (
+                    <img
+                      src={shop.logoUrl}
+                      alt={displayShopName}
+                      className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full object-cover border-2 border-[#C9A35B] bg-white shadow-md shrink-0"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full bg-[#A9813F] dark:bg-[#C9A35B] text-white dark:text-[#0E1526] font-black text-2xl flex items-center justify-center border-2 border-[#C9A35B]/50 shadow-md shrink-0">
+                      {(shop.nameAr || 'غ').trim().slice(0, 1)}
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5 min-w-0">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <h1
+                        className={`text-2xl sm:text-3xl font-black tracking-tight ${
+                          shop.coverImage
+                            ? 'text-[#F5F1E8]'
+                            : 'text-[#20263A] dark:text-[#F5F1E8]'
+                        }`}
+                      >
+                        {displayShopName}
+                      </h1>
+                      <span
+                        className={`text-xs font-extrabold ${
+                          shop.coverImage
+                            ? 'text-[#C9A35B]'
+                            : 'text-[#A9813F] dark:text-[#C9A35B]'
+                        }`}
+                      >
+                        · {shop.isOpen ? tx(isEn, 'مفتوح الآن', 'Open Now') : tx(isEn, 'مغلق الآن', 'Closed Now')}
+                      </span>
+                    </div>
+
+                    <p
+                      className={`text-xs sm:text-[13px] font-semibold leading-relaxed ${
+                        shop.coverImage
+                          ? 'text-[#F5F1E8]/85'
+                          : 'text-[#6B6F7B] dark:text-[#8A93A6]'
+                      }`}
+                    >
+                      {[
+                        shop.city,
+                        shop.address,
+                        initialTableLabel,
+                        shop.freeDelivery || Number(shop.deliveryFee || 0) === 0
+                          ? tx(isEn, 'توصيل مجاني', 'Free Delivery')
+                          : `${tx(isEn, 'التوصيل', 'Delivery')} ${formatMoney(Number(shop.deliveryFee || 0), shop.country, 0, isEn)}`,
+                        shop.deliveryTime || tx(isEn, '30-45 دقيقة', '30-45 mins'),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setChefChatOpen(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-[12px] bg-[#A9813F] dark:bg-[#C9A35B] hover:opacity-95 text-white dark:text-[#0E1526] font-extrabold text-xs whitespace-nowrap shadow-sm transition-opacity cursor-pointer"
+                  >
+                    <ChefHat className="w-4 h-4" />
+                    {tx(isEn, 'اسأل الشيف الذكي', 'Ask AI Chef')}
+                  </button>
+                  <a
+                    href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-[12px] border font-bold text-xs whitespace-nowrap transition-colors ${
+                      shop.coverImage
+                        ? 'bg-[#0E1526]/70 border-[#C9A35B]/50 text-[#F5F1E8] hover:border-[#C9A35B]'
+                        : 'bg-white dark:bg-[#1B2540] border-[#E3DCCB] dark:border-[#2A3550] text-[#20263A] dark:text-[#F5F1E8] hover:border-[#A9813F] dark:hover:border-[#C9A35B]'
+                    }`}
+                  >
+                    <MessageCircle className="w-4 h-4 text-[#A9813F] dark:text-[#C9A35B]" />
+                    {tx(isEn, 'واتساب', 'WhatsApp')}
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : templateId === 'minimal' ? (
           /* Minimal Template Hero: Quiet Architectural Header with Hairline Accent */
           <div className="py-5 border-b border-[#CFE3D5] dark:border-[#2C3D32] space-y-3">
             {shop.coverImage && (
@@ -1197,9 +1311,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         <section id="offers-section" className={`${maxWidthClass} mt-4 scroll-mt-16`}>
           <div
             className={`border p-4 sm:p-5 space-y-3 shadow-xs ${
-              templateId === 'modern'
-                ? 'bg-[#14201A] text-white border-[#2C3D32] rounded-[24px] shadow-md'
-                : templateStyles.offersSectionClass
+              templateId === 'royal'
+                ? 'bg-[#EFE9DA]/85 dark:bg-[#0A1120] border-[#E3DCCB] dark:border-[#2A3550] rounded-[18px]'
+                : templateId === 'modern'
+                  ? 'bg-[#14201A] text-white border-[#2C3D32] rounded-[24px] shadow-md'
+                  : templateStyles.offersSectionClass
             }`}
           >
             <div className="flex items-center justify-between gap-2">
@@ -1441,12 +1557,18 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
                 style={
-                  active
+                  active && templateId !== 'royal'
                     ? { backgroundColor: themeHex, borderColor: themeHex, color: '#FFFFFF' }
                     : undefined
                 }
-                className={`px-4 py-2 rounded-full text-sm font-extrabold whitespace-nowrap shrink-0 transition-colors ${
-                  active ? '' : templateStyles.categoryIdleClass
+                className={`px-4 py-2 text-sm font-extrabold whitespace-nowrap shrink-0 transition-colors ${
+                  templateId === 'royal' ? 'rounded-[10px]' : 'rounded-full'
+                } ${
+                  active
+                    ? templateId === 'royal'
+                      ? 'bg-[#A9813F] dark:bg-[#C9A35B] text-white dark:text-[#0E1526] border border-[#A9813F] dark:border-[#C9A35B]'
+                      : ''
+                    : templateStyles.categoryIdleClass
                 }`}
               >
                 {cat === ALL_CATEGORIES_KEY ? tx(isEn, 'الكل', 'All') : cat}
@@ -1480,21 +1602,23 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         ) : (
           <div
             className={
-              templateId === 'compact'
+              templateId === 'royal'
                 ? viewMode === 'list'
-                  ? 'space-y-2'
-                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5'
-                : templateId === 'minimal'
+                  ? 'space-y-3'
+                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5'
+                : templateId === 'compact'
                   ? viewMode === 'list'
+                    ? 'space-y-2'
+                    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5'
+                  : templateId === 'minimal'
                     ? 'divide-y divide-[#CFE3D5] dark:divide-[#2C3D32] bg-[#FFFFFF] dark:bg-[#141F19] rounded-[20px] border border-[#CFE3D5] dark:border-[#2C3D32] overflow-hidden'
-                    : 'divide-y divide-[#CFE3D5] dark:divide-[#2C3D32] bg-[#FFFFFF] dark:bg-[#141F19] rounded-[20px] border border-[#CFE3D5] dark:border-[#2C3D32] overflow-hidden'
-                  : templateId === 'modern'
-                    ? viewMode === 'list'
-                      ? 'space-y-3'
-                      : 'grid grid-cols-1 md:grid-cols-2 gap-4'
-                    : viewMode === 'list'
-                      ? 'space-y-3'
-                      : 'grid grid-cols-2 md:grid-cols-3 gap-3'
+                    : templateId === 'modern'
+                      ? viewMode === 'list'
+                        ? 'space-y-3'
+                        : 'grid grid-cols-1 md:grid-cols-2 gap-4'
+                      : viewMode === 'list'
+                        ? 'space-y-3'
+                        : 'grid grid-cols-2 md:grid-cols-3 gap-3'
             }
           >
             {filteredProducts.map((product) => {
@@ -1502,6 +1626,126 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               const isFav = Boolean(favorites[product.id]);
               const options = getProductOptions(product);
               const displayPrice = getProductPriceDisplay(product, options);
+
+              // Template 5: Royal Bistro Template (Zain El Sham style Navy/Ivory + Gold)
+              if (templateId === 'royal') {
+                return (
+                  <div
+                    key={product.id}
+                    onClick={() => openProductDetail(product)}
+                    className={`cursor-pointer group transition-all bg-[#FFFFFF] dark:bg-[#1B2540] border border-[#E3DCCB] dark:border-[#2A3550] hover:border-[#A9813F] dark:hover:border-[#C9A35B] rounded-[14px] overflow-hidden ${
+                      viewMode === 'list'
+                        ? 'flex items-center justify-between gap-3.5 p-3'
+                        : 'flex flex-col justify-between p-3 gap-3 hover:-translate-y-0.5'
+                    }`}
+                  >
+                    <div className={viewMode === 'list' ? 'flex items-center gap-3.5 min-w-0 flex-1' : 'space-y-2.5'}>
+                      <div
+                        className={`relative overflow-hidden bg-[#EFE9DA] dark:bg-[#0A1120] border border-[#E3DCCB]/70 dark:border-[#2A3550] flex items-center justify-center shrink-0 ${
+                          viewMode === 'list' ? 'w-24 h-24 rounded-[10px]' : 'h-44 rounded-[10px]'
+                        }`}
+                      >
+                        {product.imageUrl && !brokenImages[product.id] ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            referrerPolicy="no-referrer"
+                            onError={() =>
+                              setBrokenImages((prev) => ({ ...prev, [product.id]: true }))
+                            }
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                          />
+                        ) : (
+                          <Utensils className="w-9 h-9 text-[#A9813F] dark:text-[#C9A35B] opacity-70" />
+                        )}
+
+                        {product.isOffer && (
+                          <span className="absolute top-2 right-2 px-2.5 py-0.5 rounded-[8px] bg-[#A9813F] dark:bg-[#C9A35B] text-white dark:text-[#0E1526] text-[10px] font-black shadow-xs">
+                            {product.offerLabel || tx(isEn, 'عرض', 'Offer')}
+                          </span>
+                        )}
+
+                        {showDishLogo && shop.logoUrl && (
+                          <img
+                            src={shop.logoUrl}
+                            alt={displayShopName}
+                            className="w-7 h-7 rounded-full object-cover border border-[#C9A35B] bg-white shadow-sm absolute top-2 left-2"
+                          />
+                        )}
+                      </div>
+
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="text-[11px] font-bold text-[#A9813F] dark:text-[#C9A35B] truncate">
+                          {product.category}
+                        </div>
+                        <h3 className="font-extrabold text-sm sm:text-base text-[#20263A] dark:text-[#F5F1E8] line-clamp-2 leading-snug">
+                          {product.name}
+                        </h3>
+                        {product.description && (
+                          <p className="text-xs font-medium text-[#6B6F7B] dark:text-[#8A93A6] line-clamp-2 leading-relaxed">
+                            {product.description}
+                          </p>
+                        )}
+                        {renderCardOptionChips(product, options)}
+                      </div>
+                    </div>
+
+                    <div
+                      className={`flex items-center justify-between gap-2 ${
+                        viewMode === 'list' ? 'shrink-0' : 'pt-2 border-t border-[#E3DCCB]/60 dark:border-[#2A3550]'
+                      }`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-baseline gap-1.5 tabular-nums flex-wrap">
+                        <span className="text-base font-black text-[#A9813F] dark:text-[#C9A35B]">
+                          {displayPrice}
+                        </span>
+                        {product.isOffer && product.originalPrice && product.originalPrice > product.price && (
+                          <span className="text-xs font-bold text-[#6B6F7B] dark:text-[#8A93A6] line-through">
+                            {formatMoney(product.originalPrice, shop.country, undefined, isEn)}
+                          </span>
+                        )}
+                      </div>
+
+                      {inCartQty === 0 || options.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => openProductDetail(product)}
+                          disabled={!shop.acceptOrders}
+                          className="px-4 py-2 rounded-[10px] bg-[#A9813F] hover:bg-[#8E6A31] dark:bg-[#C9A35B] dark:hover:bg-[#DCB877] text-white dark:text-[#0E1526] disabled:opacity-40 text-xs font-black inline-flex items-center gap-1 tabular-nums transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          {inCartQty > 0
+                            ? tx(isEn, `في السلة (${inCartQty})`, `In Cart (${inCartQty})`)
+                            : options.length > 0
+                              ? tx(isEn, 'اختر', 'Select')
+                              : tx(isEn, 'أضف للسلة', 'Add')}
+                        </button>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#E3DCCB] dark:border-[#2A3550] bg-[#F7F4ED] dark:bg-[#0E1526] px-1.5 py-1">
+                          <button
+                            type="button"
+                            onClick={() => addToCart(product)}
+                            className="w-7 h-7 rounded-[8px] bg-[#A9813F] dark:bg-[#C9A35B] text-white dark:text-[#0E1526] flex items-center justify-center"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="font-extrabold text-xs tabular-nums min-w-[16px] text-center">
+                            {inCartQty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => decrementCart(product.id)}
+                            className="w-7 h-7 rounded-[8px] bg-[#EFE9DA] dark:bg-[#1B2540] text-[#20263A] dark:text-[#F5F1E8] flex items-center justify-center"
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
 
               // Template 4: Compact High-Density Template ("مكثف") OR Explicit List Mode for Classic
               if (templateId === 'compact' || (viewMode === 'list' && templateId === 'classic')) {
@@ -2000,13 +2244,27 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
       {/* Bottom Floating Cart Bar */}
       {totalItemsCount > 0 && (
-        <div className="fixed bottom-4 left-4 right-4 z-30 max-w-[560px] mx-auto">
-          <div className="glass-dock rounded-full p-1.5">
+        <div
+          className={`fixed bottom-4 ${
+            templateId === 'royal' ? 'left-4 right-4 sm:left-24 sm:right-24' : 'left-4 right-4'
+          } z-30 max-w-[560px] mx-auto`}
+        >
+          <div
+            className={
+              templateId === 'royal'
+                ? 'rounded-[16px] p-1.5 bg-[#FFFFFF]/95 dark:bg-[#1B2540]/95 border border-[#E3DCCB] dark:border-[#C9A35B]/45 shadow-xl backdrop-blur-md'
+                : 'glass-dock rounded-full p-1.5'
+            }
+          >
             <button
               type="button"
               onClick={() => setCartOpen(true)}
-              style={{ backgroundColor: themeHex, borderColor: themeHex }}
-              className="w-full py-3 px-6 rounded-full text-white shadow-md font-extrabold text-base flex items-center justify-between tabular-nums hover:opacity-95 transition-opacity"
+              style={templateId === 'royal' ? undefined : { backgroundColor: themeHex, borderColor: themeHex }}
+              className={`w-full py-3 px-6 shadow-md font-extrabold text-base flex items-center justify-between tabular-nums hover:opacity-95 transition-opacity ${
+                templateId === 'royal'
+                  ? 'rounded-[12px] bg-[#A9813F] dark:bg-[#C9A35B] text-white dark:text-[#0E1526]'
+                  : 'rounded-full text-white'
+              }`}
             >
               <div className="flex items-center gap-2.5">
                 <ShoppingBag className="w-5 h-5" />
@@ -2018,6 +2276,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Zain El Sham Style Orbital AI Chef Assistant */}
+      {templateId === 'royal' && (
+        <ChefAiAssistant
+          shop={shop}
+          products={activeProducts}
+          categories={categories}
+          darkMode={effectiveDark}
+          isEn={isEn}
+          isOpen={chefChatOpen}
+          onOpenChange={setChefChatOpen}
+          onAddToCart={(prod) => addToCart(prod)}
+          onOpenProductDetail={openProductDetail}
+          hasBottomDock={totalItemsCount > 0}
+        />
       )}
 
       {/* Share Toast */}

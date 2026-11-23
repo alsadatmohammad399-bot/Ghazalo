@@ -144,3 +144,110 @@
 .animate-ghazalo-float {
   animation: ghazalo-float 2.8s ease-in-out infinite;
 }
+
+@keyframes chef-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes chef-fab-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes chef-panel-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chef-msg-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chef-invite-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.88);
+  }
+  10%,
+  80% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  95%,
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.92);
+  }
+}
+
+.chef-fab-orbit {
+  animation: chef-fab-float 3.5s ease-in-out infinite;
+}
+
+.chef-fab-orbit::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 1.5px solid transparent;
+  border-top-color: rgba(201, 163, 91, 0.9);
+  border-right-color: rgba(255, 255, 255, 0.25);
+  animation: chef-orbit 2.8s linear infinite;
+  pointer-events: none;
+}
+
+.chef-fab-orbit::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  border-radius: 9999px;
+  border: 1.5px solid transparent;
+  border-bottom-color: rgba(201, 163, 91, 0.55);
+  border-left-color: rgba(255, 255, 255, 0.18);
+  animation: chef-orbit 4.6s linear infinite reverse;
+  pointer-events: none;
+}
+
+.animate-chef-panel {
+  animation: chef-panel-up 0.3s cubic-bezier(0.2, 0.8, 0.3, 1.1) both;
+}
+
+.animate-chef-msg {
+  animation: chef-msg-in 0.25s ease both;
+}
+
+.animate-chef-invite {
+  animation: chef-invite-pop 4.5s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chef-fab-orbit,
+  .chef-fab-orbit::before,
+  .chef-fab-orbit::after,
+  .animate-chef-panel,
+  .animate-chef-msg,
+  .animate-chef-invite {
+    animation: none !important;
+  }
+}
+
