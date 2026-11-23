@@ -874,17 +874,17 @@ async function startServer() {
 
       const callExtractModel = async (
         modelName: string,
-        useLowThinking: boolean
+        thinkingLevel?: ThinkingLevel
       ): Promise<string> => {
         const isHydrogen = modelName === 'gemini-4-hydrogen';
         const response = await ai.models.generateContent({
           model: modelName,
           contents: { parts },
           config: {
-            ...(isHydrogen
+            ...(isHydrogen && thinkingLevel
               ? {
                   thinkingConfig: {
-                    thinkingLevel: useLowThinking ? ThinkingLevel.LOW : ThinkingLevel.MEDIUM,
+                    thinkingLevel,
                   },
                 }
               : {}),
@@ -953,6 +953,8 @@ async function startServer() {
           msg.includes('overloaded') ||
           msg.includes('429') ||
           msg.includes('resource_exhausted') ||
+          msg.includes('not_found') ||
+          msg.includes('404') ||
           msg.includes('timeout') ||
           msg.includes('econnreset')
         );
@@ -960,32 +962,40 @@ async function startServer() {
 
       const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-      const attemptChain: Array<{ model: string; lowThinking: boolean; delayBeforeMs: number }> = [
-        { model: 'gemini-4-hydrogen', lowThinking: false, delayBeforeMs: 0 },
-        { model: 'gemini-4-hydrogen', lowThinking: true, delayBeforeMs: 850 },
-        { model: 'gemini-3.1-flash-lite', lowThinking: false, delayBeforeMs: 500 },
-        { model: 'gemini-3.1-flash-lite', lowThinking: false, delayBeforeMs: 1200 },
+      const attemptChain: Array<{
+        model: string;
+        thinkingLevel?: ThinkingLevel;
+        delayBeforeMs: number;
+      }> = [
+        { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW, delayBeforeMs: 0 },
+        { model: 'gemini-3.1-flash-lite', delayBeforeMs: 400 },
       ];
 
       let responseRawText = '';
       let lastAiError: unknown = null;
+      const attemptTrace: string[] = [];
+
       for (const step of attemptChain) {
         if (step.delayBeforeMs > 0) {
           await sleepMs(step.delayBeforeMs);
         }
         try {
-          responseRawText = await callExtractModel(step.model, step.lowThinking);
+          responseRawText = await callExtractModel(step.model, step.thinkingLevel);
+          attemptTrace.push(`${step.model}:ok`);
           lastAiError = null;
           break;
         } catch (err: unknown) {
           lastAiError = err;
-          const shortErr = err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160);
-          console.warn(`[extract-menu] model=${step.model} transient/error:`, shortErr);
+          const shortErr = err instanceof Error ? err.message.slice(0, 180) : String(err).slice(0, 180);
+          attemptTrace.push(`${step.model}:err(${shortErr.slice(0, 60)})`);
+          console.warn(`[extract-menu] model=${step.model} error:`, shortErr);
           if (!isTransientAiError(err)) {
             throw err;
           }
         }
       }
+
+      res.setHeader('X-Extract-Models', attemptTrace.join(' | ').slice(0, 500));
 
       if (lastAiError) {
         throw lastAiError;
@@ -1020,7 +1030,6 @@ async function startServer() {
       try {
         parsed = JSON.parse(rawText || '{}') as RawParsedMenu;
       } catch {
-        // Salvage complete items if response truncated on a very dense menu page
         const itemsIdx = rawText.indexOf('"items"');
         const arrayStart = itemsIdx >= 0 ? rawText.indexOf('[', itemsIdx) : -1;
         const lastCompleteObjEnd = arrayStart >= 0 ? rawText.lastIndexOf('}') : -1;
@@ -1084,7 +1093,6 @@ async function startServer() {
           };
         });
 
-      // Enforce strict culinary sort: Offers -> Grills/Butcher -> Mains -> Casseroles/Rice -> Sandwiches/Pizza -> Soups/Salads -> Extras -> Desserts -> Hot/Juices -> Water/Soda
       cleanedRaw.sort((a, b) => {
         const rankDiff = getCategoryCulinaryRank(a.category) - getCategoryCulinaryRank(b.category);
         if (rankDiff !== 0) return rankDiff;
@@ -1093,7 +1101,8 @@ async function startServer() {
         return a.rawIdx - b.rawIdx;
       });
 
-      // Resolve real dish photos concurrently in controlled batches
+      // Fast bounded photo resolution (cap external HTTP calls cleanly so large menus finish quickly)
+      const photoDeadline = Date.now() + 1800;
       const resolvedItems: Array<{
         name: string;
         category: string;
@@ -1106,14 +1115,30 @@ async function startServer() {
         sortOrder: number;
       }> = [];
 
-      const batchSize = 8;
+      const batchSize = 10;
       for (let start = 0; start < cleanedRaw.length; start += batchSize) {
         const chunk = cleanedRaw.slice(start, start + batchSize);
-        const photos = await Promise.all(
-          chunk.map((item, offset) =>
-            resolveDishPhotoUrl(item.photoQuery, item.name, item.category, start + offset)
-          )
-        );
+        const canFetchExternal = Date.now() < photoDeadline;
+        const photos = canFetchExternal
+          ? await Promise.race([
+              Promise.all(
+                chunk.map((item, offset) =>
+                  resolveDishPhotoUrl(item.photoQuery, item.name, item.category, start + offset)
+                )
+              ),
+              sleepMs(1200).then(() =>
+                chunk.map(
+                  (item) =>
+                    VERIFIED_DISH_FALLBACKS[inferDishFamily(item.name, item.category, item.photoQuery)] ||
+                    VERIFIED_DISH_FALLBACKS.grill
+                )
+              ),
+            ])
+          : chunk.map(
+              (item) =>
+                VERIFIED_DISH_FALLBACKS[inferDishFamily(item.name, item.category, item.photoQuery)] ||
+                VERIFIED_DISH_FALLBACKS.grill
+            );
         chunk.forEach((item, offset) => {
           resolvedItems.push({
             name: item.name,

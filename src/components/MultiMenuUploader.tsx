@@ -84,6 +84,9 @@ export const MultiMenuUploader: React.FC<MultiMenuUploaderProps> = ({
 
     try {
       for (let i = 0; i < actionable.length; i += CHUNK_SIZE) {
+        if (i > 0) {
+          await new Promise((r) => setTimeout(r, 900));
+        }
         const chunk = actionable.slice(i, i + CHUNK_SIZE);
         const chunkIds = new Set(chunk.map((c) => c.id));
         const startPage = i + 1;
@@ -127,6 +130,13 @@ export const MultiMenuUploader: React.FC<MultiMenuUploaderProps> = ({
                 isEn
                   ? 'Menu photo size is too large. Please pick a smaller or cropped image.'
                   : 'حجم الصورة كبير جداً. يرجى اختيار صورة أصغر أو قصها ثم إعادة المحاولة.'
+              );
+            }
+            if (res.status === 504) {
+              throw new Error(
+                isEn
+                  ? 'Menu analysis timed out. Please try a clearer single photo or retry.'
+                  : 'استغرق تحليل الصورة وقتاً أطول من المعتاد. اضغط إعادة المحاولة أو جرب صورة أوضح.'
               );
             }
             throw new Error(

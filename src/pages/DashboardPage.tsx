@@ -1462,19 +1462,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <Phone className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'تواصل معانا', 'Contact Us')}
                 </button>
-                {isAdminUser && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDrawerOpen(false);
-                      onOpenAdmin();
-                    }}
-                    className="sf-btn-yellow w-full justify-start"
-                  >
-                    <QrCode className="w-4 h-4" />
-                    {tx(isEn, 'تفعيل المتاجر (Admin)', 'Admin Stores Portal')}
-                  </button>
-                )}
               </div>
             </div>
 

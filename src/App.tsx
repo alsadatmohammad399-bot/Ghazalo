@@ -54,7 +54,6 @@ import { ShareQrPage } from './pages/ShareQrPage';
 import { AdminPage } from './pages/AdminPage';
 import { MenuPage } from './pages/MenuPage';
 import {
-  ADMIN_EMAIL,
   ADMIN_PORTAL_KEY,
   SUBSCRIPTION_PRICING,
   SUPPORT_CONTACT,
@@ -515,6 +514,12 @@ function AppShell({
       const { isAdminRoute, shopTarget, dashboardTarget, authRoute, shortcutMode } =
         parseRouteTarget();
       const isSpecialRoute = Boolean(isAdminRoute || shopTarget);
+      const isRootHome =
+        !isSpecialRoute &&
+        !authRoute &&
+        !dashboardTarget &&
+        !shortcutMode &&
+        window.location.pathname !== '/onboarding';
 
       if (user && isUserActivated(user)) {
         try {
@@ -528,7 +533,7 @@ function AppShell({
               shopToDemoRecord(firstShop, { email: user.email || '' })
             );
             setAuthSessionStorage(firstSlug, `fb-${user.uid}`);
-            if (!isSpecialRoute && !authRoute) {
+            if (!isSpecialRoute && !authRoute && !isRootHome) {
               const modeTarget = shortcutMode || pendingShortcutMode;
               setView(modeTarget === 'cashier' ? 'cashier' : 'dashboard');
               if (modeTarget !== 'cashier') {
@@ -536,14 +541,8 @@ function AppShell({
               }
               if (pendingShortcutMode) setPendingShortcutMode(null);
             }
-          } else if (!isSpecialRoute) {
-            const isAdmin = Boolean(
-              user.emailVerified && user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
-            );
-            if (isAdmin) {
-              setView('admin');
-              replacePathSafely('/admin');
-            } else if (authRoute || window.location.pathname === '/onboarding') {
+          } else if (!isSpecialRoute && !isRootHome) {
+            if (authRoute || window.location.pathname === '/onboarding') {
               const pending = loadPendingSignupMeta();
               if (pending) {
                 setSignupMeta((prev) => (prev.contact ? prev : pending));
@@ -561,7 +560,7 @@ function AppShell({
         if (storedSession.token && targetSlug) {
           const modeTarget = shortcutMode || pendingShortcutMode;
           const nextView =
-            !isSpecialRoute && !authRoute
+            !isSpecialRoute && !authRoute && !isRootHome
               ? modeTarget === 'cashier'
                 ? 'cashier'
                 : 'dashboard'
@@ -625,14 +624,8 @@ function AppShell({
     if (!user) return;
     setCurrentUser(user);
     setAuthSyncTick((t) => t + 1);
-    const isAdmin = Boolean(
-      user.emailVerified && user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
-    );
     const shops = await getOwnerShops(user.uid);
-    if (isAdmin && shops.length === 0) {
-      replacePathSafely('/admin');
-      setView('admin');
-    } else if (shops.length > 0) {
+    if (shops.length > 0) {
       const firstShop = shops[0];
       const firstSlug = firstShop.storeSlug || firstShop.id;
       setActiveShopId(firstShop.id);
@@ -666,11 +659,6 @@ function AppShell({
     setView('login');
   };
 
-  const isAdminUser = Boolean(
-    currentUser?.emailVerified &&
-      currentUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
-  );
-
   const hasMerchantSession = Boolean(
     (currentUser && isUserActivated(currentUser)) ||
       (getStoredAuthSession().token && activeShop)
@@ -686,7 +674,6 @@ function AppShell({
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((d) => !d)}
         isAuthenticated={hasMerchantSession}
-        isAdminUser={isAdminUser}
         onNavigateAuth={(mode) => {
           setAuthMode(mode);
           pushPathSafely(`/${mode}`);
@@ -701,9 +688,6 @@ function AppShell({
               setActiveShop(shops[0]);
               replacePathSafely(`/dashboard/${slug}`);
               setView('dashboard');
-            } else if (isAdminUser) {
-              replacePathSafely('/admin');
-              setView('admin');
             } else {
               replacePathSafely('/onboarding');
               setView('onboarding');
@@ -711,17 +695,10 @@ function AppShell({
           } else if (activeShop) {
             replacePathSafely(`/dashboard/${activeShop.storeSlug || activeShop.id}`);
             setView('dashboard');
-          } else if (isAdminUser) {
-            replacePathSafely('/admin');
-            setView('admin');
           } else {
             replacePathSafely('/onboarding');
             setView('onboarding');
           }
-        }}
-        onOpenAdminPanel={() => {
-          pushPathSafely('/admin');
-          setView('admin');
         }}
         onOpenDemoMenu={(demo) => {
           setDemoPreview(demo);
@@ -1172,7 +1149,7 @@ function AppShell({
           activeShop.whatsapp ||
           ''
         }
-        isAdminUser={isAdminUser}
+        isAdminUser={false}
         forceZeroFeesGlobally={forceZeroFeesGlobally}
         darkMode={darkMode}
         onSetThemeMode={handleSetThemeMode}
@@ -1192,8 +1169,7 @@ function AppShell({
         onOpenOrders={() => setView('orders')}
         onOpenShareQr={() => setView('share')}
         onOpenAdmin={() => {
-          pushPathSafely('/admin');
-          setView('admin');
+          // Admin portal is private URL only
         }}
         onLogout={() => void handleLogout()}
       />

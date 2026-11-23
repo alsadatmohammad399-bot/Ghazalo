@@ -61,8 +61,8 @@ function readAsDataUrl(file: File): Promise<string> {
 async function compressImageFile(
   file: File,
   rawDataUrl: string,
-  maxDim = 1400,
-  quality = 0.78
+  maxDim = 1280,
+  quality = 0.76
 ): Promise<{ dataUrl: string; mimeType: string }> {
   const fallbackMime = inferImageMime(file, rawDataUrl);
 

@@ -9,7 +9,6 @@ import {
   Minus,
   Moon,
   Plus,
-  ShieldCheck,
   Sun,
   Utensils,
   X,
@@ -30,10 +29,8 @@ interface LandingPageProps {
   darkMode: boolean;
   onToggleDarkMode: () => void;
   isAuthenticated: boolean;
-  isAdminUser?: boolean;
   onNavigateAuth: (mode: 'signup' | 'login') => void;
   onNavigateDashboard: () => void;
-  onOpenAdminPanel?: () => void;
   onOpenDemoMenu: (demo: DemoProject, planName?: string) => void;
   onOpenStoreMenu?: (storeSlug: string) => void;
   onAuthComplete?: (draftMeta: AuthSuccessMeta) => void;
@@ -142,10 +139,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   darkMode,
   onToggleDarkMode,
   isAuthenticated,
-  isAdminUser = false,
   onNavigateAuth,
   onNavigateDashboard,
-  onOpenAdminPanel,
   onOpenDemoMenu,
   onOpenStoreMenu,
   onAuthComplete,
@@ -262,32 +257,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <button
               type="button"
-              onClick={() => (isAuthenticated ? onNavigateDashboard() : openLoginModal())}
+              onClick={openLoginModal}
               className="px-4 h-10 rounded-full border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] hover:border-[#15803D] text-[#14201A] dark:text-[#E8F2EB] font-extrabold text-xs sm:text-sm transition-colors whitespace-nowrap shrink-0"
             >
-              {isAuthenticated ? tx(isEn, 'لوحة التحكم', 'Dashboard') : tx(isEn, 'دخول', 'Login')}
+              {tx(isEn, 'تسجيل الدخول', 'Login')}
             </button>
 
-            {!isAuthenticated && (
-              <button
-                type="button"
-                onClick={openSignupModal}
-                className="px-4 sm:px-5 h-10 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-xs sm:text-sm shadow-xs transition-colors whitespace-nowrap shrink-0"
-              >
-                {tx(isEn, 'ابدأ مجاناً', 'Start Free')}
-              </button>
-            )}
-
-            {isAuthenticated && isAdminUser && onOpenAdminPanel && (
-              <button
-                type="button"
-                onClick={onOpenAdminPanel}
-                className="hidden sm:inline-flex px-3.5 h-10 rounded-full bg-[#14201A] text-white font-bold text-xs items-center gap-1.5 whitespace-nowrap shrink-0"
-              >
-                <ShieldCheck className="w-4 h-4 text-[#FACC15]" />
-                <span>{tx(isEn, 'الإدارة', 'Admin')}</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={openSignupModal}
+              className="px-4 sm:px-5 h-10 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-xs sm:text-sm shadow-xs transition-colors whitespace-nowrap shrink-0"
+            >
+              {tx(isEn, 'ابدأ مجاناً', 'Start Free')}
+            </button>
 
             <button
               type="button"
@@ -333,18 +315,24 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3.5 pt-1">
               <button
                 type="button"
-                onClick={() => (isAuthenticated ? onNavigateDashboard() : openSignupModal())}
+                onClick={openSignupModal}
                 className="px-7 py-4 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-sm sm:text-base shadow-[0_12px_30px_rgba(21,128,61,0.28)] transition-all whitespace-nowrap shrink-0"
               >
-                {isAuthenticated
-                  ? tx(isEn, 'افتح لوحة التحكم', 'Open Dashboard')
-                  : tx(isEn, 'اعمل منيو مطعمك مجاناً - 7 أيام', 'Create Your Menu Free - 7 Days')}
+                {tx(isEn, 'اعمل منيو مطعمك مجاناً - 7 أيام', 'Create Your Menu Free - 7 Days')}
+              </button>
+
+              <button
+                type="button"
+                onClick={openLoginModal}
+                className="px-6 py-4 rounded-full bg-[#FFFFFF] dark:bg-[#18231C] hover:bg-[#DCFCE7] dark:hover:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] border-2 border-[#15803D] font-extrabold text-sm sm:text-base transition-colors whitespace-nowrap shrink-0"
+              >
+                {tx(isEn, 'تسجيل الدخول', 'Login')}
               </button>
 
               <button
                 type="button"
                 onClick={openLiveDemo}
-                className="px-7 py-4 rounded-full bg-[#FFFFFF] dark:bg-[#18231C] hover:bg-[#DCFCE7] dark:hover:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] border-2 border-[#15803D] font-extrabold text-sm sm:text-base transition-colors whitespace-nowrap shrink-0"
+                className="px-6 py-4 rounded-full bg-[#FFFFFF]/80 dark:bg-[#18231C] hover:bg-[#DCFCE7] dark:hover:bg-[#173323] text-[#14201A] dark:text-[#E8F2EB] border border-[#CFE3D5] dark:border-[#2C3D32] font-extrabold text-sm sm:text-base transition-colors whitespace-nowrap shrink-0"
               >
                 {tx(isEn, 'شوف نموذج حي', 'View Live Demo')}
               </button>
@@ -935,6 +923,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {isAuthenticated && (
+              <div className="rounded-[14px] bg-[#DCFCE7]/80 dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0]">
+                <span>{tx(isEn, 'حسابك مفتوح حالياً', 'Your session is active')}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthModalOpen(false);
+                    onNavigateDashboard();
+                  }}
+                  className="px-3 py-1.5 rounded-full bg-[#15803D] text-white text-[11px] font-black shrink-0"
+                >
+                  {tx(isEn, 'دخول لمتجرك', 'Open Store')}
+                </button>
+              </div>
+            )}
 
             <AuthFormPanel
               compact

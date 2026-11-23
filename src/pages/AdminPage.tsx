@@ -797,8 +797,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <ArrowRight className="w-4 h-4" />
             العودة للموقع
           </button>
-          <span className="font-extrabold text-sm text-[#4B5B52] dark:text-[#A3B5AA]" dir="ltr">
-            /admin
+          <span className="font-extrabold text-sm text-[#4B5B52] dark:text-[#A3B5AA]">
+            بوابة خاصة
           </span>
           <div className="w-16" />
         </header>
