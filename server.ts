@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -362,11 +362,9 @@ async function searchMealDbImages(queryTerm: string): Promise<string[]> {
   if (!key) return [];
   const cached = mealPhotoCache.get(key);
   if (cached) return cached;
-
   const data = (await fetchJsonWithTimeout(
     `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(key)}`
   )) as { meals?: Array<{ strMealThumb?: string }> } | null;
-
   const urls = (data?.meals || [])
     .map((m) => m.strMealThumb || '')
     .filter((u) => u.startsWith('https://') && u.length <= 490);
@@ -379,11 +377,9 @@ async function searchCocktailDbImages(queryTerm: string): Promise<string[]> {
   if (!key) return [];
   const cached = drinkPhotoCache.get(key);
   if (cached) return cached;
-
   const data = (await fetchJsonWithTimeout(
     `https://www.thecocktaildb.com/api/json/v1/1/search.php?s=${encodeURIComponent(key)}`
   )) as { drinks?: Array<{ strDrinkThumb?: string }> } | null;
-
   const urls = (data?.drinks || [])
     .map((d) => d.strDrinkThumb || '')
     .filter((u) => u.startsWith('https://') && u.length <= 490);
@@ -403,12 +399,10 @@ async function resolveDishPhotoUrl(
     .trim()
     .split(/\s+/)
     .filter((w) => w.length >= 3);
-
   const isDrinkFamily = family === 'coffee' || family === 'tea' || family === 'juice';
   if (family === 'water' || family === 'soda') {
     return VERIFIED_DISH_FALLBACKS[family];
   }
-
   try {
     if (isDrinkFamily) {
       for (const candidate of [photoQuery, tokens[0], family]) {
@@ -430,7 +424,6 @@ async function resolveDishPhotoUrl(
   } catch {
     // Fallback cleanly below
   }
-
   return VERIFIED_DISH_FALLBACKS[family] || VERIFIED_DISH_FALLBACKS.grill;
 }
 
@@ -712,7 +705,6 @@ async function startServer() {
           m.storeSlug.toLowerCase() === rawSlug ||
           m.shopId.toLowerCase() === rawSlug
       );
-
     if (direct) {
       res.json({
         ok: true,
@@ -723,7 +715,6 @@ async function startServer() {
       });
       return;
     }
-
     const cred = Object.values(serverRegistry.stores || {}).find(
       (s) =>
         (norm && s.storeSlug.toLowerCase() === norm) ||
@@ -750,7 +741,6 @@ async function startServer() {
       });
       return;
     }
-
     res.json({ ok: true, found: false });
   });
 
@@ -771,7 +761,6 @@ async function startServer() {
       res.status(400).json({ ok: false, error: 'Missing storeSlug' });
       return;
     }
-
     const menus = serverRegistry.publicMenus || {};
     const existing = menus[storeSlug];
     const incomingProducts = Array.isArray(body.products) ? body.products.slice(0, 400) : existing?.products || [];
@@ -802,26 +791,20 @@ async function startServer() {
         });
         return;
       }
-
       const body = req.body as ExtractMenuRequestBody;
       const { fileName, mimeType, base64Data, textContent, files, businessName, language } = body;
-
       const inputFiles: ExtractMenuFileInput[] =
         Array.isArray(files) && files.length > 0
           ? files
           : base64Data || textContent
             ? [{ fileName, mimeType, base64Data, textContent }]
             : [];
-
       const validFiles = inputFiles.filter((f) => Boolean(f.base64Data || f.textContent));
-
       if (validFiles.length === 0) {
         res.status(400).json({ error: 'يرجى رفع صورة أو أكثر للمنيو أو ملف PDF أو Excel أولاً.' });
         return;
       }
-
       const fileNamesList = validFiles.map((f, i) => f.fileName || `صفحة ${i + 1}`).join('، ');
-
       const promptText = `أنت خبير رقمنة وتنظيم قوائم الطعام والمطاعم والجزارة والدواجن والمتاجر لمنصة Ghazalo.
 مهمتك استخراج وتفسير جميع الأقسام والأصناف والعروض والأسعار والأوزان والأوصاف والمتغيرات بدقة عالية من جميع صفحات وصور المنيو المرفقة (${validFiles.length} ملفات) للنشاط "${businessName || 'متجر'}".
 لغة المنيو المفضلة: ${language || 'العربية'}.
@@ -851,9 +834,7 @@ async function startServer() {
    - إذا لم يوجد سعر نهائياً ضع 0.
 5. لكل صنف اكتب في حقل photoQuery اسم الطبق أو المنتج بالإنجليزية بكلمة أو كلمتين واضحتين للبحث عن صورته الحقيقية (مثال: "Kofta kebab", "Grilled chicken", "Raw beef steak", "Shawarma", "Lentil soup", "Tahini", "French fries", "Kunafa", "Mango juice", "Cola", "Bottled water").
 6. لا تبتكر أصنافاً غير موجودة في الملفات المرفقة، ولا تكرر نفس الصنف إذا ظهر في أكثر من صورة.`;
-
       const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
-
       for (const f of validFiles) {
         if (f.base64Data && f.mimeType) {
           parts.push({
@@ -869,25 +850,12 @@ async function startServer() {
           });
         }
       }
-
       parts.push({ text: promptText });
-
-      const callExtractModel = async (
-        modelName: string,
-        thinkingLevel?: ThinkingLevel
-      ): Promise<string> => {
-        const isHydrogen = modelName === 'gemini-4-hydrogen';
+      const callExtractModel = async (modelName: string): Promise<string> => {
         const response = await ai.models.generateContent({
           model: modelName,
           contents: { parts },
           config: {
-            ...(isHydrogen && thinkingLevel
-              ? {
-                  thinkingConfig: {
-                    thinkingLevel,
-                  },
-                }
-              : {}),
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
@@ -943,7 +911,6 @@ async function startServer() {
         });
         return response.text ?? '{}';
       };
-
       const isTransientAiError = (err: unknown): boolean => {
         const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
         return (
@@ -959,28 +926,24 @@ async function startServer() {
           msg.includes('econnreset')
         );
       };
-
       const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
       const attemptChain: Array<{
         model: string;
-        thinkingLevel?: ThinkingLevel;
         delayBeforeMs: number;
       }> = [
-        { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW, delayBeforeMs: 0 },
-        { model: 'gemini-3.1-flash-lite', delayBeforeMs: 400 },
+        { model: 'gemini-2.0-flash', delayBeforeMs: 0 },
+        { model: 'gemini-2.5-flash', delayBeforeMs: 400 },
+        { model: 'gemini-2.0-flash-lite', delayBeforeMs: 800 },
       ];
-
       let responseRawText = '';
       let lastAiError: unknown = null;
       const attemptTrace: string[] = [];
-
       for (const step of attemptChain) {
         if (step.delayBeforeMs > 0) {
           await sleepMs(step.delayBeforeMs);
         }
         try {
-          responseRawText = await callExtractModel(step.model, step.thinkingLevel);
+          responseRawText = await callExtractModel(step.model);
           attemptTrace.push(`${step.model}:ok`);
           lastAiError = null;
           break;
@@ -994,13 +957,10 @@ async function startServer() {
           }
         }
       }
-
       res.setHeader('X-Extract-Models', attemptTrace.join(' | ').slice(0, 500));
-
       if (lastAiError) {
         throw lastAiError;
       }
-
       let rawText = (responseRawText || '{}')
         .trim()
         .replace(/^```(?:json)?\s*/i, '')
@@ -1011,7 +971,6 @@ async function startServer() {
       if (firstBrace > 0 && lastBrace > firstBrace) {
         rawText = rawText.slice(firstBrace, lastBrace + 1);
       }
-
       interface RawParsedMenu {
         categories?: string[];
         items?: Array<{
@@ -1025,7 +984,6 @@ async function startServer() {
           offerLabel?: string;
         }>;
       }
-
       let parsed: RawParsedMenu;
       try {
         parsed = JSON.parse(rawText || '{}') as RawParsedMenu;
@@ -1040,7 +998,6 @@ async function startServer() {
           throw new Error('تعذر قراءة بيانات الأصناف المستخرجة، يرجى إعادة المحاولة.');
         }
       }
-
       const toAsciiDigits = (s: string) =>
         s.replace(/[٠-٩۰-۹]/g, (ch) => {
           const idx = '٠١٢٣٤٥٦٧٨٩'.indexOf(ch);
@@ -1048,7 +1005,6 @@ async function startServer() {
           const idx2 = '۰۱۲۳۴۵۶۷۸۹'.indexOf(ch);
           return idx2 >= 0 ? String(idx2) : ch;
         });
-
       const extractVariantMinPrice = (variantsList: string[]): number | null => {
         const prices: number[] = [];
         for (const v of variantsList) {
@@ -1061,7 +1017,6 @@ async function startServer() {
         }
         return prices.length > 0 ? Math.min(...prices) : null;
       };
-
       const cleanedRaw = (parsed.items || [])
         .filter((item) => item && typeof item.name === 'string' && item.name.trim().length > 0)
         .map((item, idx) => {
@@ -1079,7 +1034,6 @@ async function startServer() {
           const offerLabel = isOffer
             ? (item.offerLabel || 'عرض خاص').trim().slice(0, 60)
             : '';
-
           return {
             name: item.name.trim().slice(0, 160),
             category: (item.category || 'أصناف متنوعة').trim().slice(0, 80),
@@ -1092,7 +1046,6 @@ async function startServer() {
             rawIdx: idx,
           };
         });
-
       cleanedRaw.sort((a, b) => {
         const rankDiff = getCategoryCulinaryRank(a.category) - getCategoryCulinaryRank(b.category);
         if (rankDiff !== 0) return rankDiff;
@@ -1100,8 +1053,6 @@ async function startServer() {
         if (catCompare !== 0) return catCompare;
         return a.rawIdx - b.rawIdx;
       });
-
-      // Fast bounded photo resolution (cap external HTTP calls cleanly so large menus finish quickly)
       const photoDeadline = Date.now() + 1800;
       const resolvedItems: Array<{
         name: string;
@@ -1114,7 +1065,6 @@ async function startServer() {
         imageUrl: string;
         sortOrder: number;
       }> = [];
-
       const batchSize = 10;
       for (let start = 0; start < cleanedRaw.length; start += batchSize) {
         const chunk = cleanedRaw.slice(start, start + batchSize);
@@ -1152,7 +1102,6 @@ async function startServer() {
           });
         });
       }
-
       const categorySet = new Set<string>();
       for (const item of resolvedItems) {
         categorySet.add(item.category);
@@ -1162,13 +1111,11 @@ async function startServer() {
           categorySet.add(cat.trim().slice(0, 80));
         }
       }
-
       const sortedCategories = Array.from(categorySet).sort((a, b) => {
         const rankDiff = getCategoryCulinaryRank(a) - getCategoryCulinaryRank(b);
         if (rankDiff !== 0) return rankDiff;
         return a.localeCompare(b, 'ar');
       });
-
       res.json({
         categories: sortedCategories,
         items: resolvedItems,
@@ -1177,7 +1124,6 @@ async function startServer() {
       const rawMessage = error instanceof Error ? error.message : String(error || '');
       const lower = rawMessage.toLowerCase();
       console.error('Gemini extract-menu error:', error);
-
       if (lower.includes('503') || lower.includes('unavailable') || lower.includes('high demand') || lower.includes('overloaded')) {
         res.status(503).json({
           error: 'خدمة تحليل المنيو تشهد ضغطاً مؤقتاً حالياً. اضغط "إعادة المحاولة" بعد لحظات أو ارفع صورة أوضح.',
@@ -1202,7 +1148,6 @@ async function startServer() {
         });
         return;
       }
-
       res.status(500).json({
         error: 'حدث خطأ غير متوقع أثناء قراءة المنيو. جرب رفع صورة أوضح أو إعادة المحاولة.',
       });
@@ -1217,7 +1162,6 @@ async function startServer() {
         });
         return;
       }
-
       const body = req.body as {
         shopName?: string;
         language?: 'ar' | 'en';
@@ -1235,13 +1179,11 @@ async function startServer() {
           offerLabel?: string;
         }>;
       };
-
       const userMessage = String(body.message || '').trim().slice(0, 600);
       if (!userMessage) {
         res.status(400).json({ error: 'اكتب سؤالك للشيف أولاً.' });
         return;
       }
-
       const isEn = body.language === 'en';
       const catalog = Array.isArray(body.products)
         ? body.products
@@ -1257,19 +1199,16 @@ async function startServer() {
               variants: Array.isArray(p.variants) ? p.variants.slice(0, 6) : [],
             }))
         : [];
-
       if (catalog.length === 0) {
         res.status(400).json({ error: 'لا توجد أصناف في المنيو للترشيح حالياً.' });
         return;
       }
-
       const historyText = Array.isArray(body.history)
         ? body.history
             .slice(-6)
             .map((h) => `${h.role === 'user' ? 'Customer' : 'Chef'}: ${String(h.text || '').slice(0, 200)}`)
             .join('\n')
         : '';
-
       const systemPrompt = isEn
         ? `You are the friendly AI Chef Assistant for "${body.shopName || 'the restaurant'}".
 Help customers choose dishes ONLY from the provided JSON menu catalog below.
@@ -1291,18 +1230,14 @@ ${JSON.stringify(catalog)}`
 
 قائمة المنيو الفعلية (${body.country || 'مصر'}):
 ${JSON.stringify(catalog)}`;
-
       const promptWithHistory = historyText
         ? `${systemPrompt}\n\nPrevious chat:\n${historyText}\n\nCustomer latest question: ${userMessage}`
         : `${systemPrompt}\n\nCustomer question: ${userMessage}`;
-
       const invokeChatModel = async (modelName: string): Promise<string> => {
-        const isHydrogen = modelName === 'gemini-4-hydrogen';
         const response = await ai.models.generateContent({
           model: modelName,
           contents: promptWithHistory,
           config: {
-            ...(isHydrogen ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}),
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
@@ -1323,7 +1258,6 @@ ${JSON.stringify(catalog)}`;
         });
         return response.text ?? '{}';
       };
-
       const isTransient = (err: unknown): boolean => {
         const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
         return (
@@ -1336,16 +1270,14 @@ ${JSON.stringify(catalog)}`;
           msg.includes('404')
         );
       };
-
       let rawJson = '{}';
       try {
-        rawJson = await invokeChatModel('gemini-4-hydrogen');
+        rawJson = await invokeChatModel('gemini-2.0-flash');
       } catch (primaryErr) {
         if (!isTransient(primaryErr)) throw primaryErr;
         await new Promise((r) => setTimeout(r, 350));
-        rawJson = await invokeChatModel('gemini-3.1-flash-lite');
+        rawJson = await invokeChatModel('gemini-2.5-flash');
       }
-
       const validIds = new Set(catalog.map((p) => p.id));
       let parsed: {
         reply?: string;
@@ -1357,15 +1289,12 @@ ${JSON.stringify(catalog)}`;
       } catch {
         parsed = { reply: isEn ? 'Here is a great pick for you from our menu:' : 'جرب ترشيح الشيف ده من المنيو:' };
       }
-
       const matchedIds = Array.isArray(parsed.recommendedProductIds)
         ? parsed.recommendedProductIds.map((id) => String(id)).filter((id) => validIds.has(id)).slice(0, 2)
         : [];
-
       const chips = Array.isArray(parsed.followUpChips)
         ? parsed.followUpChips.map((c) => String(c).trim()).filter(Boolean).slice(0, 3)
         : [];
-
       res.json({
         reply: String(parsed.reply || '').trim() || (isEn ? 'Here is what I recommend:' : 'ده أنسب اختيار ليك من المنيو:'),
         recommendedProductIds: matchedIds,
@@ -1421,7 +1350,6 @@ ${JSON.stringify(catalog)}`;
         res.sendFile(path.join(distDir, 'index.html'));
       });
     }
-
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Ghazalo server listening on http://0.0.0.0:${PORT}`);
     });
