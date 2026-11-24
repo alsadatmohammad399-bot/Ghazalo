@@ -31,7 +31,7 @@ interface MultiMenuUploaderProps {
   onBusyChange?: (busy: boolean) => void;
 }
 
-const CHUNK_SIZE = 1;
+const CONCURRENCY = 2;
 
 const AI_STAGES_AR = [
   'ضغط وتحسين وضوح الصور',
@@ -77,6 +77,81 @@ export const MultiMenuUploader: React.FC<MultiMenuUploaderProps> = ({
     onBusyChange?.(busy);
   };
 
+  const extractSinglePage = async (fileItem: QueuedMenuFile, pageIndex: number, totalPages: number) => {
+    const requestBody = JSON.stringify({
+      files: [fileItem.payload],
+      businessName: businessName || 'متجري',
+      language,
+    });
+
+    const postWithTimeout = async () => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 38000);
+      try {
+        return await fetch('/api/ai/extract-menu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    };
+
+    let res = await postWithTimeout();
+
+    if (res.status === 503) {
+      setProgressText(
+        isEn
+          ? `Temporary busy spike on page ${pageIndex}, retrying automatically...`
+          : `ضغط مؤقت في صفحة ${pageIndex} — جاري إعادة المحاولة تلقائياً...`
+      );
+      await new Promise((r) => setTimeout(r, 900));
+      res = await postWithTimeout();
+    }
+
+    const rawBody = await res.text();
+    let data: {
+      categories?: string[];
+      items?: ExtractedMenuItem[];
+      error?: string;
+    } = {};
+    try {
+      data = rawBody ? (JSON.parse(rawBody) as typeof data) : {};
+    } catch {
+      data = {};
+    }
+
+    if (!res.ok) {
+      if (res.status === 413) {
+        throw new Error(
+          isEn
+            ? 'Menu photo size is too large. Please pick a smaller or cropped image.'
+            : 'حجم الصورة كبير جداً. يرجى اختيار صورة أصغر أو قصها ثم إعادة المحاولة.'
+        );
+      }
+      if (res.status === 504) {
+        throw new Error(
+          isEn
+            ? 'Menu analysis timed out. Please try a clearer single photo or retry.'
+            : 'استغرق تحليل الصورة وقتاً أطول من المعتاد. اضغط إعادة المحاولة أو جرب صورة أوضح.'
+        );
+      }
+      throw new Error(
+        data.error ||
+          (isEn
+            ? `Could not extract items from page ${pageIndex} of ${totalPages}.`
+            : `تعذر تحليل الصفحة ${pageIndex} من ${totalPages} حالياً. اضغط إعادة المحاولة.`)
+      );
+    }
+
+    return {
+      items: data.items || [],
+      categories: data.categories || [],
+    };
+  };
+
   const processFileList = async (targetQueue: QueuedMenuFile[]) => {
     const actionable = targetQueue.filter(
       (f) => f.status === 'pending' || f.status === 'error'
@@ -92,126 +167,75 @@ export const MultiMenuUploader: React.FC<MultiMenuUploaderProps> = ({
 
     const stageTimer = window.setInterval(() => {
       setStageIndex((prev) => (prev < 3 ? prev + 1 : prev));
-    }, 900);
+    }, 450);
 
     let totalExtracted = 0;
     let failedCount = 0;
 
     try {
-      for (let i = 0; i < actionable.length; i += CHUNK_SIZE) {
-        if (i > 0) {
-          await new Promise((r) => setTimeout(r, 750));
-        }
-        const chunk = actionable.slice(i, i + CHUNK_SIZE);
-        const chunkIds = new Set(chunk.map((c) => c.id));
-        const startPage = i + 1;
+      for (let i = 0; i < actionable.length; i += CONCURRENCY) {
+        const wave = actionable.slice(i, i + CONCURRENCY);
+        const waveIds = new Set(wave.map((c) => c.id));
 
         setProgressText(
-          isEn
-            ? `Analyzing page ${startPage} of ${actionable.length} — ${chunk[0]?.name || ''}`
-            : `جاري تحليل صفحة ${startPage} من ${actionable.length} — ${chunk[0]?.name || ''}`
+          wave.length > 1
+            ? isEn
+              ? `Analyzing pages ${i + 1}-${i + wave.length} of ${actionable.length}...`
+              : `جاري قراءة الصفحات ${i + 1}-${i + wave.length} من ${actionable.length}...`
+            : isEn
+              ? `Analyzing page ${i + 1} of ${actionable.length} — ${wave[0]?.name || ''}`
+              : `جاري قراءة صفحة ${i + 1} من ${actionable.length} — ${wave[0]?.name || ''}`
         );
 
         setFiles((prev) =>
           prev.map((f) =>
-            chunkIds.has(f.id) ? { ...f, status: 'scanning', errorMessage: undefined } : f
+            waveIds.has(f.id) ? { ...f, status: 'scanning', errorMessage: undefined } : f
           )
         );
 
-        try {
-          const requestBody = JSON.stringify({
-            files: chunk.map((c) => c.payload),
-            businessName: businessName || 'متجري',
-            language,
-          });
-
-          let res = await fetch('/api/ai/extract-menu', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: requestBody,
-          });
-
-          if (res.status === 503) {
-            setProgressText(
-              isEn
-                ? `Temporary busy spike on page ${startPage}, retrying automatically...`
-                : `ضغط مؤقت على الخادم في صفحة ${startPage} — جاري إعادة المحاولة تلقائياً...`
-            );
-            await new Promise((r) => setTimeout(r, 2000));
-            res = await fetch('/api/ai/extract-menu', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: requestBody,
-            });
-          }
-
-          const rawBody = await res.text();
-          let data: {
-            categories?: string[];
-            items?: ExtractedMenuItem[];
-            error?: string;
-          } = {};
-          try {
-            data = rawBody ? (JSON.parse(rawBody) as typeof data) : {};
-          } catch {
-            data = {};
-          }
-
-          if (!res.ok) {
-            if (res.status === 413) {
-              throw new Error(
-                isEn
-                  ? 'Menu photo size is too large. Please pick a smaller or cropped image.'
-                  : 'حجم الصورة كبير جداً. يرجى اختيار صورة أصغر أو قصها ثم إعادة المحاولة.'
+        await Promise.all(
+          wave.map(async (fileItem, waveOffset) => {
+            const pageNum = i + waveOffset + 1;
+            try {
+              const { items, categories } = await extractSinglePage(
+                fileItem,
+                pageNum,
+                actionable.length
               );
-            }
-            if (res.status === 504) {
-              throw new Error(
-                isEn
-                  ? 'Menu analysis timed out. Please try a clearer single photo or retry.'
-                  : 'استغرق تحليل الصورة وقتاً أطول من المعتاد. اضغط إعادة المحاولة أو جرب صورة أوضح.'
+              totalExtracted += items.length;
+              if (items.length > 0 || categories.length > 0) {
+                await onExtractedChunk(items, categories);
+              }
+              setFiles((prev) =>
+                prev.map((f) =>
+                  f.id === fileItem.id
+                    ? { ...f, status: 'done', extractedCount: items.length, errorMessage: undefined }
+                    : f
+                )
               );
+            } catch (err: unknown) {
+              failedCount += 1;
+              const isAbort = err instanceof Error && err.name === 'AbortError';
+              const msg = isAbort
+                ? isEn
+                  ? 'Menu analysis timed out. Please retry or crop into smaller sections.'
+                  : 'استغرق تحليل الصورة وقتاً أطول من المعتاد. اضغط إعادة المحاولة أو قسّم الصورة.'
+                : err instanceof Error
+                  ? err.message
+                  : isEn
+                    ? 'Extraction failed for this page'
+                    : 'تعذر تحليل هذه الصفحة';
+              setFiles((prev) =>
+                prev.map((f) =>
+                  f.id === fileItem.id ? { ...f, status: 'error', errorMessage: msg } : f
+                )
+              );
+              setErrorMsg(msg);
+            } finally {
+              setCompletedStepCount((c) => Math.min(actionable.length, c + 1));
             }
-            throw new Error(
-              data.error ||
-                (isEn
-                  ? 'Could not extract items from this page. Please retry.'
-                  : 'تعذر تحليل هذه الصفحة حالياً. اضغط إعادة المحاولة.')
-            );
-          }
-
-          const items = data.items || [];
-          const categories = data.categories || [];
-          totalExtracted += items.length;
-
-          if (items.length > 0 || categories.length > 0) {
-            await onExtractedChunk(items, categories);
-          }
-
-          setFiles((prev) =>
-            prev.map((f) =>
-              chunkIds.has(f.id)
-                ? { ...f, status: 'done', extractedCount: items.length, errorMessage: undefined }
-                : f
-            )
-          );
-        } catch (err: unknown) {
-          failedCount += chunk.length;
-          const msg =
-            err instanceof Error
-              ? err.message
-              : isEn
-                ? 'Extraction failed for this page'
-                : 'تعذر تحليل هذه الصفحة';
-          setFiles((prev) =>
-            prev.map((f) =>
-              chunkIds.has(f.id) ? { ...f, status: 'error', errorMessage: msg } : f
-            )
-          );
-          setErrorMsg(msg);
-        } finally {
-          setCompletedStepCount((c) => Math.min(actionable.length, c + chunk.length));
-        }
+          })
+        );
       }
 
       setStageIndex(3);

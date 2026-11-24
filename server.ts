@@ -288,7 +288,7 @@ type DishFamily =
   | 'water';
 
 const VERIFIED_DISH_FALLBACKS: Record<DishFamily, string> = {
-  grill: '/src/assets/images/dish_kebab_kofta_1795092513923.jpg',
+  grill: '/src/assets/images/dish_lamb_chops_1795092514353.jpg',
   kofta: '/src/assets/images/dish_kebab_kofta_1795092513923.jpg',
   chicken: '/src/assets/images/dish_roasted_chicken_1795092513804.jpg',
   fish: '/src/assets/images/dish_roasted_chicken_1795092513804.jpg',
@@ -306,7 +306,7 @@ const VERIFIED_DISH_FALLBACKS: Record<DishFamily, string> = {
   dessert: '/src/assets/images/dish_croissant_cake_1795092514036.jpg',
   coffee: '/src/assets/images/dish_turkish_coffee_1795092513637.jpg',
   tea: '/src/assets/images/dish_turkish_coffee_1795092513637.jpg',
-  juice: '/src/assets/images/dish_mint_mojito_1795092514106.jpg',
+  juice: '/src/assets/images/dish_iced_latte_1795092514007.jpg',
   soda: '/src/assets/images/dish_mint_mojito_1795092514106.jpg',
   water: '/src/assets/images/dish_mint_mojito_1795092514106.jpg',
 };
@@ -845,35 +845,18 @@ async function startServer() {
       }
 
       const fileNamesList = validFiles.map((f, i) => f.fileName || `صفحة ${i + 1}`).join('، ');
-      const promptText = `أنت خبير رقمنة وتنظيم قوائم الطعام والمطاعم والجزارة والدواجن والمتاجر لمنصة Ghazalo.
-مهمتك استخراج وتفسير جميع الأقسام والأصناف والعروض والأسعار والأوزان والأوصاف والمتغيرات بدقة عالية من جميع صفحات وصور المنيو المرفقة (${validFiles.length} ملفات) للنشاط "${businessName || 'متجر'}".
-لغة المنيو المفضلة: ${language || 'العربية'}.
-الملفات المرفقة: ${fileNamesList}.
-
-القواعد الصارمة:
-1. افحص كل الصور والملفات المرفقة دون استثناء واجمع كل الأصناف والعروض منها في قائمة واحدة موحدة.
-2. **ترتيب الأقسام والأصناف (مهم جداً)**: رتب الأقسام والأصناف ترتيباً منطقياً احترافياً يبدأ بالعروض والباقات والأطباق/المنتجات الرئيسية الثقيلة وينتهي بالمياه والمشروبات الغازية بالترتيب التالي:
-   أولاً: العروض والباقات وعروض التوفير (إن وجدت)
-   ثانياً: المشويات والجزارة واللحوم الطازجة والدواجن والفراخ والأطباق الرئيسية والأسماك
-   ثالثاً: الطواجن والمحاشي والأرز والمكرونات
-   رابعاً: البيتزا والفطائر والكريب والشاورما والساندوتشات والبرجر
-   خامساً: الشوربة والسلطات والمقبلات
-   سادساً: الإضافات والبطاطس والصوصات
-   سابعاً: الحلويات
-   ثامناً: المشروبات الساخنة والعصائر الطازجة
-   تاسعاً (في آخر القائمة): المشروبات الغازية (الساقع) والمياه المعدنية (المايه)
-3. **حفظ النص والأوصاف والعروض كما هي مكتوبة**:
-   - انقل أي وصف أو مكونات أو شروط عرض أو ملاحظات مكتوبة في المنيو **كما هي** في حقل description بالضبط دون حذف تفاصيل مهمة.
-   - إذا كان الصنف عبارة عن عرض أو باقة (مثل "عرض التوفير" أو "4 فرخة بـ 1000 والاثنين بـ 550")، اجعل isOffer: true واكتب في offerLabel شارة قصيرة مناسبة (مثل "عرض خاص" أو "توفير").
-4. **تفسير الأسعار المتعددة والأوزان والكميات والأحجام في variants (مهم جداً)**:
-   - إذا ذكر المنيو لنفس الصنف أو العرض أكثر من كمية أو وزن أو حجم بأسعار مختلفة، فسرها وضع كل خيار في مصفوفة variants بالصيغة الثابتة: "اسم الخيار كما في المنيو - السعر" (مرتبة من الأقل سعراً للأعلى)، وضع في price أقل سعر متاح لهذا الصنف:
-     * مثال عروض الكميات: لو مكتوب "4 فرخة بـ 1000 والاثنين بـ 550" -> اسم الصنف "فراخ (عرض التوفير)" أو حسب عنوانه في المنيو، price: 550، وvariants: ["2 فرخة - 550", "4 فرخة - 1000"]، وdescription: "الاثنين بـ 550 و4 فرخة بـ 1000".
-     * مثال الجزارة واللحوم: لو مكتوب "لحم بلدي الكيلو 420 والنص 215 والربع 110" -> price: 110، وvariants: ["ربع كيلو - 110", "نص كيلو - 215", "كيلو - 420"].
-     * مثال الأحجام: لو مكتوب "وسط 120 / كبير 170" -> price: 120، وvariants: ["وسط - 120", "كبير - 170"].
-   - **ممنوع تماماً اختراع أي أوزان أو أحجام أو خيارات غير مكتوبة في المنيو المرفق.** إذا كان للصنف سعر واحد فقط بدون أوزان أو كميات متعددة في المنيو، اترك variants فارغة [].
-   - إذا لم يوجد سعر نهائياً ضع 0.
-5. لكل صنف اكتب في حقل photoQuery اسم الطبق أو المنتج بالإنجليزية بكلمة أو كلمتين واضحتين للبحث عن صورته الحقيقية (مثال: "Kofta kebab", "Grilled chicken", "Raw beef steak", "Shawarma", "Lentil soup", "Tahini", "French fries", "Kunafa", "Mango juice", "Cola", "Bottled water").
-6. لا تبتكر أصنافاً غير موجودة في الملفات المرفقة، ولا تكرر نفس الصنف إذا ظهر في أكثر من صورة.`;
+      const promptText = `استخرج كل الأقسام والأصناف والأسعار من المنيو المرفق (${fileNamesList}) للنشاط "${businessName || 'متجر'}" (${language || 'العربية'}) بأقصى سرعة ودقة.
+أرجع النتيجة في مصفوفة sections مرتبة: العروض أولاً، ثم المشويات/اللحوم/الرئيسية، ثم الطواجن/المكرونات، ثم البيتزا/الساندوتشات/البرجر، ثم السلطات/المقبلات، ثم الإضافات، ثم الحلويات، ثم المشروبات والمياه أخيراً.
+لكل قسم:
+- cat: اسم القسم.
+- isOffer: true فقط لو قسم عروض/توفير/باقات.
+- rows: قائمة نصوص، كل صنف في سطر بصيغة:
+  "اسم الصنف || السعر || الخيارات مفصولة بـ / (اختياري) || الوصف (اختياري)"
+أمثلة للسطر:
+- سعر واحد فقط: "كفتة مشوية || 220"
+- أوزان أو أحجام: "لحم بلدي || 110 || ربع كيلو - 110 / نص كيلو - 215 / كيلو - 420"
+- عرض أو وصف: "عرض التوفير || 550 || 2 فرخة - 550 / 4 فرخة - 1000 || الاثنين بـ 550 و4 بـ 1000"
+ممنوع اختراع أصناف أو أوزان غير مكتوبة. لو بدون سعر اكتب 0.`;
 
       const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
       for (const f of validFiles) {
@@ -887,7 +870,7 @@ async function startServer() {
         }
         if (f.textContent) {
           parts.push({
-            text: `محتوى جدول المنيو (${f.fileName || 'Excel'}):\n${f.textContent.slice(0, 50000)}`,
+            text: `جدول المنيو (${f.fileName || 'Excel'}):\n${f.textContent.slice(0, 50000)}`,
           });
         }
       }
@@ -896,52 +879,23 @@ async function startServer() {
       const extractResponseSchema = {
         type: Type.OBJECT,
         properties: {
-          categories: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description:
-              'أسماء الأقسام مرتبة من العروض والمشويات/اللحوم/الأطباق الرئيسية أولاً إلى الحلويات والمشروبات والمياه أخيراً.',
-          },
-          items: {
+          sections: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
               properties: {
-                name: { type: Type.STRING, description: 'اسم الصنف أو العرض كما في المنيو' },
-                category: { type: Type.STRING, description: 'اسم القسم' },
-                price: {
-                  type: Type.NUMBER,
-                  description: 'السعر الأساسي أو أقل سعر متاح كرقم',
-                },
-                description: {
-                  type: Type.STRING,
-                  description: 'الوصف أو تفاصيل العرض أو المكونات المكتوبة كما هي في المنيو',
-                },
-                photoQuery: {
-                  type: Type.STRING,
-                  description:
-                    'اسم الطبق أو المنتج بالإنجليزية للبحث عن صورة حقيقية له (كلمة أو كلمتان)',
-                },
-                variants: {
+                cat: { type: Type.STRING },
+                isOffer: { type: Type.BOOLEAN },
+                rows: {
                   type: Type.ARRAY,
                   items: { type: Type.STRING },
-                  description:
-                    'قائمة الخيارات أو الأوزان أو عروض الكميات المذكورة فعلياً في المنيو بصيغة "الاسم - السعر" مثل "2 فرخة - 550" أو "نص كيلو - 215"',
-                },
-                isOffer: {
-                  type: Type.BOOLEAN,
-                  description: 'هل هذا الصنف عرض أو باقة توفير مذكورة في المنيو',
-                },
-                offerLabel: {
-                  type: Type.STRING,
-                  description: 'شارة العرض القصيرة إن كان عرضاً مثل "عرض خاص" أو "عرض التوفير"',
                 },
               },
-              required: ['name', 'category', 'price', 'photoQuery'],
+              required: ['cat', 'rows'],
             },
           },
         },
-        required: ['categories', 'items'],
+        required: ['sections'],
       };
 
       const callExtractModel = async (
@@ -985,16 +939,12 @@ async function startServer() {
         );
       };
 
-      const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
       const attemptChain: Array<{
         model: string;
         thinkingLevel?: ThinkingLevel;
-        delayBeforeMs: number;
       }> = [
-        { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW, delayBeforeMs: 0 },
-        { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW, delayBeforeMs: 1400 },
-        { model: 'gemini-3.1-flash-lite', delayBeforeMs: 600 },
-        { model: 'gemini-3.1-flash-lite', delayBeforeMs: 1800 },
+        { model: 'gemini-3.1-flash-lite' },
+        { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW },
       ];
 
       let responseRawText = '';
@@ -1002,9 +952,6 @@ async function startServer() {
       const attemptTrace: string[] = [];
 
       for (const step of attemptChain) {
-        if (step.delayBeforeMs > 0) {
-          await sleepMs(step.delayBeforeMs);
-        }
         try {
           responseRawText = await callExtractModel(step.model, step.thinkingLevel);
           attemptTrace.push(`${step.model}:ok`);
@@ -1026,6 +973,11 @@ async function startServer() {
         throw lastAiError;
       }
 
+      interface RawMenuSection {
+        cat?: string;
+        isOffer?: boolean;
+        rows?: string[];
+      }
       interface RawMenuItem {
         name: string;
         category: string;
@@ -1039,6 +991,7 @@ async function startServer() {
       interface RawParsedMenu {
         categories?: string[];
         items?: RawMenuItem[];
+        sections?: RawMenuSection[];
       }
 
       const parseExtractedMenuJson = (rawInput: string): RawParsedMenu => {
@@ -1057,25 +1010,10 @@ async function startServer() {
         try {
           return JSON.parse(cleaned || '{}') as RawParsedMenu;
         } catch {
-          // Salvage balanced JSON objects from truncated responses (dense menus with many dishes)
-          const salvagedCategories: string[] = [];
-          const catMatch = cleaned.match(/"categories"\s*:\s*\[([^\]]*)\]/);
-          if (catMatch) {
-            try {
-              const arr = JSON.parse(`[${catMatch[1]}]`) as unknown;
-              if (Array.isArray(arr)) {
-                for (const c of arr) {
-                  if (typeof c === 'string' && c.trim()) salvagedCategories.push(c.trim());
-                }
-              }
-            } catch {
-              // ignore partial category array
-            }
-          }
-
-          const itemsIdx = cleaned.indexOf('"items"');
-          const arrStart = itemsIdx >= 0 ? cleaned.indexOf('[', itemsIdx) : -1;
-          const salvagedItems: RawMenuItem[] = [];
+          // Salvage balanced section objects from truncated responses
+          const secIdx = cleaned.indexOf('"sections"');
+          const arrStart = secIdx >= 0 ? cleaned.indexOf('[', secIdx) : -1;
+          const salvagedSections: RawMenuSection[] = [];
 
           if (arrStart >= 0) {
             let inStr = false;
@@ -1107,12 +1045,12 @@ async function startServer() {
                 if (objDepth === 0 && objStart >= 0) {
                   const candidateSlice = cleaned.slice(objStart, i + 1);
                   try {
-                    const parsedObj = JSON.parse(candidateSlice) as RawMenuItem;
-                    if (parsedObj && typeof parsedObj.name === 'string' && parsedObj.name.trim()) {
-                      salvagedItems.push(parsedObj);
+                    const parsedObj = JSON.parse(candidateSlice) as RawMenuSection;
+                    if (parsedObj && typeof parsedObj.cat === 'string' && Array.isArray(parsedObj.rows)) {
+                      salvagedSections.push(parsedObj);
                     }
                   } catch {
-                    // skip malformed individual entry
+                    // skip malformed object
                   }
                   objStart = -1;
                 }
@@ -1120,8 +1058,8 @@ async function startServer() {
             }
           }
 
-          if (salvagedItems.length > 0 || salvagedCategories.length > 0) {
-            return { categories: salvagedCategories, items: salvagedItems };
+          if (salvagedSections.length > 0) {
+            return { sections: salvagedSections };
           }
           throw new Error('PARSE_EXTRACTED_MENU_FAILED');
         }
@@ -1150,7 +1088,57 @@ async function startServer() {
         return prices.length > 0 ? Math.min(...prices) : null;
       };
 
-      const cleanedRaw = (parsed.items || [])
+      const parseCompactPrice = (rawPrice: string): number => {
+        const norm = toAsciiDigits(rawPrice || '').replace(/,/g, '.');
+        const m = norm.match(/([0-9]+(?:\.[0-9]+)?)/);
+        if (!m) return 0;
+        const n = Number(m[1]);
+        return Number.isFinite(n) && n >= 0 ? n : 0;
+      };
+
+      const expandedItems: RawMenuItem[] = [];
+      const sectionCategories: string[] = [];
+
+      if (Array.isArray(parsed.sections)) {
+        for (const sec of parsed.sections) {
+          const catName = String(sec?.cat || 'أصناف متنوعة').trim().slice(0, 80);
+          if (catName) sectionCategories.push(catName);
+          const secIsOffer =
+            Boolean(sec?.isOffer) ||
+            /عروض|عرض|توفير|باقات|باقة|بوكسات|offers|deals/i.test(catName);
+          const rows = Array.isArray(sec?.rows) ? sec.rows : [];
+          for (const row of rows) {
+            if (typeof row !== 'string' || !row.trim()) continue;
+            const cols = row.split('||').map((c) => c.trim());
+            const itemName = (cols[0] || '').trim();
+            if (!itemName) continue;
+            const parsedPrice = parseCompactPrice(cols[1] || '0');
+            const variantsRaw = (cols[2] || '').trim();
+            const variantsList = variantsRaw
+              ? variantsRaw
+                  .split(/\s*\/\s*/)
+                  .map((v) => v.trim())
+                  .filter(Boolean)
+              : [];
+            const descText = (cols[3] || '').trim();
+            const itemIsOffer =
+              secIsOffer || /عرض|توفير|باقة|بوكس|offer|combo|bundle/i.test(itemName);
+            expandedItems.push({
+              name: itemName,
+              category: catName || 'أصناف متنوعة',
+              price: parsedPrice,
+              variants: variantsList,
+              description: descText,
+              isOffer: itemIsOffer,
+              offerLabel: itemIsOffer ? 'عرض خاص' : undefined,
+            });
+          }
+        }
+      }
+
+      const rawItemsList = expandedItems.length > 0 ? expandedItems : parsed.items || [];
+
+      const cleanedRaw = rawItemsList
         .filter((item) => item && typeof item.name === 'string' && item.name.trim().length > 0)
         .map((item, idx) => {
           const cleanVariants = Array.isArray(item.variants)
@@ -1188,62 +1176,24 @@ async function startServer() {
         return a.rawIdx - b.rawIdx;
       });
 
-      const photoDeadline = Date.now() + 1400;
-      const resolvedItems: Array<{
-        name: string;
-        category: string;
-        price: number;
-        description: string;
-        variants: string[];
-        isOffer?: boolean;
-        offerLabel?: string;
-        imageUrl: string;
-        sortOrder: number;
-      }> = [];
-
-      const batchSize = 10;
-      for (let start = 0; start < cleanedRaw.length; start += batchSize) {
-        const chunk = cleanedRaw.slice(start, start + batchSize);
-        const canFetchExternal = Date.now() < photoDeadline;
-        const photos = canFetchExternal
-          ? await Promise.race([
-              Promise.all(
-                chunk.map((item, offset) =>
-                  resolveDishPhotoUrl(item.photoQuery, item.name, item.category, start + offset)
-                )
-              ),
-              sleepMs(1000).then(() =>
-                chunk.map(
-                  (item) =>
-                    VERIFIED_DISH_FALLBACKS[inferDishFamily(item.name, item.category, item.photoQuery)] ||
-                    VERIFIED_DISH_FALLBACKS.grill
-                )
-              ),
-            ])
-          : chunk.map(
-              (item) =>
-                VERIFIED_DISH_FALLBACKS[inferDishFamily(item.name, item.category, item.photoQuery)] ||
-                VERIFIED_DISH_FALLBACKS.grill
-            );
-        chunk.forEach((item, offset) => {
-          resolvedItems.push({
-            name: item.name,
-            category: item.category,
-            price: item.price,
-            description: item.description,
-            variants: item.variants,
-            ...(item.isOffer ? { isOffer: true, offerLabel: item.offerLabel } : {}),
-            imageUrl: photos[offset] || VERIFIED_DISH_FALLBACKS.grill,
-            sortOrder: start + offset,
-          });
-        });
-      }
+      const resolvedItems = cleanedRaw.map((item, idx) => ({
+        name: item.name,
+        category: item.category,
+        price: item.price,
+        description: item.description,
+        variants: item.variants,
+        ...(item.isOffer ? { isOffer: true, offerLabel: item.offerLabel } : {}),
+        imageUrl:
+          VERIFIED_DISH_FALLBACKS[inferDishFamily(item.name, item.category, item.photoQuery)] ||
+          VERIFIED_DISH_FALLBACKS.grill,
+        sortOrder: idx,
+      }));
 
       const categorySet = new Set<string>();
       for (const item of resolvedItems) {
         categorySet.add(item.category);
       }
-      for (const cat of parsed.categories || []) {
+      for (const cat of [...sectionCategories, ...(parsed.categories || [])]) {
         if (typeof cat === 'string' && cat.trim()) {
           categorySet.add(cat.trim().slice(0, 80));
         }

@@ -23,7 +23,7 @@ export interface QueuedMenuFile {
   payload: PreparedAiFilePayload;
 }
 
-const MAX_BASE64_CHARS = 1_450_000; // ~1.08 MB binary, safely below Vercel's 4.5MB request limit
+const MAX_BASE64_CHARS = 580_000; // ~430 KB binary for ultra-fast mobile upload & Gemini Vision parsing
 const MAX_PDF_BYTES = 3_100_000;
 
 const SUPPORTED_IMAGE_MIMES = new Set([
@@ -71,10 +71,9 @@ function encodeCanvasToJpegBudget(
   srcHeight: number
 ): { dataUrl: string; width: number; height: number } | null {
   const steps: Array<{ maxDim: number; quality: number }> = [
-    { maxDim: 1600, quality: 0.85 },
-    { maxDim: 1440, quality: 0.78 },
-    { maxDim: 1280, quality: 0.72 },
-    { maxDim: 1080, quality: 0.65 },
+    { maxDim: 1280, quality: 0.78 },
+    { maxDim: 1120, quality: 0.7 },
+    { maxDim: 960, quality: 0.62 },
   ];
 
   let lastResult: { dataUrl: string; width: number; height: number } | null = null;
