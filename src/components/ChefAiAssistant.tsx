@@ -25,6 +25,8 @@ interface ChefAiAssistantProps {
   onAddToCart: (product: Product) => void;
   onOpenProductDetail: (product: Product) => void;
   hasBottomDock?: boolean;
+  pendingQuestion?: { id: string; text: string } | null;
+  onPendingQuestionHandled?: () => void;
 }
 
 type GuidedStepKey = 'diet' | 'spicy' | 'hungry' | 'category';
@@ -65,6 +67,8 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
   onAddToCart,
   onOpenProductDetail,
   hasBottomDock = true,
+  pendingQuestion = null,
+  onPendingQuestionHandled,
 }) => {
   const displayShopName = getShopDisplayName(shop, isEn);
   const cleanCategories = useMemo(
@@ -84,7 +88,9 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
   const queueRef = useRef<GuidedStepKey[]>([]);
   const shownProductIdsRef = useRef<Set<string>>(new Set());
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const timersRef = useRef<number[]>([]);
+  const lastHandledQuestionIdRef = useRef<string | null>(null);
 
   const scheduleTimer = useCallback((fn: () => void, ms: number) => {
     const id = window.setTimeout(fn, ms);
@@ -114,8 +120,17 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
       return;
     }
     const hints = isEn
-      ? ['Not sure what to order?', 'Let Chef AI pick for you', 'Hungry? Ask our Chef!']
-      : ['محتار تطلب إيه؟', 'نساعدك تختار وجبتك؟', 'جعان ومش عارف تطلب إيه؟', 'سيبها على الشيف'];
+      ? [
+          'Ask about ingredients or prices',
+          'Not sure what to order?',
+          'Let Chef AI pick for you',
+        ]
+      : [
+          'عايز تعرف المكونات أو الأسعار؟',
+          'محتار تطلب إيه؟',
+          'اسأل الشيف عن أي صنف',
+          'سيبها على الشيف',
+        ];
 
     let hideTimeout: number | null = null;
     const triggerHint = () => {
@@ -507,12 +522,12 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
     setMessages([]);
     const greetings = isEn
       ? [
-          `Welcome! I am the AI Chef for ${displayShopName}. Tell me what you feel like or ask me anything below!`,
-          `Hungry and unsure what to pick? Answer 2 quick taps or type your craving below.`,
+          `Welcome! I am the AI Chef for ${displayShopName}. Ask me about any dish's ingredients or prices, or pick from the options below!`,
+          `Hello! Ask me about ingredients, sizes, prices, or answer 2 quick taps to pick your meal.`,
         ]
       : [
-          `أهلاً بك! أنا شيف ${displayShopName} الذكي. جاوبني على اختيارات سريعة أو اكتبلي نفسك في إيه تحت وهختارلك أحلى وجبة.`,
-          `محتار تطلب إيه من ${displayShopName}؟ سيبها عليا — اختار من الأزرار أو اسألني مباشرة!`,
+          `أهلاً بك! أنا شيف ${displayShopName} الذكي. اسألني تحت عن مكونات أو أسعار أي صنف، أو اختار من الأزرار السريعة.`,
+          `أهلاً بك في ${displayShopName}! تقدر تسألني عن المكونات والأسعار والعروض أو نختارلك وجبتك في ثواني.`,
         ];
     botSay(pickRandom(greetings), () => {
       const first = queueRef.current.shift();
@@ -520,59 +535,60 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
     });
   };
 
-  useEffect(() => {
-    if (isOpen && !initialized) {
-      setInitialized(true);
-      restartFlowRef.current();
-    }
-  }, [isOpen, initialized]);
-
   // Free-text AI Chat powered by server-side Gemini API (/api/ai/menu-chat)
-  const submitFreeQuestion = async (questionText: string) => {
-    const clean = questionText.trim();
-    if (!clean || typing) return;
-    setFreeInput('');
-    setLastFreePrompt(clean);
-    setChips([]);
-    appendMessage({ role: 'user', kind: 'text', text: clean });
-    setTyping(true);
+  const submitFreeQuestion = useCallback(
+    async (questionText: string) => {
+      const clean = questionText.trim();
+      if (!clean || typing) return;
+      clearPendingTimers();
+      setFreeInput('');
+      setLastFreePrompt(clean);
+      setChips([]);
+      appendMessage({ role: 'user', kind: 'text', text: clean });
+      setTyping(true);
 
-    try {
-      const historyPayload = messages
-        .filter((m) => m.kind === 'text' && m.text)
-        .slice(-6)
-        .map((m) => ({ role: m.role, text: m.text }));
+      try {
+        const historyPayload = messages
+          .filter((m) => m.kind === 'text' && m.text)
+          .slice(-6)
+          .map((m) => ({ role: m.role, text: m.text }));
 
-      const res = await fetch('/api/ai/menu-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shopName: displayShopName,
-          language: isEn ? 'en' : 'ar',
-          country: shop.country,
-          message: clean,
-          history: historyPayload,
-          products: products.slice(0, 90).map((p) => ({
-            id: p.id,
-            name: p.name,
-            category: p.category,
-            price: p.price,
-            description: p.description,
-            variants: p.variants,
-            isOffer: p.isOffer,
-            offerLabel: p.offerLabel,
-          })),
-        }),
-      });
+        const res = await fetch('/api/ai/menu-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shopName: displayShopName,
+            language: isEn ? 'en' : 'ar',
+            country: shop.country,
+            message: clean,
+            history: historyPayload,
+            deliveryInfo: {
+              deliveryFee: shop.deliveryFee,
+              freeDelivery: shop.freeDelivery,
+              freeDeliveryMinOrder: shop.freeDeliveryMinOrder,
+            },
+            products: products.slice(0, 120).map((p) => ({
+              id: p.id,
+              name: p.name,
+              category: p.category,
+              price: p.price,
+              originalPrice: p.originalPrice,
+              description: p.description,
+              variants: p.variants,
+              isOffer: p.isOffer,
+              offerLabel: p.offerLabel,
+            })),
+          }),
+        });
 
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        reply?: string;
-        recommendedProductIds?: string[];
-        followUpChips?: string[];
-      };
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          reply?: string;
+          recommendedProductIds?: string[];
+          followUpChips?: string[];
+        };
 
-      setTyping(false);
+        setTyping(false);
 
       if (!res.ok) {
         appendMessage({
@@ -626,34 +642,68 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
           action: () => restartFlowRef.current(),
         },
       ]);
-    } catch {
-      setTyping(false);
-      appendMessage({
-        role: 'bot',
-        kind: 'text',
-        text: tx(
-          isEn,
-          'Connection error reaching Chef AI. Please retry or use the quick guide.',
-          'حدث خطأ في الاتصال بالشيف الذكي — جرب إعادة المحاولة أو الاختيار السريع.'
-        ),
-      });
-      setChips([
-        ...(lastFreePrompt
-          ? [
-              {
-                label: tx(isEn, 'إعادة المحاولة', 'Retry'),
-                solid: true,
-                action: () => void submitFreeQuestion(lastFreePrompt),
-              },
-            ]
-          : []),
-        {
-          label: tx(isEn, 'الاختيار السريع', 'Quick guide'),
-          action: () => restartFlowRef.current(),
-        },
-      ]);
+      } catch {
+        setTyping(false);
+        appendMessage({
+          role: 'bot',
+          kind: 'text',
+          text: tx(
+            isEn,
+            'Connection error reaching Chef AI. Please retry or use the quick guide.',
+            'حدث خطأ في الاتصال بالشيف الذكي — جرب إعادة المحاولة أو الاختيار السريع.'
+          ),
+        });
+        setChips([
+          ...(lastFreePrompt
+            ? [
+                {
+                  label: tx(isEn, 'إعادة المحاولة', 'Retry'),
+                  solid: true,
+                  action: () => void submitFreeQuestion(lastFreePrompt),
+                },
+              ]
+            : []),
+          {
+            label: tx(isEn, 'الاختيار السريع', 'Quick guide'),
+            action: () => restartFlowRef.current(),
+          },
+        ]);
+      }
+    },
+    [
+      appendMessage,
+      clearPendingTimers,
+      displayShopName,
+      isEn,
+      lastFreePrompt,
+      messages,
+      products,
+      shop.country,
+      shop.deliveryFee,
+      shop.freeDelivery,
+      shop.freeDeliveryMinOrder,
+      typing,
+    ]
+  );
+
+  const submitFreeQuestionRef = useRef(submitFreeQuestion);
+  submitFreeQuestionRef.current = submitFreeQuestion;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (pendingQuestion && lastHandledQuestionIdRef.current !== pendingQuestion.id) {
+      lastHandledQuestionIdRef.current = pendingQuestion.id;
+      setInitialized(true);
+      clearPendingTimers();
+      void submitFreeQuestionRef.current(pendingQuestion.text);
+      onPendingQuestionHandled?.();
+      return;
     }
-  };
+    if (!initialized) {
+      setInitialized(true);
+      restartFlowRef.current();
+    }
+  }, [clearPendingTimers, initialized, isOpen, onPendingQuestionHandled, pendingQuestion]);
 
   return (
     <>
@@ -727,7 +777,9 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
               </div>
               <div className="text-[11px] opacity-85 flex items-center gap-1 truncate">
                 <Sparkles className="w-3 h-3 shrink-0" />
-                <span>{tx(isEn, 'سيبها عليا وأنا أختارلك وجبتك', 'Smart menu & meal recommender')}</span>
+                <span>
+                  {tx(isEn, 'اسأل عن المكونات والأسعار أو اطلب ترشيحاً', 'Ask about ingredients, prices, or picks')}
+                </span>
               </div>
             </div>
             <button
@@ -929,26 +981,74 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
             )}
           </div>
 
+          {/* 1-Tap Quick Inquiry Bar (Ingredients & Prices) */}
+          <div
+            className={`px-3 pt-2 pb-1.5 border-t flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0 ${
+              darkMode
+                ? 'bg-[#0E1526] border-[#2A3550]'
+                : 'bg-[#FAF7F0] border-[#E3DCCB]'
+            }`}
+          >
+            <button
+              type="button"
+              disabled={typing}
+              onClick={() =>
+                void submitFreeQuestion(
+                  tx(
+                    isEn,
+                    'ما هي أسعار العروض والأصناف المميزة المتاحة حالياً ورسوم التوصيل؟',
+                    'What are the current prices, special offers, and delivery fees?'
+                  )
+                )
+              }
+              className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold border whitespace-nowrap shrink-0 transition-colors disabled:opacity-45 ${
+                darkMode
+                  ? 'bg-[#1B2540] border-[#2A3550] text-[#DCB877] hover:border-[#C9A35B]'
+                  : 'bg-white border-[#E3DCCB] text-[#722914] hover:border-[#A9813F]'
+              }`}
+            >
+              {tx(isEn, 'الأسعار والعروض', 'Prices & Offers')}
+            </button>
+            <button
+              type="button"
+              disabled={typing}
+              onClick={() => {
+                setFreeInput((prev) =>
+                  prev.trim()
+                    ? prev
+                    : tx(isEn, 'ما هي مكونات وسعر ', 'What are the ingredients and price of ')
+                );
+                inputRef.current?.focus();
+              }}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold border whitespace-nowrap shrink-0 transition-colors disabled:opacity-45 ${
+                darkMode
+                  ? 'bg-[#1B2540] border-[#2A3550] text-[#F5F1E8] hover:border-[#C9A35B]'
+                  : 'bg-white border-[#E3DCCB] text-[#20263A] hover:border-[#A9813F]'
+              }`}
+            >
+              {tx(isEn, 'استفسار عن المكونات', 'Ingredients')}
+            </button>
+          </div>
+
           {/* Free-Text Gemini AI Composer */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void submitFreeQuestion(freeInput);
             }}
-            className={`p-2.5 border-t flex items-center gap-2 shrink-0 ${
-              darkMode
-                ? 'bg-[#0E1526] border-[#2A3550]'
-                : 'bg-white border-[#E3DCCB]'
+            className={`px-2.5 pb-2.5 pt-1 flex items-center gap-2 shrink-0 ${
+              darkMode ? 'bg-[#0E1526]' : 'bg-white'
             }`}
           >
             <input
+              ref={inputRef}
               type="text"
               value={freeInput}
               onChange={(e) => setFreeInput(e.target.value)}
               placeholder={tx(
                 isEn,
-                'Ask Chef AI (e.g. spicy grill under 200)...',
-                'اكتب للشيف (مثلاً: غدا مشويات بـ 250 ج)...'
+                'Ask about ingredients, prices, or meal picks...',
+                'اسأل عن المكونات أو الأسعار أو اقترح وجبة...'
               )}
               className={`flex-1 min-w-0 px-3 py-2 rounded-[12px] text-xs font-bold outline-none border ${
                 darkMode

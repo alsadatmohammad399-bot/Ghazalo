@@ -233,6 +233,7 @@ function AppShell({
 
   // Public Storefront / Demo State
   const [demoPreview, setDemoPreview] = useState<DemoProject | null>(null);
+  const [demoReturnView, setDemoReturnView] = useState<'landing' | 'dashboard'>('landing');
   const [qrTargetShopId, setQrTargetShopId] = useState<string | null>(null);
   const [qrTableLabel, setQrTableLabel] = useState<string>('');
   const [publicShop, setPublicShop] = useState<Shop | null>(null);
@@ -701,6 +702,7 @@ function AppShell({
           }
         }}
         onOpenDemoMenu={(demo) => {
+          setDemoReturnView('landing');
           setDemoPreview(demo);
           setQrTargetShopId(null);
           setQrTableLabel('');
@@ -775,6 +777,7 @@ function AppShell({
     if (demoPreview) {
       return (
         <StorefrontPage
+          key={`${demoPreview.shop.id}-${demoPreview.shop.menuTemplate}-${demoPreview.shop.themeColor}-${demoPreview.shop.themeMode}`}
           shop={demoPreview.shop}
           products={demoPreview.products}
           isDemo
@@ -783,9 +786,9 @@ function AppShell({
           onToggleDarkMode={() => setDarkMode((d) => !d)}
           onBack={() => {
             setDemoPreview(null);
-            setView('landing');
+            setView(demoReturnView);
           }}
-          backLabel="الرئيسية"
+          backLabel={demoReturnView === 'dashboard' ? 'لوحة التحكم' : 'الرئيسية'}
         />
       );
     }
@@ -1165,6 +1168,23 @@ function AppShell({
             state: { shop: activeShop, products: shopProducts },
           });
         }}
+        onTryDemoWithStyle={({ templateId, themeColor, themeMode }) => {
+          const baseDemo = DEMO_PROJECTS[0];
+          const styledDemo: DemoProject = {
+            ...baseDemo,
+            shop: {
+              ...baseDemo.shop,
+              menuTemplate: templateId,
+              themeColor,
+              themeMode,
+            },
+          };
+          setDemoReturnView('dashboard');
+          setDemoPreview(styledDemo);
+          setQrTargetShopId(null);
+          setQrTableLabel('');
+          setView('storefront');
+        }}
         onOpenCashier={() => setView('cashier')}
         onOpenOrders={() => setView('orders')}
         onOpenShareQr={() => setView('share')}
@@ -1188,6 +1208,7 @@ function AppShell({
       }}
       onNavigateDashboard={() => setView('onboarding')}
       onOpenDemoMenu={(demo) => {
+        setDemoReturnView('landing');
         setDemoPreview(demo);
         setQrTargetShopId(null);
         setQrTableLabel('');

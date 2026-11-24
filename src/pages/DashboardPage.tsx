@@ -4,6 +4,7 @@ import {
   Boxes,
   Bell,
   Check,
+  ChefHat,
   Copy,
   Edit3,
   Eye,
@@ -36,6 +37,7 @@ import { MenuTemplateShowcase } from '../components/MenuTemplateShowcase';
 import { MultiMenuUploader } from '../components/MultiMenuUploader';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
+import { StorefrontPage } from './StorefrontPage';
 import { auth } from '../firebase';
 import {
   addProduct,
@@ -53,6 +55,7 @@ import {
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
 import { getCategoryCulinaryRank, sortProductsCulinary } from '../utils/menuSorting';
+import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { getProductOptions, parseVariantsInput } from '../utils/productVariants';
 import {
   copyMenuLink,
@@ -98,6 +101,11 @@ interface DashboardPageProps {
   onShopUpdated?: (updated: Shop) => void;
   onProductsUpdated?: (products: Product[]) => void;
   onOpenStorefront: () => void;
+  onTryDemoWithStyle?: (options: {
+    templateId: MenuTemplateId;
+    themeColor: string;
+    themeMode: 'light' | 'dark';
+  }) => void;
   onOpenCashier: () => void;
   onOpenOrders: () => void;
   onOpenShareQr: () => void;
@@ -118,6 +126,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onShopUpdated,
   onProductsUpdated,
   onOpenStorefront,
+  onTryDemoWithStyle,
   onOpenCashier,
   onOpenOrders,
   onOpenShareQr,
@@ -215,13 +224,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   );
   const [deliverySavedToast, setDeliverySavedToast] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
+  const [activatingRoyal, setActivatingRoyal] = useState(false);
+  const [activatingTemplateId, setActivatingTemplateId] = useState<MenuTemplateId | null>(null);
+  const [quickSelectedTemplate, setQuickSelectedTemplate] = useState<MenuTemplateId>(() =>
+    normalizeMenuTemplateId(shop.menuTemplate)
+  );
+  const [royalActivatedToast, setRoyalActivatedToast] = useState('');
+  const [templateCardToast, setTemplateCardToast] = useState('');
+  const [templatePreviewConfig, setTemplatePreviewConfig] = useState<{
+    templateId: MenuTemplateId;
+    themeColor: string;
+    themeMode: 'light' | 'dark';
+  } | null>(null);
+  const presetTemplateOnOpenRef = useRef<MenuTemplateId | null>(null);
+
+  useEffect(() => {
+    setQuickSelectedTemplate(normalizeMenuTemplateId(shop.menuTemplate));
+  }, [shop.menuTemplate]);
 
   useEffect(() => {
     if (!settingsModalOpen && !designModalOpen) return;
+    const presetTpl = presetTemplateOnOpenRef.current;
+    presetTemplateOnOpenRef.current = null;
     setEditNameAr(shop.nameAr);
     setEditWhatsapp(shop.whatsapp || '');
     setEditAddress(shop.address || '');
-    setEditTemplate(normalizeMenuTemplateId(shop.menuTemplate));
+    setEditTemplate(presetTpl || normalizeMenuTemplateId(shop.menuTemplate));
     setEditThemeColor(shop.themeColor || 'أخضر');
     setEditThemeMode(shop.themeMode === 'dark' ? 'dark' : 'light');
     setEditLogoUrl(shop.logoUrl || '');
@@ -684,34 +712,112 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     };
   };
 
-  const handleSaveDesignOnly = async () => {
+  const activateTemplate = async (
+    templateId: MenuTemplateId,
+    themeOptions?: { themeColor?: string; themeMode?: 'light' | 'dark' }
+  ) => {
+    const normalized = normalizeMenuTemplateId(templateId);
+    setActivatingTemplateId(normalized);
+    setActivatingRoyal(normalized === 'royal');
     setSavingSettings(true);
     setDesignSavedToast('');
+    setRoyalActivatedToast('');
+    setTemplateCardToast('');
     try {
       const updates: Partial<Shop> = {
-        menuTemplate: editTemplate,
-        themeColor: editThemeColor,
-        themeMode: editThemeMode,
+        menuTemplate: normalized,
+        ...(themeOptions?.themeColor ? { themeColor: themeOptions.themeColor } : {}),
+        ...(themeOptions?.themeMode ? { themeMode: themeOptions.themeMode } : {}),
       };
+      setEditTemplate(normalized);
+      setQuickSelectedTemplate(normalized);
+      if (themeOptions?.themeColor) setEditThemeColor(themeOptions.themeColor);
+      if (themeOptions?.themeMode) setEditThemeMode(themeOptions.themeMode);
+
       const updatedShop = persistShopLocal(updates);
       if (canUseFirestore) {
         try {
           await updateShop(shop.id, updates);
         } catch {
-          // local + public snapshot already synced
+          // local Shop state + public snapshot already synced
         }
       }
       await syncPublicStoreSnapshot(updatedShop, latestProductsRef.current);
-      setDesignSavedToast(
-        tx(
-          isEn,
-          'تم تفعيل القالب والمظهر وتحديث المنيو العام فوراً ✅',
-          'Template & appearance activated on your public menu ✅'
-        )
+
+      const tplName = translateTemplateMeta(
+        normalized,
+        getMenuTemplateConfig(normalized).name,
+        '',
+        isEn
+      ).name;
+      const doneMsg = tx(
+        isEn,
+        `تم تفعيل "${tplName}" وتحديث منيو متجرك فوراً ✅`,
+        `"${tplName}" template activated immediately ✅`
       );
+      setDesignSavedToast(doneMsg);
+      setTemplateCardToast(doneMsg);
+      window.setTimeout(() => setTemplateCardToast(''), 4000);
+      if (normalized === 'royal') {
+        setRoyalActivatedToast(
+          tx(
+            isEn,
+            'تم تفعيل القالب الملكي وشيف الذكاء الاصطناعي على منيوك الآن ✅',
+            'Royal Template & AI Chef activated on your menu ✅'
+          )
+        );
+        window.setTimeout(() => setRoyalActivatedToast(''), 4000);
+      }
     } finally {
+      setActivatingTemplateId(null);
+      setActivatingRoyal(false);
       setSavingSettings(false);
     }
+  };
+
+  const handleSaveDesignOnly = async () => {
+    await activateTemplate(editTemplate, {
+      themeColor: editThemeColor,
+      themeMode: editThemeMode,
+    });
+  };
+
+  const handleQuickActivateRoyal = async () => {
+    await activateTemplate('royal');
+  };
+
+  const handleOpenTemplateStudioFor = (templateId?: MenuTemplateId) => {
+    if (templateId) {
+      presetTemplateOnOpenRef.current = templateId;
+      setEditTemplate(templateId);
+    }
+    setDesignModalOpen(true);
+  };
+
+  const openTemplatePreview = (
+    templateId: MenuTemplateId,
+    themeColor = editThemeColor || shop.themeColor || 'أخضر',
+    themeMode: 'light' | 'dark' = shop.themeMode === 'dark' ? 'dark' : 'light'
+  ) => {
+    setTemplatePreviewConfig({
+      templateId: normalizeMenuTemplateId(templateId),
+      themeColor,
+      themeMode,
+    });
+  };
+
+  const handleLaunchDemoWithStyle = (
+    templateId: MenuTemplateId,
+    themeColor = editThemeColor || shop.themeColor || 'أخضر',
+    themeMode: 'light' | 'dark' = editThemeMode
+  ) => {
+    setDesignModalOpen(false);
+    setSettingsModalOpen(false);
+    onTryDemoWithStyle?.({
+      templateId,
+      themeColor,
+      themeMode,
+    });
   };
 
   const handleSaveDeliveryOnly = async () => {
@@ -756,6 +862,122 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   };
 
   const displayShopName = getShopDisplayName(shop, isEn);
+
+  if (templatePreviewConfig) {
+    const previewShop: Shop = {
+      ...shop,
+      menuTemplate: templatePreviewConfig.templateId,
+      themeColor: templatePreviewConfig.themeColor,
+      themeMode: templatePreviewConfig.themeMode,
+    };
+    const previewTplMeta = translateTemplateMeta(
+      templatePreviewConfig.templateId,
+      getMenuTemplateConfig(templatePreviewConfig.templateId).name,
+      '',
+      isEn
+    );
+    const isAlreadyActive =
+      normalizeMenuTemplateId(shop.menuTemplate) === templatePreviewConfig.templateId &&
+      (shop.themeColor || 'أخضر') === templatePreviewConfig.themeColor &&
+      (shop.themeMode === 'dark' ? 'dark' : 'light') === templatePreviewConfig.themeMode;
+
+    return (
+      <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen">
+        {/* Live Merchant Store Template Preview Bar */}
+        <div className="bg-[#0E1526] text-[#F5F1E8] border-b border-[#C9A35B]/45 px-4 py-3">
+          <div className="max-w-[960px] mx-auto space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Eye className="w-4 h-4 text-[#C9A35B] shrink-0" />
+                <span className="text-xs sm:text-sm font-black truncate">
+                  {tx(
+                    isEn,
+                    `معاينة القالب على منيو "${displayShopName}" — ${previewTplMeta.name}`,
+                    `Template Preview on "${displayShopName}" — ${previewTplMeta.name}`
+                  )}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={Boolean(activatingTemplateId) || isAlreadyActive}
+                  onClick={async () => {
+                    await activateTemplate(templatePreviewConfig.templateId, {
+                      themeColor: templatePreviewConfig.themeColor,
+                      themeMode: templatePreviewConfig.themeMode,
+                    });
+                    setTemplatePreviewConfig(null);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-[#C9A35B] hover:opacity-95 disabled:opacity-60 text-[#0E1526] text-xs font-black inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-opacity"
+                >
+                  {activatingTemplateId === templatePreviewConfig.templateId ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  )}
+                  {isAlreadyActive
+                    ? tx(isEn, 'مفعّل على متجرك', 'Already Active')
+                    : tx(isEn, 'تأكيد وتفعيل القالب', 'Confirm & Activate')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTemplatePreviewConfig(null)}
+                  className="px-3 py-1.5 rounded-xl bg-[#1B2540] hover:bg-[#233052] text-[#F5F1E8] border border-[#2A3550] text-xs font-extrabold inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  {tx(isEn, 'إغلاق المعاينة', 'Close Preview')}
+                </button>
+              </div>
+            </div>
+
+            {/* Switch live between all templates on the owner's actual menu */}
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+              {MENU_TEMPLATES.map((tpl) => {
+                const selected = templatePreviewConfig.templateId === tpl.id;
+                const meta = translateTemplateMeta(tpl.id, tpl.name, '', isEn);
+                return (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() =>
+                      setTemplatePreviewConfig((prev) =>
+                        prev ? { ...prev, templateId: tpl.id } : null
+                      )
+                    }
+                    className={`px-3 py-1 rounded-full text-[11px] font-extrabold border whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                      selected
+                        ? 'bg-[#C9A35B] border-[#C9A35B] text-[#0E1526]'
+                        : 'bg-[#1B2540] border-[#2A3550] text-[#F5F1E8]/85 hover:border-[#C9A35B]/60'
+                    }`}
+                  >
+                    {meta.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <StorefrontPage
+          key={`preview-${previewShop.id}-${previewShop.menuTemplate}-${previewShop.themeColor}-${previewShop.themeMode}`}
+          shop={previewShop}
+          products={products}
+          isDemo
+          hideDemoBanner
+          forceZeroFeesGlobally={forceZeroFeesGlobally}
+          darkMode={templatePreviewConfig.themeMode === 'dark'}
+          onToggleDarkMode={() =>
+            setTemplatePreviewConfig((prev) =>
+              prev ? { ...prev, themeMode: prev.themeMode === 'dark' ? 'light' : 'dark' } : null
+            )
+          }
+          onBack={() => setTemplatePreviewConfig(null)}
+          backLabel={tx(isEn, 'العودة للوحة التحكم', 'Back to Dashboard')}
+        />
+      </div>
+    );
+  }
 
   return (
     <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] pb-24">
@@ -1182,61 +1404,239 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
           </button>
 
-          {/* Active Template Studio Quick Launch Card */}
-          <div className="col-span-2 sf-card flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => setDesignModalOpen(true)}
-              className="flex items-center gap-3 text-start flex-1 min-w-[200px] cursor-pointer"
-            >
-              <div
-                style={{ backgroundColor: `${getShopThemeHex(shop.themeColor)}18` }}
-                className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border border-[#CFE3D5] dark:border-[#2C3D32]"
-              >
-                <Palette style={{ color: getShopThemeHex(shop.themeColor) }} className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="font-extrabold text-sm flex items-center gap-2 flex-wrap">
-                  <span>{tx(isEn, 'قالب ومظهر المنيو', 'Menu Template & Theme')}</span>
-                  <span className="text-xs font-black text-[#15803D] dark:text-[#BBF7D0]">
-                    ·{' '}
-                    {translateTemplateMeta(
-                      getMenuTemplateConfig(shop.menuTemplate).id,
-                      getMenuTemplateConfig(shop.menuTemplate).name,
-                      '',
-                      isEn
-                    ).name}
-                  </span>
+          {/* Featured New Template Card: Royal VIP + AI Chef */}
+          <div className="col-span-2 rounded-[22px] bg-[#0E1526] text-[#F5F1E8] border-[1.5px] border-[#C9A35B]/65 p-4 sm:p-5 space-y-3.5 shadow-md">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
+                <div className="w-11 h-11 rounded-2xl bg-[#1B2540] border border-[#C9A35B]/60 text-[#C9A35B] flex items-center justify-center shrink-0">
+                  <ChefHat className="w-6 h-6" />
                 </div>
-                <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA] flex items-center gap-2">
-                  <span
-                    style={{ backgroundColor: getShopThemeHex(shop.themeColor) }}
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                  />
-                  <span>
-                    {translateThemeColor(shop.themeColor || 'أخضر', isEn)} ·{' '}
-                    {shop.themeMode === 'dark' ? tx(isEn, 'داكن', 'Dark') : tx(isEn, 'فاتح', 'Light')}
-                  </span>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-black text-sm sm:text-base text-[#F5F1E8]">
+                      {tx(isEn, 'القالب الملكي الجديد + شيف الذكاء الاصطناعي', 'New Royal VIP Template + AI Chef')}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-[#C9A35B] text-[#0E1526] whitespace-nowrap">
+                      {normalizeMenuTemplateId(shop.menuTemplate) === 'royal'
+                        ? tx(isEn, 'مفعّل حالياً', 'Active Now')
+                        : tx(isEn, 'جديد', 'New')}
+                    </span>
+                  </div>
+                  <p className="text-xs font-semibold text-[#F5F1E8]/80 leading-relaxed">
+                    {tx(
+                      isEn,
+                      'تصميم فاخر مع شات شيف ذكي يرد على عملائك عن المكونات والأسعار والعروض مباشرة.',
+                      'Luxury layout with built-in AI Chef chat answering customer ingredient & pricing questions.'
+                    )}
+                  </p>
                 </div>
               </div>
-            </button>
+            </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            {royalActivatedToast && (
+              <div className="rounded-xl bg-[#1B2540] border border-[#C9A35B] px-3.5 py-2 text-xs font-extrabold text-[#DCB877] text-center">
+                {royalActivatedToast}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setDesignModalOpen(true)}
-                className="sf-btn-primary min-h-[40px] px-3.5 text-xs whitespace-nowrap"
+                onClick={() =>
+                  openTemplatePreview(
+                    'royal',
+                    shop.themeColor || 'أخضر',
+                    shop.themeMode === 'dark' ? 'dark' : 'light'
+                  )
+                }
+                className="min-h-[40px] px-3.5 rounded-xl bg-[#1B2540] hover:bg-[#233052] text-[#F5F1E8] border border-[#C9A35B]/45 text-xs font-extrabold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+              >
+                <Eye className="w-3.5 h-3.5 text-[#C9A35B]" />
+                {tx(isEn, 'معاينة القالب', 'Preview Template')}
+              </button>
+
+              {normalizeMenuTemplateId(shop.menuTemplate) === 'royal' ? (
+                <button
+                  type="button"
+                  onClick={onOpenStorefront}
+                  className="min-h-[40px] px-3.5 rounded-xl bg-[#C9A35B] hover:opacity-95 text-[#0E1526] text-xs font-black inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-opacity"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {tx(isEn, 'مفعّل · فتح منيو متجري', 'Active · Open My Menu')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={activatingRoyal}
+                  onClick={() => void handleQuickActivateRoyal()}
+                  className="min-h-[40px] px-3.5 rounded-xl bg-[#C9A35B] hover:opacity-95 disabled:opacity-60 text-[#0E1526] text-xs font-black inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-opacity"
+                >
+                  {activatingRoyal ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  )}
+                  {activatingRoyal
+                    ? tx(isEn, 'جاري التفعيل...', 'Activating...')
+                    : tx(isEn, 'تفعيل القالب', 'Activate Template')}
+                </button>
+              )}
+
+              {onTryDemoWithStyle && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleLaunchDemoWithStyle(
+                      'royal',
+                      shop.themeColor || 'أخضر',
+                      shop.themeMode === 'dark' ? 'dark' : 'light'
+                    )
+                  }
+                  className="min-h-[40px] px-3.5 rounded-xl bg-transparent hover:bg-[#1B2540] text-[#DCB877] border border-[#C9A35B]/60 text-xs font-extrabold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {tx(isEn, 'تجربة المنيو التجريبي', 'Try Demo Menu')}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Active Template Studio & Direct Template Switcher Card */}
+          <div className="col-span-2 sf-card space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => handleOpenTemplateStudioFor(quickSelectedTemplate)}
+                className="flex items-center gap-3 text-start flex-1 min-w-[200px] cursor-pointer"
+              >
+                <div
+                  style={{ backgroundColor: `${getShopThemeHex(shop.themeColor)}18` }}
+                  className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border border-[#CFE3D5] dark:border-[#2C3D32]"
+                >
+                  <Palette style={{ color: getShopThemeHex(shop.themeColor) }} className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-extrabold text-sm flex items-center gap-2 flex-wrap">
+                    <span>{tx(isEn, 'قالب ومظهر المنيو', 'Menu Template & Theme')}</span>
+                    <span className="text-xs font-black text-[#15803D] dark:text-[#BBF7D0]">
+                      ·{' '}
+                      {translateTemplateMeta(
+                        getMenuTemplateConfig(shop.menuTemplate).id,
+                        getMenuTemplateConfig(shop.menuTemplate).name,
+                        '',
+                        isEn
+                      ).name}
+                    </span>
+                  </div>
+                  <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA] flex items-center gap-2">
+                    <span
+                      style={{ backgroundColor: getShopThemeHex(shop.themeColor) }}
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                    />
+                    <span>
+                      {translateThemeColor(shop.themeColor || 'أخضر', isEn)} ·{' '}
+                      {shop.themeMode === 'dark' ? tx(isEn, 'داكن', 'Dark') : tx(isEn, 'فاتح', 'Light')}
+                    </span>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenTemplateStudioFor(quickSelectedTemplate)}
+                className="sf-btn min-h-[38px] px-3 text-xs whitespace-nowrap shrink-0"
               >
                 <Palette className="w-3.5 h-3.5" />
-                {tx(isEn, 'تغيير القالب', 'Change Template')}
+                {tx(isEn, 'تخصيص المظهر', 'Customize Style')}
+              </button>
+            </div>
+
+            {/* Instant Template Selector Pills */}
+            <div className="flex flex-wrap gap-1.5">
+              {MENU_TEMPLATES.map((tpl) => {
+                const isSelected = quickSelectedTemplate === tpl.id;
+                const isActiveOnShop = normalizeMenuTemplateId(shop.menuTemplate) === tpl.id;
+                const meta = translateTemplateMeta(tpl.id, tpl.name, '', isEn);
+                return (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => setQuickSelectedTemplate(tpl.id)}
+                    aria-pressed={isSelected}
+                    className={`px-3 py-1.5 rounded-full text-xs font-extrabold border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors ${
+                      isSelected
+                        ? tpl.id === 'royal'
+                          ? 'bg-[#0E1526] border-[#C9A35B] text-[#DCB877]'
+                          : 'bg-[#DCFCE7] dark:bg-[#173323] border-[#15803D] text-[#14532D] dark:text-[#BBF7D0]'
+                        : 'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32] text-[#4B5B52] dark:text-[#A3B5AA] hover:border-[#15803D]'
+                    }`}
+                  >
+                    {isActiveOnShop && <Check className="w-3 h-3 text-[#15803D] dark:text-[#4ADE80]" />}
+                    <span>{meta.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {templateCardToast && (
+              <div className="rounded-xl bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] px-3.5 py-2 text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0] text-center">
+                {templateCardToast}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  openTemplatePreview(
+                    quickSelectedTemplate,
+                    shop.themeColor || 'أخضر',
+                    shop.themeMode === 'dark' ? 'dark' : 'light'
+                  )
+                }
+                className="sf-btn min-h-[40px] px-3.5 text-xs whitespace-nowrap"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                {tx(isEn, 'معاينة القالب', 'Preview Template')}
               </button>
               <button
                 type="button"
+                disabled={Boolean(activatingTemplateId)}
+                onClick={() => void activateTemplate(quickSelectedTemplate)}
+                className="sf-btn-primary min-h-[40px] px-4 text-xs whitespace-nowrap"
+              >
+                {activatingTemplateId === quickSelectedTemplate ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}
+                {activatingTemplateId === quickSelectedTemplate
+                  ? tx(isEn, 'جاري التفعيل...', 'Activating...')
+                  : tx(isEn, 'تفعيل القالب', 'Activate Template')}
+              </button>
+              {onTryDemoWithStyle && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleLaunchDemoWithStyle(
+                      quickSelectedTemplate,
+                      shop.themeColor || 'أخضر',
+                      shop.themeMode === 'dark' ? 'dark' : 'light'
+                    )
+                  }
+                  className="sf-btn-mint min-h-[40px] px-3.5 text-xs whitespace-nowrap"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {tx(isEn, 'تجربة المنيو التجريبي', 'Try Demo')}
+                </button>
+              )}
+              <button
+                type="button"
                 onClick={onOpenStorefront}
-                className="sf-btn min-h-[40px] px-3 text-xs whitespace-nowrap"
+                className="sf-btn min-h-[40px] px-3.5 text-xs whitespace-nowrap"
               >
                 <Eye className="w-3.5 h-3.5" />
-                {tx(isEn, 'معاينة', 'Preview')}
+                {tx(isEn, 'منيوك الحالي', 'Live Menu')}
               </button>
             </div>
           </div>
@@ -2327,7 +2727,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </label>
               <MenuTemplateShowcase
                 selectedTemplate={editTemplate}
+                activeShopTemplate={normalizeMenuTemplateId(shop.menuTemplate)}
                 onSelectTemplate={setEditTemplate}
+                onPreviewMyStore={(tpl) =>
+                  openTemplatePreview(tpl, editThemeColor, editThemeMode)
+                }
+                onActivateTemplate={(tpl) =>
+                  void activateTemplate(tpl, {
+                    themeColor: editThemeColor,
+                    themeMode: editThemeMode,
+                  })
+                }
+                activatingTemplate={Boolean(activatingTemplateId)}
+                onTryDemo={
+                  onTryDemoWithStyle
+                    ? (tpl) => handleLaunchDemoWithStyle(tpl, editThemeColor, editThemeMode)
+                    : undefined
+                }
                 themeColor={editThemeColor}
                 themeMode={editThemeMode}
                 shopName={editNameAr || displayShopName}
@@ -2591,7 +3007,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <div className="overflow-y-auto space-y-4 flex-1 pe-1">
               <MenuTemplateShowcase
                 selectedTemplate={editTemplate}
+                activeShopTemplate={normalizeMenuTemplateId(shop.menuTemplate)}
                 onSelectTemplate={setEditTemplate}
+                onPreviewMyStore={(tpl) =>
+                  openTemplatePreview(tpl, editThemeColor, editThemeMode)
+                }
+                onActivateTemplate={(tpl) =>
+                  void activateTemplate(tpl, {
+                    themeColor: editThemeColor,
+                    themeMode: editThemeMode,
+                  })
+                }
+                activatingTemplate={Boolean(activatingTemplateId)}
+                onTryDemo={
+                  onTryDemoWithStyle
+                    ? (tpl) => handleLaunchDemoWithStyle(tpl, editThemeColor, editThemeMode)
+                    : undefined
+                }
                 themeColor={editThemeColor}
                 themeMode={editThemeMode}
                 shopName={displayShopName}
@@ -2665,29 +3097,38 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               )}
             </div>
 
-            <div className="pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] flex flex-wrap gap-2.5">
+            <div className="pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => openTemplatePreview(editTemplate, editThemeColor, editThemeMode)}
+                className="sf-btn min-h-[44px] px-3.5 text-xs sm:text-sm whitespace-nowrap"
+              >
+                <Eye className="w-4 h-4 shrink-0" />
+                {tx(isEn, 'معاينة القالب', 'Preview Template')}
+              </button>
               <button
                 type="button"
                 disabled={savingSettings}
                 onClick={() => void handleSaveDesignOnly()}
-                className="sf-btn-primary flex-1 min-h-[44px] text-xs sm:text-sm"
+                className="sf-btn-primary flex-1 min-h-[44px] text-xs sm:text-sm whitespace-nowrap"
               >
-                <Check className="w-4 h-4" />
+                <Check className="w-4 h-4 shrink-0" />
                 {savingSettings
                   ? tx(isEn, 'جاري التفعيل...', 'Applying...')
-                  : tx(isEn, 'حفظ وتفعيل القالب الآن', 'Save & Activate Template')}
+                  : tx(isEn, 'تفعيل القالب', 'Activate Template')}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDesignModalOpen(false);
-                  onOpenStorefront();
-                }}
-                className="sf-btn min-h-[44px] px-4 text-xs sm:text-sm"
-              >
-                <Eye className="w-4 h-4" />
-                {tx(isEn, 'معاينة المنيو', 'Preview Menu')}
-              </button>
+              {onTryDemoWithStyle && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleLaunchDemoWithStyle(editTemplate, editThemeColor, editThemeMode)
+                  }
+                  className="sf-btn-mint min-h-[44px] px-3.5 text-xs sm:text-sm whitespace-nowrap"
+                >
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  {tx(isEn, 'تجربة المنيو التجريبي', 'Try Demo Menu')}
+                </button>
+              )}
             </div>
           </div>
         </div>

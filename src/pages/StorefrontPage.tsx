@@ -64,6 +64,7 @@ interface StorefrontPageProps {
   shop: Shop;
   products: Product[];
   isDemo?: boolean;
+  hideDemoBanner?: boolean;
   isFallbackMenu?: boolean;
   isLoading?: boolean;
   onCreateFreeStore?: () => void;
@@ -88,6 +89,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   shop,
   products,
   isDemo = false,
+  hideDemoBanner = false,
   isFallbackMenu = false,
   isLoading = false,
   onCreateFreeStore,
@@ -110,7 +112,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       : shop.themeMode === 'dark'
         ? true
         : shop.themeMode === 'light'
-          ? darkMode
+          ? false
           : darkMode;
   const handleToggleMenuTheme = () => {
     setLocalDarkOverride(!effectiveDark);
@@ -129,6 +131,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const [ordersPageOpen, setOrdersPageOpen] = useState(false);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [chefChatOpen, setChefChatOpen] = useState(false);
+  const [pendingChefQuestion, setPendingChefQuestion] = useState<{ id: string; text: string } | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [shareToast, setShareToast] = useState('');
 
@@ -866,6 +869,47 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 className="px-4 py-1.5 rounded-full bg-[#FACC15] text-[#14201A] hover:bg-[#EAB308] text-xs font-black shadow-xs transition-colors whitespace-nowrap shrink-0"
               >
                 {tx(isEn, 'انشئ متجرك مجانا', 'Create your store free')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isDemo && !isFallbackMenu && !hideDemoBanner && (
+        <div
+          style={templateId === 'royal' ? undefined : { backgroundColor: themeHex }}
+          className={`px-4 py-2 text-xs font-extrabold ${
+            templateId === 'royal'
+              ? 'bg-[#0A1120] border-b border-[#C9A35B]/45 text-[#F5F1E8]'
+              : 'text-white'
+          }`}
+        >
+          <div className={`${maxWidthClass} flex flex-wrap items-center justify-between gap-2`}>
+            <span className="inline-flex items-center gap-2 min-w-0">
+              {templateId === 'royal' ? (
+                <ChefHat className="w-4 h-4 text-[#C9A35B] shrink-0" />
+              ) : (
+                <Sparkles className="w-4 h-4 shrink-0" />
+              )}
+              <span className="truncate">
+                {tx(
+                  isEn,
+                  `تجربة المنيو التجريبي — ${templateConfig.name} (${effectiveDark ? 'داكن' : 'فاتح'})`,
+                  `Live Demo Menu — ${templateConfig.englishName} (${effectiveDark ? 'Dark' : 'Light'})`
+                )}
+              </span>
+            </span>
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className={`px-3 py-1 rounded-full text-[11px] font-black whitespace-nowrap shrink-0 transition-opacity hover:opacity-90 ${
+                  templateId === 'royal'
+                    ? 'bg-[#C9A35B] text-[#0E1526]'
+                    : 'bg-white/20 text-white border border-white/30'
+                }`}
+              >
+                {resolvedBackLabel}
               </button>
             )}
           </div>
@@ -2291,6 +2335,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           onAddToCart={(prod) => addToCart(prod)}
           onOpenProductDetail={openProductDetail}
           hasBottomDock={totalItemsCount > 0}
+          pendingQuestion={pendingChefQuestion}
+          onPendingQuestionHandled={() => setPendingChefQuestion(null)}
         />
       )}
 
@@ -2974,6 +3020,40 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       );
                     })}
                   </div>
+                </div>
+              )}
+              {templateId === 'royal' && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const askedName = detailProduct.name;
+                      setDetailProduct(null);
+                      setPendingChefQuestion({
+                        id: `${detailProduct.id}-${Date.now()}`,
+                        text: tx(
+                          isEn,
+                          `ما هي مكونات صنف "${askedName}" وما تفاصيل أسعاره وأحجامه المتاحة؟`,
+                          `What are the ingredients, sizes, and exact prices of "${askedName}"?`
+                        ),
+                      });
+                      setChefChatOpen(true);
+                    }}
+                    className={`w-full py-2.5 px-4 rounded-[14px] text-xs font-extrabold border inline-flex items-center justify-center gap-2 transition-colors ${
+                      effectiveDark
+                        ? 'bg-[#1B2540] border-[#C9A35B]/55 text-[#DCB877] hover:border-[#C9A35B]'
+                        : 'bg-[#FAF7F0] border-[#A9813F]/55 text-[#722914] hover:border-[#A9813F]'
+                    }`}
+                  >
+                    <ChefHat className="w-4 h-4 shrink-0" />
+                    <span>
+                      {tx(
+                        isEn,
+                        'اسأل الشيف AI عن المكونات والسعر',
+                        'Ask Chef AI: Ingredients & Price'
+                      )}
+                    </span>
+                  </button>
                 </div>
               )}
             </div>
