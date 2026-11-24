@@ -11,6 +11,9 @@ export interface QueuedMenuFile {
   id: string;
   name: string;
   sizeBytes: number;
+  compressedBytes?: number;
+  width?: number;
+  height?: number;
   previewUrl?: string;
   isPdf?: boolean;
   isSheet?: boolean;
@@ -20,6 +23,9 @@ export interface QueuedMenuFile {
   payload: PreparedAiFilePayload;
 }
 
+const MAX_BASE64_CHARS = 1_450_000; // ~1.08 MB binary, safely below Vercel's 4.5MB request limit
+const MAX_PDF_BYTES = 3_100_000;
+
 const SUPPORTED_IMAGE_MIMES = new Set([
   'image/jpeg',
   'image/jpg',
@@ -28,6 +34,7 @@ const SUPPORTED_IMAGE_MIMES = new Set([
   'image/gif',
   'image/heic',
   'image/heif',
+  'image/bmp',
 ]);
 
 function inferImageMime(file: File, dataUrl: string): string {
@@ -58,73 +65,111 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
+function encodeCanvasToJpegBudget(
+  source: CanvasImageSource,
+  srcWidth: number,
+  srcHeight: number
+): { dataUrl: string; width: number; height: number } | null {
+  const steps: Array<{ maxDim: number; quality: number }> = [
+    { maxDim: 1600, quality: 0.85 },
+    { maxDim: 1440, quality: 0.78 },
+    { maxDim: 1280, quality: 0.72 },
+    { maxDim: 1080, quality: 0.65 },
+  ];
+
+  let lastResult: { dataUrl: string; width: number; height: number } | null = null;
+
+  for (const step of steps) {
+    const scale =
+      srcWidth > step.maxDim || srcHeight > step.maxDim
+        ? Math.min(step.maxDim / srcWidth, step.maxDim / srcHeight)
+        : 1;
+    const width = Math.max(1, Math.round(srcWidth * scale));
+    const height = Math.max(1, Math.round(srcHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, width, height);
+
+    const outUrl = canvas.toDataURL('image/jpeg', step.quality);
+    lastResult = { dataUrl: outUrl, width, height };
+    const commaIdx = outUrl.indexOf(',');
+    const base64Len = commaIdx >= 0 ? outUrl.length - commaIdx - 1 : outUrl.length;
+    if (base64Len <= MAX_BASE64_CHARS) {
+      return lastResult;
+    }
+  }
+
+  return lastResult;
+}
+
 async function compressImageFile(
-  file: File,
-  rawDataUrl: string,
-  maxDim = 1280,
-  quality = 0.76
-): Promise<{ dataUrl: string; mimeType: string }> {
-  const fallbackMime = inferImageMime(file, rawDataUrl);
+  file: File
+): Promise<{ dataUrl: string; mimeType: string; width?: number; height?: number }> {
+  // 1. Decode via fast ObjectURL + Image element first (low memory overhead for high-MP camera photos)
+  const objectUrl = typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(file) : '';
+  try {
+    if (objectUrl) {
+      const fromObjectUrl = await new Promise<{
+        dataUrl: string;
+        mimeType: string;
+        width: number;
+        height: number;
+      } | null>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const encoded = encodeCanvasToJpegBudget(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
+          resolve(encoded ? { ...encoded, mimeType: 'image/jpeg' } : null);
+        };
+        img.onerror = () => resolve(null);
+        img.src = objectUrl;
+      });
+      if (fromObjectUrl) return fromObjectUrl;
+    }
+  } finally {
+    if (objectUrl && URL.revokeObjectURL) {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
 
-  // Try Image element decode first
-  const fromImgElement = await new Promise<{ dataUrl: string; mimeType: string } | null>((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const targetScale =
-        img.width > maxDim || img.height > maxDim
-          ? Math.min(maxDim / img.width, maxDim / img.height)
-          : 1;
-      const width = Math.max(1, Math.round(img.width * targetScale));
-      const height = Math.max(1, Math.round(img.height * targetScale));
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(null);
-        return;
-      }
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
-      const outUrl = canvas.toDataURL('image/jpeg', quality);
-      resolve({ dataUrl: outUrl, mimeType: 'image/jpeg' });
-    };
-    img.onerror = () => resolve(null);
-    img.src = rawDataUrl;
-  });
-
-  if (fromImgElement) return fromImgElement;
-
-  // Fallback via createImageBitmap when supported
+  // 2. Fallback via createImageBitmap when supported (handles orientation/EXIF well)
   if (typeof createImageBitmap === 'function') {
     try {
       const bitmap = await createImageBitmap(file);
-      const targetScale =
-        bitmap.width > maxDim || bitmap.height > maxDim
-          ? Math.min(maxDim / bitmap.width, maxDim / bitmap.height)
-          : 1;
-      const width = Math.max(1, Math.round(bitmap.width * targetScale));
-      const height = Math.max(1, Math.round(bitmap.height * targetScale));
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(bitmap, 0, 0, width, height);
-        const outUrl = canvas.toDataURL('image/jpeg', quality);
-        bitmap.close();
-        return { dataUrl: outUrl, mimeType: 'image/jpeg' };
-      }
+      const encoded = encodeCanvasToJpegBudget(bitmap, bitmap.width, bitmap.height);
       bitmap.close();
+      if (encoded) return { ...encoded, mimeType: 'image/jpeg' };
     } catch {
       // ignore bitmap decode error and fall back below
     }
   }
 
+  // 3. Last-resort direct FileReader fallback for smaller standard files
+  const rawDataUrl = await readAsDataUrl(file);
+  const fallbackMime = inferImageMime(file, rawDataUrl);
+  const commaIdx = rawDataUrl.indexOf(',');
+  const rawBase64Len = commaIdx >= 0 ? rawDataUrl.length - commaIdx - 1 : rawDataUrl.length;
+  if (rawBase64Len > MAX_BASE64_CHARS * 2.2) {
+    throw new Error(
+      `صيغة الصورة ${file.name} غير مدعومة مباشرة وحجمها كبير. يرجى حفظها كصورة JPG أو PNG ثم إعادة الرفع.`
+    );
+  }
   return { dataUrl: rawDataUrl, mimeType: fallbackMime };
+}
+
+export function formatFileSizeLabel(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export async function prepareMenuFileForAi(file: File): Promise<QueuedMenuFile> {
@@ -153,6 +198,11 @@ export async function prepareMenuFileForAi(file: File): Promise<QueuedMenuFile> 
   }
 
   if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
+    if (file.size > MAX_PDF_BYTES) {
+      throw new Error(
+        `حجم ملف PDF (${formatFileSizeLabel(file.size)}) أكبر من الحد المسموح (3 MB). يرجى ضغط الملف أو رفع صفحات المنيو كصور.`
+      );
+    }
     const dataUrl = await readAsDataUrl(file);
     const commaIdx = dataUrl.indexOf(',');
     const base64Data = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
@@ -160,6 +210,7 @@ export async function prepareMenuFileForAi(file: File): Promise<QueuedMenuFile> 
       id,
       name: file.name,
       sizeBytes: file.size,
+      compressedBytes: Math.round((base64Data.length * 3) / 4),
       isPdf: true,
       status: 'pending',
       payload: {
@@ -170,8 +221,7 @@ export async function prepareMenuFileForAi(file: File): Promise<QueuedMenuFile> 
     };
   }
 
-  const rawDataUrl = await readAsDataUrl(file);
-  const { dataUrl, mimeType } = await compressImageFile(file, rawDataUrl);
+  const { dataUrl, mimeType, width, height } = await compressImageFile(file);
   const commaIdx = dataUrl.indexOf(',');
   const base64Data = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
 
@@ -183,6 +233,9 @@ export async function prepareMenuFileForAi(file: File): Promise<QueuedMenuFile> 
     id,
     name: file.name,
     sizeBytes: file.size,
+    compressedBytes: Math.round((base64Data.length * 3) / 4),
+    width,
+    height,
     previewUrl: dataUrl,
     status: 'pending',
     payload: {

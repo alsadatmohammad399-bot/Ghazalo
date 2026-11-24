@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -430,7 +430,8 @@ async function resolveDishPhotoUrl(
 const app = express();
 
 async function startServer() {
-  app.use(express.json({ limit: '50mb' }));
+  app.use(express.json({ limit: '25mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ ok: true, service: 'ghazalo-api' });
@@ -791,7 +792,8 @@ async function startServer() {
         });
         return;
       }
-      const body = req.body as ExtractMenuRequestBody;
+
+      const body = (req.body || {}) as ExtractMenuRequestBody;
       const { fileName, mimeType, base64Data, textContent, files, businessName, language } = body;
       const inputFiles: ExtractMenuFileInput[] =
         Array.isArray(files) && files.length > 0
@@ -799,11 +801,49 @@ async function startServer() {
           : base64Data || textContent
             ? [{ fileName, mimeType, base64Data, textContent }]
             : [];
-      const validFiles = inputFiles.filter((f) => Boolean(f.base64Data || f.textContent));
+
+      const cleanBase64 = (raw?: string): string =>
+        String(raw || '')
+          .replace(/^data:[^;]+;base64,/i, '')
+          .replace(/\s+/g, '')
+          .trim();
+
+      const normalizeMime = (rawMime?: string, fName?: string): string => {
+        const lowerMime = String(rawMime || '').trim().toLowerCase();
+        if (lowerMime === 'image/jpg') return 'image/jpeg';
+        if (
+          lowerMime === 'image/jpeg' ||
+          lowerMime === 'image/png' ||
+          lowerMime === 'image/webp' ||
+          lowerMime === 'image/gif' ||
+          lowerMime === 'image/heic' ||
+          lowerMime === 'image/heif' ||
+          lowerMime === 'application/pdf'
+        ) {
+          return lowerMime;
+        }
+        const lowerName = String(fName || '').toLowerCase();
+        if (lowerName.endsWith('.pdf')) return 'application/pdf';
+        if (lowerName.endsWith('.png')) return 'image/png';
+        if (lowerName.endsWith('.webp')) return 'image/webp';
+        if (lowerName.endsWith('.gif')) return 'image/gif';
+        return 'image/jpeg';
+      };
+
+      const validFiles = inputFiles
+        .map((f) => ({
+          fileName: f.fileName,
+          mimeType: normalizeMime(f.mimeType, f.fileName),
+          base64Data: cleanBase64(f.base64Data),
+          textContent: f.textContent ? String(f.textContent).trim() : '',
+        }))
+        .filter((f) => Boolean(f.base64Data || f.textContent));
+
       if (validFiles.length === 0) {
         res.status(400).json({ error: 'يرجى رفع صورة أو أكثر للمنيو أو ملف PDF أو Excel أولاً.' });
         return;
       }
+
       const fileNamesList = validFiles.map((f, i) => f.fileName || `صفحة ${i + 1}`).join('، ');
       const promptText = `أنت خبير رقمنة وتنظيم قوائم الطعام والمطاعم والجزارة والدواجن والمتاجر لمنصة Ghazalo.
 مهمتك استخراج وتفسير جميع الأقسام والأصناف والعروض والأسعار والأوزان والأوصاف والمتغيرات بدقة عالية من جميع صفحات وصور المنيو المرفقة (${validFiles.length} ملفات) للنشاط "${businessName || 'متجر'}".
@@ -834,6 +874,7 @@ async function startServer() {
    - إذا لم يوجد سعر نهائياً ضع 0.
 5. لكل صنف اكتب في حقل photoQuery اسم الطبق أو المنتج بالإنجليزية بكلمة أو كلمتين واضحتين للبحث عن صورته الحقيقية (مثال: "Kofta kebab", "Grilled chicken", "Raw beef steak", "Shawarma", "Lentil soup", "Tahini", "French fries", "Kunafa", "Mango juice", "Cola", "Bottled water").
 6. لا تبتكر أصنافاً غير موجودة في الملفات المرفقة، ولا تكرر نفس الصنف إذا ظهر في أكثر من صورة.`;
+
       const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
       for (const f of validFiles) {
         if (f.base64Data && f.mimeType) {
@@ -851,66 +892,82 @@ async function startServer() {
         }
       }
       parts.push({ text: promptText });
-      const callExtractModel = async (modelName: string): Promise<string> => {
+
+      const extractResponseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          categories: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description:
+              'أسماء الأقسام مرتبة من العروض والمشويات/اللحوم/الأطباق الرئيسية أولاً إلى الحلويات والمشروبات والمياه أخيراً.',
+          },
+          items: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING, description: 'اسم الصنف أو العرض كما في المنيو' },
+                category: { type: Type.STRING, description: 'اسم القسم' },
+                price: {
+                  type: Type.NUMBER,
+                  description: 'السعر الأساسي أو أقل سعر متاح كرقم',
+                },
+                description: {
+                  type: Type.STRING,
+                  description: 'الوصف أو تفاصيل العرض أو المكونات المكتوبة كما هي في المنيو',
+                },
+                photoQuery: {
+                  type: Type.STRING,
+                  description:
+                    'اسم الطبق أو المنتج بالإنجليزية للبحث عن صورة حقيقية له (كلمة أو كلمتان)',
+                },
+                variants: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description:
+                    'قائمة الخيارات أو الأوزان أو عروض الكميات المذكورة فعلياً في المنيو بصيغة "الاسم - السعر" مثل "2 فرخة - 550" أو "نص كيلو - 215"',
+                },
+                isOffer: {
+                  type: Type.BOOLEAN,
+                  description: 'هل هذا الصنف عرض أو باقة توفير مذكورة في المنيو',
+                },
+                offerLabel: {
+                  type: Type.STRING,
+                  description: 'شارة العرض القصيرة إن كان عرضاً مثل "عرض خاص" أو "عرض التوفير"',
+                },
+              },
+              required: ['name', 'category', 'price', 'photoQuery'],
+            },
+          },
+        },
+        required: ['categories', 'items'],
+      };
+
+      const callExtractModel = async (
+        modelName: string,
+        thinkingLevel?: ThinkingLevel
+      ): Promise<string> => {
         const response = await ai.models.generateContent({
           model: modelName,
           contents: { parts },
           config: {
             responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                categories: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                  description:
-                    'أسماء الأقسام مرتبة من العروض والمشويات/اللحوم/الأطباق الرئيسية أولاً إلى الحلويات والمشروبات والمياه أخيراً.',
-                },
-                items: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      name: { type: Type.STRING, description: 'اسم الصنف أو العرض كما في المنيو' },
-                      category: { type: Type.STRING, description: 'اسم القسم' },
-                      price: {
-                        type: Type.NUMBER,
-                        description: 'السعر الأساسي أو أقل سعر متاح كرقم',
-                      },
-                      description: {
-                        type: Type.STRING,
-                        description: 'الوصف أو تفاصيل العرض أو المكونات المكتوبة كما هي في المنيو',
-                      },
-                      photoQuery: {
-                        type: Type.STRING,
-                        description:
-                          'اسم الطبق أو المنتج بالإنجليزية للبحث عن صورة حقيقية له (كلمة أو كلمتان)',
-                      },
-                      variants: {
-                        type: Type.ARRAY,
-                        items: { type: Type.STRING },
-                        description:
-                          'قائمة الخيارات أو الأوزان أو عروض الكميات المذكورة فعلياً في المنيو بصيغة "الاسم - السعر" مثل "2 فرخة - 550" أو "نص كيلو - 215"',
-                      },
-                      isOffer: {
-                        type: Type.BOOLEAN,
-                        description: 'هل هذا الصنف عرض أو باقة توفير مذكورة في المنيو',
-                      },
-                      offerLabel: {
-                        type: Type.STRING,
-                        description: 'شارة العرض القصيرة إن كان عرضاً مثل "عرض خاص" أو "عرض التوفير"',
-                      },
-                    },
-                    required: ['name', 'category', 'price', 'photoQuery'],
-                  },
-                },
-              },
-              required: ['categories', 'items'],
-            },
+            responseSchema: extractResponseSchema,
+            ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
           },
         });
-        return response.text ?? '{}';
+        const textOut = response.text;
+        if (!textOut || !textOut.trim()) {
+          const finishReason = String(response.candidates?.[0]?.finishReason || '');
+          if (finishReason === 'SAFETY' || finishReason === 'RECITATION' || finishReason === 'PROHIBITED_CONTENT') {
+            throw new Error('IMAGE_BLOCKED_SAFETY');
+          }
+          throw new Error('EMPTY_MODEL_RESPONSE');
+        }
+        return textOut;
       };
+
       const isTransientAiError = (err: unknown): boolean => {
         const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
         return (
@@ -923,27 +980,33 @@ async function startServer() {
           msg.includes('not_found') ||
           msg.includes('404') ||
           msg.includes('timeout') ||
-          msg.includes('econnreset')
+          msg.includes('econnreset') ||
+          msg.includes('empty_model_response')
         );
       };
+
       const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
       const attemptChain: Array<{
         model: string;
+        thinkingLevel?: ThinkingLevel;
         delayBeforeMs: number;
       }> = [
-        { model: 'gemini-2.0-flash', delayBeforeMs: 0 },
-        { model: 'gemini-2.5-flash', delayBeforeMs: 400 },
-        { model: 'gemini-2.0-flash-lite', delayBeforeMs: 800 },
+        { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW, delayBeforeMs: 0 },
+        { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW, delayBeforeMs: 1400 },
+        { model: 'gemini-3.1-flash-lite', delayBeforeMs: 600 },
+        { model: 'gemini-3.1-flash-lite', delayBeforeMs: 1800 },
       ];
+
       let responseRawText = '';
       let lastAiError: unknown = null;
       const attemptTrace: string[] = [];
+
       for (const step of attemptChain) {
         if (step.delayBeforeMs > 0) {
           await sleepMs(step.delayBeforeMs);
         }
         try {
-          responseRawText = await callExtractModel(step.model);
+          responseRawText = await callExtractModel(step.model, step.thinkingLevel);
           attemptTrace.push(`${step.model}:ok`);
           lastAiError = null;
           break;
@@ -957,47 +1020,115 @@ async function startServer() {
           }
         }
       }
+
       res.setHeader('X-Extract-Models', attemptTrace.join(' | ').slice(0, 500));
       if (lastAiError) {
         throw lastAiError;
       }
-      let rawText = (responseRawText || '{}')
-        .trim()
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-      const firstBrace = rawText.indexOf('{');
-      const lastBrace = rawText.lastIndexOf('}');
-      if (firstBrace > 0 && lastBrace > firstBrace) {
-        rawText = rawText.slice(firstBrace, lastBrace + 1);
+
+      interface RawMenuItem {
+        name: string;
+        category: string;
+        price: number;
+        description?: string;
+        photoQuery?: string;
+        variants?: string[];
+        isOffer?: boolean;
+        offerLabel?: string;
       }
       interface RawParsedMenu {
         categories?: string[];
-        items?: Array<{
-          name: string;
-          category: string;
-          price: number;
-          description?: string;
-          photoQuery?: string;
-          variants?: string[];
-          isOffer?: boolean;
-          offerLabel?: string;
-        }>;
+        items?: RawMenuItem[];
       }
-      let parsed: RawParsedMenu;
-      try {
-        parsed = JSON.parse(rawText || '{}') as RawParsedMenu;
-      } catch {
-        const itemsIdx = rawText.indexOf('"items"');
-        const arrayStart = itemsIdx >= 0 ? rawText.indexOf('[', itemsIdx) : -1;
-        const lastCompleteObjEnd = arrayStart >= 0 ? rawText.lastIndexOf('}') : -1;
-        if (arrayStart >= 0 && lastCompleteObjEnd > arrayStart) {
-          const salvagedSlice = `${rawText.slice(0, lastCompleteObjEnd + 1)}]}`;
-          parsed = JSON.parse(salvagedSlice) as RawParsedMenu;
-        } else {
-          throw new Error('تعذر قراءة بيانات الأصناف المستخرجة، يرجى إعادة المحاولة.');
+
+      const parseExtractedMenuJson = (rawInput: string): RawParsedMenu => {
+        let cleaned = (rawInput || '{}')
+          .trim()
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```$/i, '')
+          .trim();
+
+        const firstBrace = cleaned.indexOf('{');
+        const lastBrace = cleaned.lastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+          cleaned = cleaned.slice(firstBrace, lastBrace + 1);
         }
-      }
+
+        try {
+          return JSON.parse(cleaned || '{}') as RawParsedMenu;
+        } catch {
+          // Salvage balanced JSON objects from truncated responses (dense menus with many dishes)
+          const salvagedCategories: string[] = [];
+          const catMatch = cleaned.match(/"categories"\s*:\s*\[([^\]]*)\]/);
+          if (catMatch) {
+            try {
+              const arr = JSON.parse(`[${catMatch[1]}]`) as unknown;
+              if (Array.isArray(arr)) {
+                for (const c of arr) {
+                  if (typeof c === 'string' && c.trim()) salvagedCategories.push(c.trim());
+                }
+              }
+            } catch {
+              // ignore partial category array
+            }
+          }
+
+          const itemsIdx = cleaned.indexOf('"items"');
+          const arrStart = itemsIdx >= 0 ? cleaned.indexOf('[', itemsIdx) : -1;
+          const salvagedItems: RawMenuItem[] = [];
+
+          if (arrStart >= 0) {
+            let inStr = false;
+            let escaped = false;
+            let objDepth = 0;
+            let objStart = -1;
+
+            for (let i = arrStart + 1; i < cleaned.length; i++) {
+              const ch = cleaned[i];
+              if (inStr) {
+                if (escaped) {
+                  escaped = false;
+                } else if (ch === '\\') {
+                  escaped = true;
+                } else if (ch === '"') {
+                  inStr = false;
+                }
+                continue;
+              }
+              if (ch === '"') {
+                inStr = true;
+                continue;
+              }
+              if (ch === '{') {
+                if (objDepth === 0) objStart = i;
+                objDepth++;
+              } else if (ch === '}') {
+                objDepth--;
+                if (objDepth === 0 && objStart >= 0) {
+                  const candidateSlice = cleaned.slice(objStart, i + 1);
+                  try {
+                    const parsedObj = JSON.parse(candidateSlice) as RawMenuItem;
+                    if (parsedObj && typeof parsedObj.name === 'string' && parsedObj.name.trim()) {
+                      salvagedItems.push(parsedObj);
+                    }
+                  } catch {
+                    // skip malformed individual entry
+                  }
+                  objStart = -1;
+                }
+              }
+            }
+          }
+
+          if (salvagedItems.length > 0 || salvagedCategories.length > 0) {
+            return { categories: salvagedCategories, items: salvagedItems };
+          }
+          throw new Error('PARSE_EXTRACTED_MENU_FAILED');
+        }
+      };
+
+      const parsed = parseExtractedMenuJson(responseRawText);
+
       const toAsciiDigits = (s: string) =>
         s.replace(/[٠-٩۰-۹]/g, (ch) => {
           const idx = '٠١٢٣٤٥٦٧٨٩'.indexOf(ch);
@@ -1005,6 +1136,7 @@ async function startServer() {
           const idx2 = '۰۱۲۳۴۵۶۷۸۹'.indexOf(ch);
           return idx2 >= 0 ? String(idx2) : ch;
         });
+
       const extractVariantMinPrice = (variantsList: string[]): number | null => {
         const prices: number[] = [];
         for (const v of variantsList) {
@@ -1017,6 +1149,7 @@ async function startServer() {
         }
         return prices.length > 0 ? Math.min(...prices) : null;
       };
+
       const cleanedRaw = (parsed.items || [])
         .filter((item) => item && typeof item.name === 'string' && item.name.trim().length > 0)
         .map((item, idx) => {
@@ -1046,6 +1179,7 @@ async function startServer() {
             rawIdx: idx,
           };
         });
+
       cleanedRaw.sort((a, b) => {
         const rankDiff = getCategoryCulinaryRank(a.category) - getCategoryCulinaryRank(b.category);
         if (rankDiff !== 0) return rankDiff;
@@ -1053,7 +1187,8 @@ async function startServer() {
         if (catCompare !== 0) return catCompare;
         return a.rawIdx - b.rawIdx;
       });
-      const photoDeadline = Date.now() + 1800;
+
+      const photoDeadline = Date.now() + 1400;
       const resolvedItems: Array<{
         name: string;
         category: string;
@@ -1065,6 +1200,7 @@ async function startServer() {
         imageUrl: string;
         sortOrder: number;
       }> = [];
+
       const batchSize = 10;
       for (let start = 0; start < cleanedRaw.length; start += batchSize) {
         const chunk = cleanedRaw.slice(start, start + batchSize);
@@ -1076,7 +1212,7 @@ async function startServer() {
                   resolveDishPhotoUrl(item.photoQuery, item.name, item.category, start + offset)
                 )
               ),
-              sleepMs(1200).then(() =>
+              sleepMs(1000).then(() =>
                 chunk.map(
                   (item) =>
                     VERIFIED_DISH_FALLBACKS[inferDishFamily(item.name, item.category, item.photoQuery)] ||
@@ -1102,6 +1238,7 @@ async function startServer() {
           });
         });
       }
+
       const categorySet = new Set<string>();
       for (const item of resolvedItems) {
         categorySet.add(item.category);
@@ -1111,11 +1248,13 @@ async function startServer() {
           categorySet.add(cat.trim().slice(0, 80));
         }
       }
+
       const sortedCategories = Array.from(categorySet).sort((a, b) => {
         const rankDiff = getCategoryCulinaryRank(a) - getCategoryCulinaryRank(b);
         if (rankDiff !== 0) return rankDiff;
         return a.localeCompare(b, 'ar');
       });
+
       res.json({
         categories: sortedCategories,
         items: resolvedItems,
@@ -1124,7 +1263,45 @@ async function startServer() {
       const rawMessage = error instanceof Error ? error.message : String(error || '');
       const lower = rawMessage.toLowerCase();
       console.error('Gemini extract-menu error:', error);
-      if (lower.includes('503') || lower.includes('unavailable') || lower.includes('high demand') || lower.includes('overloaded')) {
+
+      if (rawMessage === 'IMAGE_BLOCKED_SAFETY') {
+        res.status(400).json({
+          error: 'تعذر تحليل هذه الصورة تلقائياً. يرجى التأكد من وضوح صفحة المنيو فقط وإعادة المحاولة.',
+        });
+        return;
+      }
+      if (rawMessage === 'PARSE_EXTRACTED_MENU_FAILED' || rawMessage === 'EMPTY_MODEL_RESPONSE') {
+        res.status(502).json({
+          error: 'تعذر قراءة تفاصيل الأصناف من هذه الصورة. جرب تقريب الصورة على جزء أصغر أو التقاط صورة أوضح.',
+        });
+        return;
+      }
+      if (lower.includes('api_key') || lower.includes('permission_denied') || lower.includes('403')) {
+        res.status(500).json({
+          error: 'يرجى التحقق من صلاحية مفتاح Gemini API في إعدادات الخادم (Secrets).',
+        });
+        return;
+      }
+      if (lower.includes('404') || lower.includes('not_found')) {
+        res.status(502).json({
+          error: 'نموذج قراءة المنيو غير متاح مؤقتاً حالياً. اضغط إعادة المحاولة بعد لحظات.',
+        });
+        return;
+      }
+      if (lower.includes('413') || lower.includes('payload') || lower.includes('too large')) {
+        res.status(413).json({
+          error: 'حجم الصورة كبير جداً. يرجى اختيار صورة أصغر أو قصها ثم إعادة المحاولة.',
+        });
+        return;
+      }
+      if (
+        lower.includes('503') ||
+        lower.includes('unavailable') ||
+        lower.includes('high demand') ||
+        lower.includes('overloaded') ||
+        lower.includes('timeout') ||
+        lower.includes('econnreset')
+      ) {
         res.status(503).json({
           error: 'خدمة تحليل المنيو تشهد ضغطاً مؤقتاً حالياً. اضغط "إعادة المحاولة" بعد لحظات أو ارفع صورة أوضح.',
         });
@@ -1136,20 +1313,19 @@ async function startServer() {
         });
         return;
       }
-      if (lower.includes('unsupported') || lower.includes('invalid argument') || lower.includes('unable to process input image')) {
+      if (
+        lower.includes('unsupported') ||
+        lower.includes('invalid argument') ||
+        lower.includes('unable to process input image') ||
+        lower.includes('bad base64')
+      ) {
         res.status(400).json({
           error: 'صيغة الصورة غير مدعومة أو تالفة. يرجى استخدام صورة بصيغة JPG أو PNG واضحة.',
         });
         return;
       }
-      if (lower.includes('api_key') || lower.includes('permission_denied') || lower.includes('403')) {
-        res.status(500).json({
-          error: 'يرجى التحقق من صلاحية مفتاح Gemini API في إعدادات الخادم (Secrets).',
-        });
-        return;
-      }
       res.status(500).json({
-        error: 'حدث خطأ غير متوقع أثناء قراءة المنيو. جرب رفع صورة أوضح أو إعادة المحاولة.',
+        error: 'تعذر قراءة المنيو من هذه الصورة حالياً. جرب صورة أوضح أو أعد المحاولة.',
       });
     }
   });
@@ -1168,11 +1344,17 @@ async function startServer() {
         country?: string;
         message?: string;
         history?: Array<{ role?: string; text?: string }>;
+        deliveryInfo?: {
+          deliveryFee?: number;
+          freeDelivery?: boolean;
+          freeDeliveryMinOrder?: number;
+        };
         products?: Array<{
           id?: string;
           name?: string;
           category?: string;
           price?: number;
+          originalPrice?: number;
           description?: string;
           variants?: string[];
           isOffer?: boolean;
@@ -1188,15 +1370,17 @@ async function startServer() {
       const catalog = Array.isArray(body.products)
         ? body.products
             .filter((p) => p && p.id && p.name)
-            .slice(0, 90)
+            .slice(0, 120)
             .map((p) => ({
               id: String(p.id),
               name: String(p.name).slice(0, 120),
               category: String(p.category || '').slice(0, 60),
               price: Number(p.price || 0),
-              description: String(p.description || '').slice(0, 160),
+              originalPrice: p.originalPrice ? Number(p.originalPrice) : undefined,
+              description: String(p.description || '').slice(0, 220),
               isOffer: Boolean(p.isOffer),
-              variants: Array.isArray(p.variants) ? p.variants.slice(0, 6) : [],
+              offerLabel: p.offerLabel ? String(p.offerLabel).slice(0, 40) : undefined,
+              variants: Array.isArray(p.variants) ? p.variants.slice(0, 8) : [],
             }))
         : [];
       if (catalog.length === 0) {
@@ -1209,36 +1393,49 @@ async function startServer() {
             .map((h) => `${h.role === 'user' ? 'Customer' : 'Chef'}: ${String(h.text || '').slice(0, 200)}`)
             .join('\n')
         : '';
+      const deliverySummary = body.deliveryInfo
+        ? body.deliveryInfo.freeDelivery
+          ? 'Free delivery available'
+          : `Delivery fee: ${Number(body.deliveryInfo.deliveryFee || 0)}`
+        : '';
       const systemPrompt = isEn
         ? `You are the friendly AI Chef Assistant for "${body.shopName || 'the restaurant'}".
-Help customers choose dishes ONLY from the provided JSON menu catalog below.
+Help customers with ingredients, allergens/components, exact prices, sizes/weights (variants), offers, and dish recommendations ONLY from the provided JSON menu catalog below.
+${deliverySummary ? `Delivery info: ${deliverySummary}` : ''}
 Rules:
-1. Never invent dish names, prices, or IDs that are not in the catalog.
-2. Pick 1 to 2 matching product IDs in recommendedProductIds (use exact "id" strings from the catalog).
-3. Keep your reply warm, concise (2-3 sentences max), and helpful in English.
-4. Provide 2-3 short followUpChips (under 4 words each) for quick replies.
+1. Never invent dish names, ingredients, prices, or IDs that are not in the catalog.
+2. If asked about ingredients/components or prices, answer accurately using the dish's description, variants, price, and originalPrice from the catalog.
+3. Pick 1 to 2 matching product IDs in recommendedProductIds (use exact "id" strings from the catalog).
+4. Keep your reply warm, concise (2-3 sentences max), and helpful in English.
+5. Provide 2-3 short followUpChips (under 4 words each) for quick replies.
 
 Menu Catalog:
 ${JSON.stringify(catalog)}`
         : `أنت "الشيف الذكي" لمطعم "${body.shopName || 'المطعم'}".
-مهمتك مساعدة العميل بلهجة دافئة وودودة يختار أحلى وجبة أو عرض من المنيو الفعلي فقط.
+مهمتك مساعدة العميل بلهجة دافئة وودودة للإجابة عن المكونات، الأسعار، الأوزان والأحجام (variants)، العروض، وترشيح أحلى وجبة من المنيو الفعلي فقط.
+${deliverySummary ? `معلومات التوصيل: ${deliverySummary}` : ''}
 القواعد الصارمة:
-1. ممنوع تماماً اختراع أي صنف أو سعر أو معرّف id مش موجود في قائمة المنيو المرفقة.
-2. اختار من 1 إلى 2 من أنسب الأصناف لطلب العميل وضع الـ id الحقيقي بتاعهم في recommendedProductIds.
-3. اجعل ردك قصيراً ولطيفاً ومباشراً (جملتين أو 3 جمل بالكثير).
-4. أضف 2 إلى 3 أزرار متابعة قصيرة في followUpChips (مثل: "اقترحلي عرض توفير"، "حاجة أخف"، "مشروبات تناسبها").
+1. ممنوع تماماً اختراع أي صنف أو مكون أو سعر أو معرّف id مش موجود في قائمة المنيو المرفقة.
+2. لو العميل سأل عن مكونات صنف أو سعره أو أوزانه/أحجامه، جاوب بدقة من حقول description و price و originalPrice و variants الموجودة في الكتالوج، وإذا لم يُذكر تفصيل المكونات وضح له الوصف المتاح بصدق.
+3. اختار من 1 إلى 2 من أنسب الأصناف لطلب العميل وضع الـ id الحقيقي بتاعهم في recommendedProductIds.
+4. اجعل ردك قصيراً ولطيفاً ومباشراً (جملتين أو 3 جمل بالكثير).
+5. أضف 2 إلى 3 أزرار متابعة قصيرة في followUpChips (مثل: "كم السعر والحجم؟"، "مكونات الطبق ده"، "عروض التوفير").
 
 قائمة المنيو الفعلية (${body.country || 'مصر'}):
 ${JSON.stringify(catalog)}`;
       const promptWithHistory = historyText
         ? `${systemPrompt}\n\nPrevious chat:\n${historyText}\n\nCustomer latest question: ${userMessage}`
         : `${systemPrompt}\n\nCustomer question: ${userMessage}`;
-      const invokeChatModel = async (modelName: string): Promise<string> => {
+      const invokeChatModel = async (
+        modelName: string,
+        thinkingLevel?: ThinkingLevel
+      ): Promise<string> => {
         const response = await ai.models.generateContent({
           model: modelName,
           contents: promptWithHistory,
           config: {
             responseMimeType: 'application/json',
+            ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
             responseSchema: {
               type: Type.OBJECT,
               properties: {
@@ -1272,11 +1469,11 @@ ${JSON.stringify(catalog)}`;
       };
       let rawJson = '{}';
       try {
-        rawJson = await invokeChatModel('gemini-2.0-flash');
+        rawJson = await invokeChatModel('gemini-4-hydrogen', ThinkingLevel.LOW);
       } catch (primaryErr) {
         if (!isTransient(primaryErr)) throw primaryErr;
         await new Promise((r) => setTimeout(r, 350));
-        rawJson = await invokeChatModel('gemini-2.5-flash');
+        rawJson = await invokeChatModel('gemini-3.1-flash-lite');
       }
       const validIds = new Set(catalog.map((p) => p.id));
       let parsed: {
