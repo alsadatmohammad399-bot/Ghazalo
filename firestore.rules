@@ -63,7 +63,9 @@ service cloud.firestore {
           'id', 'ownerId', 'storeSlug', 'nameAr', 'nameEn', 'country', 'menuLanguage',
           'branchCount', 'city', 'address', 'workFrom', 'workTo', 'workDays',
           'themeColor', 'themeMode', 'acceptOrders', 'paymentMethods', 'bio',
-          'whatsapp', 'coverImage', 'logoUrl', 'showLogoOnItems', 'menuTemplate',
+          'whatsapp', 'facebookUrl', 'instagramUrl', 'tiktokUrl', 'googleMapsUrl',
+          'googleAdsId', 'googleAdsConversionLabel',
+          'coverImage', 'logoUrl', 'showLogoOnItems', 'menuTemplate',
           'requestedPlan', 'paymentNote', 'isOpen', 'subscriptionStatus',
           'approvedByAdmin', 'approvedAt', 'plan',
           'trialEndsAt', 'subscriptionExpiresAt',
@@ -91,6 +93,12 @@ service cloud.firestore {
         && (!('paymentMethods' in data) || (data.paymentMethods is list && data.paymentMethods.size() <= 10 && (data.paymentMethods.size() == 0 || data.paymentMethods[0] is string)))
         && (!('bio' in data) || (data.bio is string && data.bio.size() <= 500))
         && (!('whatsapp' in data) || (data.whatsapp is string && data.whatsapp.size() <= 40))
+        && (!('facebookUrl' in data) || (data.facebookUrl is string && data.facebookUrl.size() <= 300))
+        && (!('instagramUrl' in data) || (data.instagramUrl is string && data.instagramUrl.size() <= 300))
+        && (!('tiktokUrl' in data) || (data.tiktokUrl is string && data.tiktokUrl.size() <= 300))
+        && (!('googleMapsUrl' in data) || (data.googleMapsUrl is string && data.googleMapsUrl.size() <= 400))
+        && (!('googleAdsId' in data) || (data.googleAdsId is string && data.googleAdsId.size() <= 64))
+        && (!('googleAdsConversionLabel' in data) || (data.googleAdsConversionLabel is string && data.googleAdsConversionLabel.size() <= 64))
         && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 90000))
         && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 24000))
         && (!('showLogoOnItems' in data) || data.showLogoOnItems is bool)
@@ -279,7 +287,8 @@ service cloud.firestore {
               'storeSlug', 'nameAr', 'nameEn', 'country', 'menuLanguage', 'branchCount',
               'city', 'address', 'workFrom', 'workTo', 'workDays',
               'themeColor', 'themeMode', 'acceptOrders', 'paymentMethods',
-              'bio', 'whatsapp', 'coverImage', 'logoUrl', 'showLogoOnItems',
+              'bio', 'whatsapp', 'facebookUrl', 'instagramUrl', 'tiktokUrl', 'googleMapsUrl',
+              'googleAdsId', 'googleAdsConversionLabel', 'coverImage', 'logoUrl', 'showLogoOnItems',
               'menuTemplate', 'requestedPlan', 'paymentNote', 'isOpen', 'plan',
               'deliveryFee', 'freeDelivery', 'freeDeliveryMinOrder', 'deliveryTime',
               'enableServiceFee', 'serviceFeePct', 'enableVat', 'vatPct',

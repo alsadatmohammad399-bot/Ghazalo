@@ -27,6 +27,7 @@ interface ChefAiAssistantProps {
   hasBottomDock?: boolean;
   pendingQuestion?: { id: string; text: string } | null;
   onPendingQuestionHandled?: () => void;
+  variant?: 'royal' | 'emerald';
 }
 
 type GuidedStepKey = 'diet' | 'spicy' | 'hungry' | 'category';
@@ -69,7 +70,9 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
   hasBottomDock = true,
   pendingQuestion = null,
   onPendingQuestionHandled,
+  variant = 'royal',
 }) => {
+  const isEmerald = variant === 'emerald';
   const displayShopName = getShopDisplayName(shop, isEn);
   const cleanCategories = useMemo(
     () => categories.filter((c) => c && c !== '__all__'),
@@ -710,63 +713,83 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
       {/* Rotating Invite Bubble above Orbital FAB */}
       {!isOpen && inviteHint && (
         <div
-          className={`fixed left-4 ${
+          className={`no-print fixed left-4 ${
             hasBottomDock ? 'bottom-[142px] sm:bottom-24' : 'bottom-24 sm:bottom-24'
           } z-40 max-w-[220px] px-3.5 py-2 rounded-[14px] rounded-bl-[4px] text-xs font-extrabold shadow-lg pointer-events-none animate-chef-invite ${
-            darkMode
-              ? 'bg-[#1B2540] text-[#F5F1E8] border border-[#2A3550]'
-              : 'bg-white text-[#20263A] border border-[#E3DCCB]'
+            isEmerald
+              ? darkMode
+                ? 'bg-[#18231C] text-[#E8F2EB] border border-[#2C3D32]'
+                : 'bg-white text-[#14201A] border border-[#CFE3D5]'
+              : darkMode
+                ? 'bg-[#1B2540] text-[#F5F1E8] border border-[#2A3550]'
+                : 'bg-white text-[#20263A] border border-[#E3DCCB]'
           }`}
         >
           {inviteHint}
         </div>
       )}
 
-      {/* Floating Glass Orbital FAB matching Zain El Sham */}
+      {/* Floating Orbital FAB */}
       {!isOpen && (
         <button
           type="button"
           onClick={() => onOpenChange(true)}
-          aria-label={tx(isEn, 'شيف المطعم الذكي', 'AI Chef Assistant')}
-          title={tx(isEn, 'شيف المطعم الذكي', 'AI Chef Assistant')}
-          className={`chef-fab-orbit fixed left-4 ${
+          aria-label={tx(isEn, 'مساعد المنيو الذكي', 'AI Menu Assistant')}
+          title={tx(isEn, 'مساعد المنيو الذكي', 'AI Menu Assistant')}
+          className={`no-print chef-fab-orbit fixed left-4 ${
             hasBottomDock ? 'bottom-[74px] sm:bottom-6' : 'bottom-5 sm:bottom-6'
           } z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl cursor-pointer transition-transform hover:scale-105 ${
-            darkMode
-              ? 'bg-[#141C31]/90 text-[#C9A35B] border border-[#C9A35B]/60 backdrop-blur-md'
-              : 'bg-[#1B2540]/92 text-[#DCB877] border border-[#A9813F]/75 backdrop-blur-md'
+            isEmerald
+              ? darkMode
+                ? 'bg-[#15803D] text-white border border-[#4ADE80]/60 backdrop-blur-md'
+                : 'bg-[#15803D] text-white border border-[#86EFAC]/75 backdrop-blur-md'
+              : darkMode
+                ? 'bg-[#141C31]/90 text-[#C9A35B] border border-[#C9A35B]/60 backdrop-blur-md'
+                : 'bg-[#1B2540]/92 text-[#DCB877] border border-[#A9813F]/75 backdrop-blur-md'
           }`}
         >
           <ChefHat className="w-6 h-6" />
         </button>
       )}
 
-      {/* Royal AI Chef Chat Panel */}
+      {/* AI Chef & Customer Chat Panel */}
       {isOpen && (
         <div
           role="dialog"
-          aria-label={tx(isEn, `شيف ${displayShopName}`, `${displayShopName} Chef AI`)}
-          className={`animate-chef-panel fixed left-4 ${
+          aria-label={tx(isEn, `مساعد ${displayShopName}`, `${displayShopName} Assistant AI`)}
+          className={`no-print animate-chef-panel fixed left-4 ${
             hasBottomDock ? 'bottom-[72px] sm:bottom-6' : 'bottom-4 sm:bottom-6'
           } z-50 w-[min(380px,calc(100vw-2rem))] h-[min(74vh,590px)] rounded-[20px] flex flex-col overflow-hidden shadow-2xl border ${
-            darkMode
-              ? 'bg-[#0A1120] border-[#2A3550] text-[#F5F1E8]'
-              : 'bg-[#F7F4ED] border-[#E3DCCB] text-[#20263A]'
+            isEmerald
+              ? darkMode
+                ? 'bg-[#0F1712] border-[#2C3D32] text-[#E8F2EB]'
+                : 'bg-[#F6FBF7] border-[#CFE3D5] text-[#14201A]'
+              : darkMode
+                ? 'bg-[#0A1120] border-[#2A3550] text-[#F5F1E8]'
+                : 'bg-[#F7F4ED] border-[#E3DCCB] text-[#20263A]'
           }`}
         >
           {/* Chat Header */}
           <div
             className={`px-4 py-3 flex items-center gap-2.5 border-b shrink-0 ${
-              darkMode
-                ? 'bg-gradient-to-br from-[#1B2540] to-[#0E1526] border-[#2A3550] text-[#F5F1E8]'
-                : 'bg-gradient-to-br from-[#722914] to-[#A9813F] border-[#E3DCCB] text-white'
+              isEmerald
+                ? darkMode
+                  ? 'bg-gradient-to-br from-[#173323] to-[#0F1712] border-[#2C3D32] text-[#E8F2EB]'
+                  : 'bg-gradient-to-br from-[#15803D] to-[#166534] border-[#CFE3D5] text-white'
+                : darkMode
+                  ? 'bg-gradient-to-br from-[#1B2540] to-[#0E1526] border-[#2A3550] text-[#F5F1E8]'
+                  : 'bg-gradient-to-br from-[#722914] to-[#A9813F] border-[#E3DCCB] text-white'
             }`}
           >
             <div
               className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 border ${
-                darkMode
-                  ? 'bg-[#C9A35B]/20 border-[#C9A35B] text-[#C9A35B]'
-                  : 'bg-white/20 border-white/40 text-white'
+                isEmerald
+                  ? darkMode
+                    ? 'bg-[#15803D]/25 border-[#4ADE80] text-[#4ADE80]'
+                    : 'bg-white/20 border-white/40 text-white'
+                  : darkMode
+                    ? 'bg-[#C9A35B]/20 border-[#C9A35B] text-[#C9A35B]'
+                    : 'bg-white/20 border-white/40 text-white'
               }`}
             >
               <ChefHat className="w-5 h-5" />
@@ -814,17 +837,25 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                   <div
                     key={msg.id}
                     className={`animate-chef-msg self-start max-w-[92%] rounded-[16px] p-2.5 border ${
-                      darkMode
-                        ? 'bg-[#1B2540] border-[#C9A35B]/35 text-[#F5F1E8]'
-                        : 'bg-white border-[#E3DCCB] text-[#20263A] shadow-xs'
+                      isEmerald
+                        ? darkMode
+                          ? 'bg-[#18231C] border-[#2C3D32] text-[#E8F2EB]'
+                          : 'bg-white border-[#CFE3D5] text-[#14201A] shadow-xs'
+                        : darkMode
+                          ? 'bg-[#1B2540] border-[#C9A35B]/35 text-[#F5F1E8]'
+                          : 'bg-white border-[#E3DCCB] text-[#20263A] shadow-xs'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <div
                         className={`w-[72px] h-[72px] rounded-[12px] overflow-hidden shrink-0 flex items-center justify-center border ${
-                          darkMode
-                            ? 'bg-[#0E1526] border-[#2A3550]'
-                            : 'bg-[#EFE9DA] border-[#E3DCCB]'
+                          isEmerald
+                            ? darkMode
+                              ? 'bg-[#0F1712] border-[#2C3D32]'
+                              : 'bg-[#DCFCE7] border-[#CFE3D5]'
+                            : darkMode
+                              ? 'bg-[#0E1526] border-[#2A3550]'
+                              : 'bg-[#EFE9DA] border-[#E3DCCB]'
                         }`}
                       >
                         {prod.imageUrl ? (
@@ -836,7 +867,15 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                           />
                         ) : (
                           <Utensils
-                            className={`w-6 h-6 ${darkMode ? 'text-[#C9A35B]' : 'text-[#A9813F]'}`}
+                            className={`w-6 h-6 ${
+                              isEmerald
+                                ? darkMode
+                                  ? 'text-[#4ADE80]'
+                                  : 'text-[#15803D]'
+                                : darkMode
+                                  ? 'text-[#C9A35B]'
+                                  : 'text-[#A9813F]'
+                            }`}
                           />
                         )}
                       </div>
@@ -852,7 +891,13 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                         )}
                         <div
                           className={`text-xs font-black tabular-nums ${
-                            darkMode ? 'text-[#C9A35B]' : 'text-[#A9813F]'
+                            isEmerald
+                              ? darkMode
+                                ? 'text-[#4ADE80]'
+                                : 'text-[#15803D]'
+                              : darkMode
+                                ? 'text-[#C9A35B]'
+                                : 'text-[#A9813F]'
                           }`}
                         >
                           {Number(prod.price || 0) > 0
@@ -883,7 +928,11 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                           });
                         }}
                         className={`flex-1 py-1.5 px-3 rounded-[10px] text-xs font-extrabold inline-flex items-center justify-center gap-1 transition-opacity hover:opacity-90 disabled:opacity-40 ${
-                          darkMode ? 'bg-[#C9A35B] text-[#0E1526]' : 'bg-[#A9813F] text-white'
+                          isEmerald
+                            ? 'bg-[#15803D] text-white'
+                            : darkMode
+                              ? 'bg-[#C9A35B] text-[#0E1526]'
+                              : 'bg-[#A9813F] text-white'
                         }`}
                       >
                         <Plus className="w-3.5 h-3.5" />
@@ -896,9 +945,13 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                         onClick={() => onOpenProductDetail(prod)}
                         aria-label={tx(isEn, 'التفاصيل', 'Details')}
                         className={`py-1.5 px-2.5 rounded-[10px] text-xs font-bold border inline-flex items-center gap-1 ${
-                          darkMode
-                            ? 'border-[#2A3550] text-[#F5F1E8] hover:border-[#C9A35B]'
-                            : 'border-[#E3DCCB] text-[#20263A] hover:border-[#A9813F]'
+                          isEmerald
+                            ? darkMode
+                              ? 'border-[#2C3D32] text-[#E8F2EB] hover:border-[#4ADE80]'
+                              : 'border-[#CFE3D5] text-[#14201A] hover:border-[#15803D]'
+                            : darkMode
+                              ? 'border-[#2A3550] text-[#F5F1E8] hover:border-[#C9A35B]'
+                              : 'border-[#E3DCCB] text-[#20263A] hover:border-[#A9813F]'
                         }`}
                       >
                         <Eye className="w-3.5 h-3.5" />
@@ -915,12 +968,20 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                   className={`animate-chef-msg max-w-[84%] px-3.5 py-2 text-[13px] font-semibold leading-relaxed rounded-[16px] break-words ${
                     isUser
                       ? `self-end rounded-be-[4px] ${
-                          darkMode ? 'bg-[#C9A35B] text-[#0E1526]' : 'bg-[#A9813F] text-white'
+                          isEmerald
+                            ? 'bg-[#15803D] text-white'
+                            : darkMode
+                              ? 'bg-[#C9A35B] text-[#0E1526]'
+                              : 'bg-[#A9813F] text-white'
                         }`
                       : `self-start rounded-bs-[4px] border ${
-                          darkMode
-                            ? 'bg-[#1B2540] border-[#C9A35B]/20 text-[#F5F1E8]'
-                            : 'bg-white border-[#E3DCCB] text-[#20263A] shadow-xs'
+                          isEmerald
+                            ? darkMode
+                              ? 'bg-[#18231C] border-[#2C3D32] text-[#E8F2EB]'
+                              : 'bg-white border-[#CFE3D5] text-[#14201A] shadow-xs'
+                            : darkMode
+                              ? 'bg-[#1B2540] border-[#C9A35B]/20 text-[#F5F1E8]'
+                              : 'bg-white border-[#E3DCCB] text-[#20263A] shadow-xs'
                         }`
                   }`}
                 >
@@ -933,24 +994,48 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
               <div
                 aria-label="typing"
                 className={`self-start px-3.5 py-2.5 rounded-[14px] inline-flex items-center gap-1.5 border ${
-                  darkMode ? 'bg-[#1B2540] border-[#C9A35B]/20' : 'bg-white border-[#E3DCCB]'
+                  isEmerald
+                    ? darkMode
+                      ? 'bg-[#18231C] border-[#2C3D32]'
+                      : 'bg-white border-[#CFE3D5]'
+                    : darkMode
+                      ? 'bg-[#1B2540] border-[#C9A35B]/20'
+                      : 'bg-white border-[#E3DCCB]'
                 }`}
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full animate-bounce ${
-                    darkMode ? 'bg-[#C9A35B]' : 'bg-[#A9813F]'
+                    isEmerald
+                      ? darkMode
+                        ? 'bg-[#4ADE80]'
+                        : 'bg-[#15803D]'
+                      : darkMode
+                        ? 'bg-[#C9A35B]'
+                        : 'bg-[#A9813F]'
                   }`}
                 />
                 <span
                   style={{ animationDelay: '0.15s' }}
                   className={`w-1.5 h-1.5 rounded-full animate-bounce ${
-                    darkMode ? 'bg-[#C9A35B]' : 'bg-[#A9813F]'
+                    isEmerald
+                      ? darkMode
+                        ? 'bg-[#4ADE80]'
+                        : 'bg-[#15803D]'
+                      : darkMode
+                        ? 'bg-[#C9A35B]'
+                        : 'bg-[#A9813F]'
                   }`}
                 />
                 <span
                   style={{ animationDelay: '0.3s' }}
                   className={`w-1.5 h-1.5 rounded-full animate-bounce ${
-                    darkMode ? 'bg-[#C9A35B]' : 'bg-[#A9813F]'
+                    isEmerald
+                      ? darkMode
+                        ? 'bg-[#4ADE80]'
+                        : 'bg-[#15803D]'
+                      : darkMode
+                        ? 'bg-[#C9A35B]'
+                        : 'bg-[#A9813F]'
                   }`}
                 />
               </div>
@@ -966,12 +1051,18 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                     onClick={chip.action}
                     className={`px-3 py-1.5 rounded-full text-xs font-extrabold border transition-all cursor-pointer whitespace-nowrap ${
                       chip.solid
-                        ? darkMode
-                          ? 'bg-[#C9A35B] border-[#C9A35B] text-[#0E1526] shadow-xs'
-                          : 'bg-[#A9813F] border-[#A9813F] text-white shadow-xs'
-                        : darkMode
-                          ? 'bg-[#1B2540] border-[#2A3550] text-[#C9A35B] hover:border-[#C9A35B]'
-                          : 'bg-white border-[#E3DCCB] text-[#A9813F] hover:border-[#A9813F]'
+                        ? isEmerald
+                          ? 'bg-[#15803D] border-[#15803D] text-white shadow-xs'
+                          : darkMode
+                            ? 'bg-[#C9A35B] border-[#C9A35B] text-[#0E1526] shadow-xs'
+                            : 'bg-[#A9813F] border-[#A9813F] text-white shadow-xs'
+                        : isEmerald
+                          ? darkMode
+                            ? 'bg-[#18231C] border-[#2C3D32] text-[#BBF7D0] hover:border-[#4ADE80]'
+                            : 'bg-white border-[#CFE3D5] text-[#15803D] hover:border-[#15803D]'
+                          : darkMode
+                            ? 'bg-[#1B2540] border-[#2A3550] text-[#C9A35B] hover:border-[#C9A35B]'
+                            : 'bg-white border-[#E3DCCB] text-[#A9813F] hover:border-[#A9813F]'
                     }`}
                   >
                     {chip.label}
@@ -984,9 +1075,13 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
           {/* 1-Tap Quick Inquiry Bar (Ingredients & Prices) */}
           <div
             className={`px-3 pt-2 pb-1.5 border-t flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0 ${
-              darkMode
-                ? 'bg-[#0E1526] border-[#2A3550]'
-                : 'bg-[#FAF7F0] border-[#E3DCCB]'
+              isEmerald
+                ? darkMode
+                  ? 'bg-[#18231C] border-[#2C3D32]'
+                  : 'bg-[#DCFCE7]/50 border-[#CFE3D5]'
+                : darkMode
+                  ? 'bg-[#0E1526] border-[#2A3550]'
+                  : 'bg-[#FAF7F0] border-[#E3DCCB]'
             }`}
           >
             <button
@@ -1002,9 +1097,13 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                 )
               }
               className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold border whitespace-nowrap shrink-0 transition-colors disabled:opacity-45 ${
-                darkMode
-                  ? 'bg-[#1B2540] border-[#2A3550] text-[#DCB877] hover:border-[#C9A35B]'
-                  : 'bg-white border-[#E3DCCB] text-[#722914] hover:border-[#A9813F]'
+                isEmerald
+                  ? darkMode
+                    ? 'bg-[#0F1712] border-[#2C3D32] text-[#BBF7D0] hover:border-[#4ADE80]'
+                    : 'bg-white border-[#CFE3D5] text-[#15803D] hover:border-[#15803D]'
+                  : darkMode
+                    ? 'bg-[#1B2540] border-[#2A3550] text-[#DCB877] hover:border-[#C9A35B]'
+                    : 'bg-white border-[#E3DCCB] text-[#722914] hover:border-[#A9813F]'
               }`}
             >
               {tx(isEn, 'الأسعار والعروض', 'Prices & Offers')}
@@ -1021,9 +1120,13 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                 inputRef.current?.focus();
               }}
               className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold border whitespace-nowrap shrink-0 transition-colors disabled:opacity-45 ${
-                darkMode
-                  ? 'bg-[#1B2540] border-[#2A3550] text-[#F5F1E8] hover:border-[#C9A35B]'
-                  : 'bg-white border-[#E3DCCB] text-[#20263A] hover:border-[#A9813F]'
+                isEmerald
+                  ? darkMode
+                    ? 'bg-[#0F1712] border-[#2C3D32] text-[#E8F2EB] hover:border-[#4ADE80]'
+                    : 'bg-white border-[#CFE3D5] text-[#14201A] hover:border-[#15803D]'
+                  : darkMode
+                    ? 'bg-[#1B2540] border-[#2A3550] text-[#F5F1E8] hover:border-[#C9A35B]'
+                    : 'bg-white border-[#E3DCCB] text-[#20263A] hover:border-[#A9813F]'
               }`}
             >
               {tx(isEn, 'استفسار عن المكونات', 'Ingredients')}
@@ -1037,7 +1140,13 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
               void submitFreeQuestion(freeInput);
             }}
             className={`px-2.5 pb-2.5 pt-1 flex items-center gap-2 shrink-0 ${
-              darkMode ? 'bg-[#0E1526]' : 'bg-white'
+              isEmerald
+                ? darkMode
+                  ? 'bg-[#18231C]'
+                  : 'bg-white'
+                : darkMode
+                  ? 'bg-[#0E1526]'
+                  : 'bg-white'
             }`}
           >
             <input
@@ -1051,9 +1160,13 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                 'اسأل عن المكونات أو الأسعار أو اقترح وجبة...'
               )}
               className={`flex-1 min-w-0 px-3 py-2 rounded-[12px] text-xs font-bold outline-none border ${
-                darkMode
-                  ? 'bg-[#1B2540] border-[#2A3550] text-[#F5F1E8] placeholder:text-[#8A93A6] focus:border-[#C9A35B]'
-                  : 'bg-[#F7F4ED] border-[#E3DCCB] text-[#20263A] placeholder:text-[#7A756B] focus:border-[#A9813F]'
+                isEmerald
+                  ? darkMode
+                    ? 'bg-[#0F1712] border-[#2C3D32] text-[#E8F2EB] placeholder:text-[#A3B5AA] focus:border-[#4ADE80]'
+                    : 'bg-[#F6FBF7] border-[#CFE3D5] text-[#14201A] placeholder:text-[#4B5B52] focus:border-[#15803D]'
+                  : darkMode
+                    ? 'bg-[#1B2540] border-[#2A3550] text-[#F5F1E8] placeholder:text-[#8A93A6] focus:border-[#C9A35B]'
+                    : 'bg-[#F7F4ED] border-[#E3DCCB] text-[#20263A] placeholder:text-[#7A756B] focus:border-[#A9813F]'
               }`}
             />
             <button
@@ -1061,7 +1174,11 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
               disabled={!freeInput.trim() || typing}
               aria-label={tx(isEn, 'إرسال', 'Send')}
               className={`w-9 h-9 rounded-[12px] flex items-center justify-center shrink-0 transition-opacity disabled:opacity-40 ${
-                darkMode ? 'bg-[#C9A35B] text-[#0E1526]' : 'bg-[#A9813F] text-white'
+                isEmerald
+                  ? 'bg-[#15803D] text-white'
+                  : darkMode
+                    ? 'bg-[#C9A35B] text-[#0E1526]'
+                    : 'bg-[#A9813F] text-white'
               }`}
             >
               <SendHorizontal className={`w-4 h-4 ${isEn ? '' : 'rotate-180'}`} />

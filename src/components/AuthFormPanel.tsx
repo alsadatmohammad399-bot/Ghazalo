@@ -21,8 +21,10 @@ import {
   X,
 } from 'lucide-react';
 import { auth, googleProvider } from '../firebase';
-import { SUPPORT_CONTACT, type DemoRestaurantRecord } from '../types';
+import { normalizeStoreSlug, SUPPORT_CONTACT, type DemoRestaurantRecord } from '../types';
+import { trackAdsConversion } from '../utils/adsTracking';
 import { isUserActivated, isValidPhoneDigits, toAsciiDigits } from '../utils/authHelpers';
+import { notifyAdminStoreSync } from '../utils/menuLink';
 import {
   findLocalRestaurantByIdentifier,
   findLocalUserByEmailOrPhone,
@@ -257,6 +259,23 @@ export const AuthFormPanel: React.FC<AuthFormPanelProps> = ({
       }
 
       clearPendingSignupMeta();
+      const quickSlug = normalizeStoreSlug(
+        (user.email || '').split('@')[0] || user.uid.slice(0, 8)
+      );
+      void fetch('/api/store-auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId: `pending-${user.uid}`,
+          storeSlug: quickSlug,
+          ownerId: user.uid,
+          nameAr: user.displayName || 'متجر جديد',
+          email: user.email || '',
+          phone: '',
+        }),
+      }).catch(() => undefined);
+      notifyAdminStoreSync('google-login-registered');
+      trackAdsConversion('generate_lead', { currency: 'EGP', value: 0 });
       onAuthComplete({
         fullName: user.displayName || 'تاجر',
         businessName: '',
@@ -321,9 +340,27 @@ export const AuthFormPanel: React.FC<AuthFormPanelProps> = ({
         // user can resend on verification screen
       }
 
+      const pendingSlug = normalizeStoreSlug(cleanBusinessName || cleanEmail.split('@')[0]);
+      void fetch('/api/store-auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId: `pending-${cred.user.uid}`,
+          storeSlug: pendingSlug,
+          ownerId: cred.user.uid,
+          nameAr: cleanBusinessName,
+          email: cleanEmail,
+          phone: normalizedPhone,
+          password,
+        }),
+      }).catch(() => undefined);
+      notifyAdminStoreSync('email-signup-registered');
+      trackAdsConversion('generate_lead', { currency: 'EGP', value: 0 });
+
       const meta: AuthSuccessMeta = {
         fullName: cleanName,
         businessName: cleanBusinessName,
+        storeSlug: pendingSlug,
         password,
         country: 'مصر',
         contact: normalizedPhone,

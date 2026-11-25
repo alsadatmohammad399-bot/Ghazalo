@@ -40,6 +40,7 @@ import {
 import { DEMO_PROJECTS } from './data/demoProjects';
 import { buildFallbackStoreForSlug, findDemoStoreBySlug } from './data/stores';
 import { fetchPublicStoreSnapshot, syncPublicStoreSnapshot } from './utils/menuLink';
+import { captureAdsAttribution, ensureGoogleAdsLoaded } from './utils/adsTracking';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PlatformLoader } from './components/PlatformLoader';
@@ -1236,6 +1237,12 @@ function AppRouter() {
   const [forceZeroFeesGlobally, setForceZeroFeesGlobally] = useState<boolean>(
     () => getPlatformSettingsLocal().forceZeroFeesGlobally
   );
+
+  // Capture Google Ads attribution (gclid/UTM) and load Google Ads tag if configured
+  useEffect(() => {
+    captureAdsAttribution();
+    ensureGoogleAdsLoaded();
+  }, []);
 
   // Apply Dark Mode class on <html>
   useEffect(() => {

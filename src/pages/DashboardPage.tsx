@@ -7,6 +7,7 @@ import {
   ChefHat,
   Copy,
   Edit3,
+  ExternalLink,
   Eye,
   Globe,
   Home,
@@ -15,6 +16,8 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MapPin,
+  Megaphone,
   Menu,
   MessageCircle,
   Monitor,
@@ -22,14 +25,17 @@ import {
   Palette,
   Phone,
   Plus,
+  Printer,
   QrCode,
   Settings,
   Share2,
+  ShieldCheck,
   ShoppingBag,
   Sparkles,
   Sun,
   Tag,
   Trash2,
+  TrendingUp,
   Utensils,
   X,
 } from 'lucide-react';
@@ -44,9 +50,11 @@ import {
   addProductsBatch,
   backfillShopMissingPhotos,
   deleteProduct,
+  renameShopCategory,
   updateProduct,
   updateShop,
 } from '../services/firestoreService';
+import { sanitizeExternalUrl } from '../utils/adsTracking';
 import {
   formatMoney,
   getShopAccessState,
@@ -223,6 +231,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     shop.packagingFee ? String(shop.packagingFee) : '0'
   );
   const [deliverySavedToast, setDeliverySavedToast] = useState('');
+  const [editFacebookUrl, setEditFacebookUrl] = useState(shop.facebookUrl || '');
+  const [editInstagramUrl, setEditInstagramUrl] = useState(shop.instagramUrl || '');
+  const [editTiktokUrl, setEditTiktokUrl] = useState(shop.tiktokUrl || '');
+  const [editGoogleMapsUrl, setEditGoogleMapsUrl] = useState(shop.googleMapsUrl || '');
+  const [editGoogleAdsId, setEditGoogleAdsId] = useState(shop.googleAdsId || '');
+  const [editGoogleAdsConversionLabel, setEditGoogleAdsConversionLabel] = useState(
+    shop.googleAdsConversionLabel || ''
+  );
+
+  // Unlimited Categories Manager state
+  const [newCatInput, setNewCatInput] = useState('');
+  const [editingCatTarget, setEditingCatTarget] = useState<string | null>(null);
+  const [editingCatValue, setEditingCatValue] = useState('');
+  const [catBusy, setCatBusy] = useState(false);
+  const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
+  const [promoCopied, setPromoCopied] = useState(false);
+
   const [savingSettings, setSavingSettings] = useState(false);
   const [activatingRoyal, setActivatingRoyal] = useState(false);
   const [activatingTemplateId, setActivatingTemplateId] = useState<MenuTemplateId | null>(null);
@@ -267,6 +292,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setEditVatPct(shop.vatPct ? String(shop.vatPct) : '0');
     setEditEnablePackagingFee(Boolean(shop.enablePackagingFee));
     setEditPackagingFee(shop.packagingFee ? String(shop.packagingFee) : '0');
+    setEditFacebookUrl(shop.facebookUrl || '');
+    setEditInstagramUrl(shop.instagramUrl || '');
+    setEditTiktokUrl(shop.tiktokUrl || '');
+    setEditGoogleMapsUrl(shop.googleMapsUrl || '');
+    setEditGoogleAdsId(shop.googleAdsId || '');
+    setEditGoogleAdsConversionLabel(shop.googleAdsConversionLabel || '');
     setDeliverySavedToast('');
     setDesignSavedToast('');
     setLogoError('');
@@ -621,6 +652,64 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     }
   };
 
+  const handleRenameCategory = async (oldCat: string, nextCatRaw: string) => {
+    const nextCat = nextCatRaw.trim();
+    if (!nextCat || nextCat === oldCat) {
+      setEditingCatTarget(null);
+      return;
+    }
+    setCatBusy(true);
+    try {
+      persistProductsLocal(
+        products.map((p) => ((p.category || 'أصناف متنوعة') === oldCat ? { ...p, category: nextCat } : p))
+      );
+      if (canUseFirestore) {
+        try {
+          await renameShopCategory(shop.id, oldCat, nextCat);
+        } catch {
+          // updated locally
+        }
+      }
+      setEditingCatTarget(null);
+    } finally {
+      setCatBusy(false);
+    }
+  };
+
+  const handleDeleteCategory = async (catName: string, mode: 'move' | 'remove') => {
+    setCatBusy(true);
+    try {
+      const targetFallbackCat = tx(isEn, 'أصناف متنوعة', 'General');
+      if (mode === 'move') {
+        persistProductsLocal(
+          products.map((p) =>
+            (p.category || 'أصناف متنوعة') === catName ? { ...p, category: targetFallbackCat } : p
+          )
+        );
+        if (canUseFirestore) {
+          try {
+            await renameShopCategory(shop.id, catName, targetFallbackCat);
+          } catch {
+            // updated locally
+          }
+        }
+      } else {
+        const idsToRemove = products
+          .filter((p) => (p.category || 'أصناف متنوعة') === catName)
+          .map((p) => p.id);
+        persistProductsLocal(
+          products.filter((p) => (p.category || 'أصناف متنوعة') !== catName)
+        );
+        if (canUseFirestore) {
+          await Promise.allSettled(idsToRemove.map((id) => deleteProduct(shop.id, id)));
+        }
+      }
+      setConfirmDeleteCat(null);
+    } finally {
+      setCatBusy(false);
+    }
+  };
+
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -709,6 +798,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       vatPct: editEnableVat ? Math.max(0, Math.min(100, Number(editVatPct) || 0)) : 0,
       enablePackagingFee: Boolean(editEnablePackagingFee),
       packagingFee: editEnablePackagingFee ? Math.max(0, Number(editPackagingFee) || 0) : 0,
+      facebookUrl: sanitizeExternalUrl(editFacebookUrl),
+      instagramUrl: sanitizeExternalUrl(editInstagramUrl),
+      tiktokUrl: sanitizeExternalUrl(editTiktokUrl),
+      googleMapsUrl: sanitizeExternalUrl(editGoogleMapsUrl),
+      googleAdsId: editGoogleAdsId.trim(),
+      googleAdsConversionLabel: editGoogleAdsConversionLabel.trim(),
     };
   };
 
@@ -981,6 +1076,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   return (
     <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] pb-24">
+      <div className="no-print">
       {/* Top Sofrtek Trial / Paid Subscription Yellow Banner (#FEF9C3 matching HTML prototype) */}
       <div className="bg-[#FEF9C3] border-b border-[#FACC15]/50 text-[#14201A] px-4 py-2.5">
         <div className="max-w-[560px] mx-auto flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold">
@@ -1223,13 +1319,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <QrCodeImage value={menuUrl} size={130} />
             </div>
             <div className="flex-1 flex flex-col gap-1.5">
-              <button
-                type="button"
-                onClick={() => void downloadQrPng(menuUrl, `${shop.nameAr}-qr.png`)}
-                className="sf-btn-primary w-full min-h-[42px] text-sm"
-              >
-                {tx(isEn, 'تحميل', 'Download QR')}
-              </button>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void downloadQrPng(menuUrl, `${shop.nameAr}-qr.png`)}
+                  className="sf-btn-primary w-full min-h-[42px] text-xs sm:text-sm"
+                >
+                  {tx(isEn, 'تحميل PNG', 'Download')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="sf-btn w-full min-h-[42px] text-xs sm:text-sm text-[#15803D] dark:text-[#BBF7D0]"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  {tx(isEn, 'طباعة QR', 'Print QR')}
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={onOpenStorefront}
@@ -1651,13 +1757,114 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
             <div>
               <div className="font-extrabold text-sm">
-                {tx(isEn, 'التوصيل واللوجو والخلفية', 'Delivery, Logo & Cover Settings')}
+                {tx(isEn, 'التوصيل والروابط وإعلانات Google', 'Delivery, Social Links, Maps & Google Ads')}
               </div>
               <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
-                {tx(isEn, 'سعر التوصيل وأوقات العمل وشعار المطعم', 'Delivery fee, working hours & cover photo')}
+                {tx(isEn, 'سعر التوصيل، فيسبوك وإنستجرام وتيك توك، خرائط جوجل، وتتبع Google Ads', 'Delivery fees, Facebook/IG/TikTok, Google Maps location & Ads conversion')}
               </div>
             </div>
           </button>
+        </div>
+
+        {/* Self-Marketing & Google Ads Readiness Card */}
+        <div className="sf-card space-y-3 border-[#86EFAC]/70 dark:border-[#2C3D32]">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center shrink-0">
+                <Megaphone className="w-5 h-5" />
+              </div>
+              <div>
+                <b className="text-sm font-extrabold block">
+                  {tx(isEn, 'التسويق الذاتي ومضاعفة المبيعات (Google Ads)', 'Self-Marketing & Google Ads Boost')}
+                </b>
+                <span className="text-[11px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+                  {tx(
+                    isEn,
+                    'منيوك متوافق مع حملات جوجل ويحسب تحويلات الطلبات تلقائياً',
+                    'Your menu tracks ad leads & purchases cleanly for higher sales'
+                  )}
+                </span>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] text-[10px] font-black shrink-0 inline-flex items-center gap-1">
+              <TrendingUp className="w-3 h-3" />
+              {shop.googleAdsId ? tx(isEn, 'Ads متصل', 'Ads Connected') : tx(isEn, 'جاهز لـ Ads', 'Ads Ready')}
+            </span>
+          </div>
+
+          <div className="rounded-xl bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] p-3 text-xs font-semibold text-[#14201A] dark:text-[#E8F2EB] leading-relaxed">
+            {tx(
+              isEn,
+              `اطلب الآن أونلاين من منيو ${displayShopName} وتصفح كل الأطباق والأسعار والعروض الحصرية بدون تطبيقات! 🍽️👇\n${menuUrl}`,
+              `Order online directly from ${displayShopName}! Browse all dishes, prices, and special deals in seconds: 🍽️👇\n${menuUrl}`
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                const postText = tx(
+                  isEn,
+                  `اطلب الآن أونلاين من منيو ${displayShopName} وتصفح كل الأطباق والأسعار والعروض الحصرية! 🍽️👇\n${menuUrl}`,
+                  `Order online directly from ${displayShopName}! Browse all dishes, prices, and special deals in seconds: 🍽️👇\n${menuUrl}`
+                );
+                const ok = await copyMenuLink(postText);
+                if (ok) {
+                  setPromoCopied(true);
+                  window.setTimeout(() => setPromoCopied(false), 2600);
+                }
+              }}
+              className="sf-btn-primary min-h-[38px] px-3.5 text-xs flex-1"
+            >
+              {promoCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {promoCopied
+                ? tx(isEn, 'تم نسخ بوست التسويق ✅', 'Promo Post Copied ✅')
+                : tx(isEn, 'نسخ بوست التسويق لمنصاتك', 'Copy Promo Post')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsModalOpen(true)}
+              className="sf-btn min-h-[38px] px-3 text-xs"
+            >
+              <TrendingUp className="w-3.5 h-3.5 text-[#15803D]" />
+              {tx(isEn, 'ربط Google Ads', 'Setup Google Ads')}
+            </button>
+          </div>
+        </div>
+
+        {/* Continuous Technical Support After Delivery Card */}
+        <div className="sf-card flex flex-wrap items-center justify-between gap-3 bg-[#DCFCE7]/40 dark:bg-[#173323]/40">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-10 h-10 rounded-xl bg-[#15803D] text-white flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <b className="text-sm font-extrabold block">
+                {tx(isEn, 'دعم فني مستمر بعد التسليم', 'Continuous Technical Support')}
+              </b>
+              <p className="text-[11px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+                {tx(
+                  isEn,
+                  'فريق غزالو معك يومياً لتحديث المنيو، ربط الدومين، وحل أي استفسار فوراً.',
+                  'Our team stays with you daily for menu updates, QR printing, and live assistance.'
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(
+                `مرحباً دعم Ghazalo الفني، أحتاج مساعدة بخصوص متجر ${shop.nameAr} (${storeSlug})`
+              )}`}
+              target="_blank"
+              rel="noreferrer"
+              className="sf-btn-primary min-h-[36px] px-3 text-xs"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              {tx(isEn, 'دعم فوري', 'Live Support')}
+            </a>
+          </div>
         </div>
 
         {/* PWA App Install Banner */}
@@ -2001,6 +2208,149 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 {aiMessage && (
                   <div className="w-full text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0]">
                     {aiMessage}
+                  </div>
+                )}
+              </div>
+
+              {/* Unlimited Categories Manager */}
+              <div className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-2xl p-4 border border-[#CFE3D5] dark:border-[#2C3D32] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-sm">
+                      {tx(isEn, `إدارة الأقسام (${categoryBreakdown.length})`, `Manage Categories (${categoryBreakdown.length})`)}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] text-[10px] font-black">
+                      {tx(isEn, 'أقسام وأصناف غير محدودة', 'Unlimited Items & Categories')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newCatInput}
+                    onChange={(e) => setNewCatInput(e.target.value)}
+                    placeholder={tx(isEn, 'أضف قسماً جديداً (مثال: بيتزا إيطالي)', 'Add new category (e.g. Italian Pizza)')}
+                    className="sf-inp min-h-[38px] text-xs flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = newCatInput.trim();
+                      if (!val) return;
+                      setProdCategory(val);
+                      setNewCatInput('');
+                    }}
+                    className="sf-btn-primary min-h-[38px] px-3.5 text-xs shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    {tx(isEn, 'تحديد القسم', 'Use Category')}
+                  </button>
+                </div>
+
+                {categoryBreakdown.length > 0 && (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pe-1">
+                    {categoryBreakdown.map((cat) => {
+                      const isRenaming = editingCatTarget === cat.name;
+                      const isConfirmDel = confirmDeleteCat === cat.name;
+                      return (
+                        <div
+                          key={cat.name}
+                          className="rounded-xl bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] px-3 py-2 text-xs"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            {isRenaming ? (
+                              <div className="flex items-center gap-1.5 flex-1">
+                                <input
+                                  type="text"
+                                  value={editingCatValue}
+                                  onChange={(e) => setEditingCatValue(e.target.value)}
+                                  className="sf-inp min-h-[32px] py-1 text-xs flex-1"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={catBusy}
+                                  onClick={() => void handleRenameCategory(cat.name, editingCatValue)}
+                                  className="px-2.5 py-1 rounded-lg bg-[#15803D] text-white font-bold"
+                                >
+                                  {tx(isEn, 'حفظ', 'Save')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingCatTarget(null)}
+                                  className="px-2 py-1 rounded-lg border border-[#CFE3D5] font-bold"
+                                >
+                                  {tx(isEn, 'إلغاء', 'Cancel')}
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setProdCategory(cat.name)}
+                                  className="flex items-center gap-2 font-extrabold text-start min-w-0 hover:text-[#15803D]"
+                                >
+                                  <span className="truncate">{cat.name}</span>
+                                  <span className="px-2 py-0.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] text-[10px] font-black tabular-nums">
+                                    {cat.count}
+                                  </span>
+                                </button>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingCatTarget(cat.name);
+                                      setEditingCatValue(cat.name);
+                                      setConfirmDeleteCat(null);
+                                    }}
+                                    aria-label={tx(isEn, 'تعديل اسم القسم', 'Rename category')}
+                                    className="p-1.5 rounded-lg bg-white dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-[#4B5B52] hover:text-[#15803D]"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setConfirmDeleteCat(isConfirmDel ? null : cat.name)
+                                    }
+                                    aria-label={tx(isEn, 'حذف القسم', 'Delete category')}
+                                    className="p-1.5 rounded-lg bg-white dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-[#4B5B52] hover:text-rose-600"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          {isConfirmDel && (
+                            <div className="mt-2 pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                              <span className="font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
+                                {tx(isEn, 'ماذا تفعل بالأصناف داخل القسم؟', 'Action for items in this category?')}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={catBusy}
+                                  onClick={() => void handleDeleteCategory(cat.name, 'move')}
+                                  className="px-2.5 py-1 rounded-lg bg-[#15803D] text-white font-bold"
+                                >
+                                  {tx(isEn, 'نقل إلى أصناف متنوعة', 'Move to General')}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={catBusy}
+                                  onClick={() => void handleDeleteCategory(cat.name, 'remove')}
+                                  className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold"
+                                >
+                                  {tx(isEn, 'حذف القسم وأصنافه', 'Delete All')}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2971,6 +3321,95 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </div>
             </div>
 
+            {/* Social Media + Google Maps + Google Ads Integration */}
+            <div className="rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] p-4 space-y-3">
+              <div className="font-extrabold text-sm flex items-center gap-2 text-[#14532D] dark:text-[#BBF7D0]">
+                <Share2 className="w-4 h-4 text-[#15803D]" />
+                {tx(isEn, 'ربط منصات التواصل والموقع الجغرافي', 'Social Platforms & Google Maps Location')}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold mb-1">
+                    {tx(isEn, 'رابط صفحة Facebook', 'Facebook URL')}
+                  </label>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    value={editFacebookUrl}
+                    onChange={(e) => setEditFacebookUrl(e.target.value)}
+                    placeholder="https://facebook.com/yourpage"
+                    className="sf-inp min-h-[40px] text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold mb-1">
+                    {tx(isEn, 'رابط حساب Instagram', 'Instagram URL')}
+                  </label>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    value={editInstagramUrl}
+                    onChange={(e) => setEditInstagramUrl(e.target.value)}
+                    placeholder="https://instagram.com/youraccount"
+                    className="sf-inp min-h-[40px] text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold mb-1">
+                    {tx(isEn, 'رابط حساب TikTok', 'TikTok URL')}
+                  </label>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    value={editTiktokUrl}
+                    onChange={(e) => setEditTiktokUrl(e.target.value)}
+                    placeholder="https://tiktok.com/@youraccount"
+                    className="sf-inp min-h-[40px] text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold mb-1 flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-[#15803D]" />
+                    {tx(isEn, 'رابط الموقع على خرائط جوجل (Google Maps)', 'Google Maps Link')}
+                  </label>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    value={editGoogleMapsUrl}
+                    onChange={(e) => setEditGoogleMapsUrl(e.target.value)}
+                    placeholder="https://maps.google.com/?q=..."
+                    className="sf-inp min-h-[40px] text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] space-y-2">
+                <div className="font-extrabold text-xs flex items-center gap-1.5 text-[#14532D] dark:text-[#BBF7D0]">
+                  <TrendingUp className="w-3.5 h-3.5 text-[#15803D]" />
+                  {tx(isEn, 'تتبع حملات إعلانات جوجل (Google Ads Ready)', 'Google Ads Conversion Tracking (Optional)')}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={editGoogleAdsId}
+                    onChange={(e) => setEditGoogleAdsId(e.target.value)}
+                    placeholder="Google Ads ID (e.g. AW-123456789)"
+                    className="sf-inp min-h-[38px] text-xs"
+                  />
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={editGoogleAdsConversionLabel}
+                    onChange={(e) => setEditGoogleAdsConversionLabel(e.target.value)}
+                    placeholder={tx(isEn, 'تسمية التحويل (Conversion Label)', 'Conversion Label (optional)')}
+                    className="sf-inp min-h-[38px] text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={savingSettings}
@@ -3380,6 +3819,35 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
       )}
+      </div>
+
+      {/* Printable Menu Table / Counter QR Poster */}
+      <div className="hidden print-only bg-white text-[#14201A] p-8 text-center">
+        <div className="max-w-md mx-auto border-[3px] border-[#15803D] rounded-[28px] p-8 space-y-5">
+          {shop.logoUrl && (
+            <img
+              src={shop.logoUrl}
+              alt={displayShopName}
+              className="w-20 h-20 rounded-full object-cover mx-auto border-2 border-[#15803D]"
+            />
+          )}
+          <div className="space-y-1">
+            <h2 className="text-2xl font-black text-[#14201A]">{displayShopName}</h2>
+            <p className="text-sm font-bold text-[#15803D]">
+              {tx(isEn, 'امسح الكود بكاميرا الموبايل لتصفح المنيو والطلب فوراً', 'Scan to view our digital menu & order')}
+            </p>
+          </div>
+          <div className="inline-block p-3 bg-white border-2 border-[#CFE3D5] rounded-2xl">
+            <QrCodeImage value={menuUrl} size={230} />
+          </div>
+          <div dir="ltr" className="text-xs font-bold text-[#4B5B52] break-all">
+            {menuUrl}
+          </div>
+          <div className="text-[11px] font-extrabold text-[#15803D] border-t border-[#CFE3D5] pt-3">
+            Powered by GHAZALO Digital Menu
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

@@ -176,6 +176,12 @@ export async function createShopWithProducts(
       paymentMethods: (shopData.paymentMethods || ['نقداً']).slice(0, 10),
       bio: (shopData.bio || '').trim().slice(0, FIELD_LIMITS.BIO_MAX),
       whatsapp: (shopData.whatsapp || '').trim().slice(0, FIELD_LIMITS.PHONE_MAX),
+      facebookUrl: (shopData.facebookUrl || '').trim().slice(0, FIELD_LIMITS.SOCIAL_URL_MAX),
+      instagramUrl: (shopData.instagramUrl || '').trim().slice(0, FIELD_LIMITS.SOCIAL_URL_MAX),
+      tiktokUrl: (shopData.tiktokUrl || '').trim().slice(0, FIELD_LIMITS.SOCIAL_URL_MAX),
+      googleMapsUrl: (shopData.googleMapsUrl || '').trim().slice(0, FIELD_LIMITS.MAPS_URL_MAX),
+      googleAdsId: (shopData.googleAdsId || '').trim().slice(0, FIELD_LIMITS.ADS_ID_MAX),
+      googleAdsConversionLabel: (shopData.googleAdsConversionLabel || '').trim().slice(0, FIELD_LIMITS.ADS_ID_MAX),
       coverImage: (shopData.coverImage || '').trim().slice(0, FIELD_LIMITS.COVER_IMAGE_MAX),
       isOpen: true,
       subscriptionStatus: 'trial',
@@ -320,6 +326,12 @@ export async function updateShop(
     if (updates.paymentMethods !== undefined) allowed.paymentMethods = updates.paymentMethods.slice(0, 10);
     if (updates.bio !== undefined) allowed.bio = updates.bio.slice(0, FIELD_LIMITS.BIO_MAX);
     if (updates.whatsapp !== undefined) allowed.whatsapp = updates.whatsapp.slice(0, FIELD_LIMITS.PHONE_MAX);
+    if (updates.facebookUrl !== undefined) allowed.facebookUrl = updates.facebookUrl.slice(0, FIELD_LIMITS.SOCIAL_URL_MAX);
+    if (updates.instagramUrl !== undefined) allowed.instagramUrl = updates.instagramUrl.slice(0, FIELD_LIMITS.SOCIAL_URL_MAX);
+    if (updates.tiktokUrl !== undefined) allowed.tiktokUrl = updates.tiktokUrl.slice(0, FIELD_LIMITS.SOCIAL_URL_MAX);
+    if (updates.googleMapsUrl !== undefined) allowed.googleMapsUrl = updates.googleMapsUrl.slice(0, FIELD_LIMITS.MAPS_URL_MAX);
+    if (updates.googleAdsId !== undefined) allowed.googleAdsId = updates.googleAdsId.slice(0, FIELD_LIMITS.ADS_ID_MAX);
+    if (updates.googleAdsConversionLabel !== undefined) allowed.googleAdsConversionLabel = updates.googleAdsConversionLabel.slice(0, FIELD_LIMITS.ADS_ID_MAX);
     if (updates.coverImage !== undefined) allowed.coverImage = updates.coverImage.slice(0, FIELD_LIMITS.COVER_IMAGE_MAX);
     if (updates.isOpen !== undefined) allowed.isOpen = Boolean(updates.isOpen);
     if (updates.plan !== undefined) allowed.plan = updates.plan.slice(0, 40);
@@ -678,6 +690,37 @@ export async function deleteProduct(shopId: string, productId: string): Promise<
     await deleteDoc(doc(db, 'shops', shopId, 'products', productId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function renameShopCategory(
+  shopId: string,
+  oldCategory: string,
+  newCategory: string
+): Promise<number> {
+  const cleanNew = newCategory.trim().slice(0, FIELD_LIMITS.CATEGORY_MAX);
+  if (!cleanNew || oldCategory === cleanNew) return 0;
+  const path = `shops/${shopId}/products`;
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'shops', shopId, 'products'), where('category', '==', oldCategory))
+    );
+    if (snap.empty) return 0;
+    let updatedCount = 0;
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const batch = writeBatch(db);
+      for (const d of snap.docs.slice(i, i + 400)) {
+        batch.update(doc(db, 'shops', shopId, 'products', d.id), {
+          category: cleanNew,
+          updatedAt: serverTimestamp(),
+        });
+        updatedCount += 1;
+      }
+      await batch.commit();
+    }
+    return updatedCount;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 

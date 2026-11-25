@@ -9,6 +9,7 @@ import {
   Copy,
   CreditCard,
   Edit3,
+  Eye,
   Globe,
   Grid,
   List,
@@ -25,6 +26,7 @@ import {
   Utensils,
   X,
 } from 'lucide-react';
+import { InvoiceReceipt, orderToInvoiceData, type InvoiceReceiptData } from '../components/InvoiceReceipt';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { createOrder, updateOrderStatus } from '../services/firestoreService';
 import { calculateOrderTotals, formatCompactMoney, formatMoney } from '../utils/calculations';
@@ -93,6 +95,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   const [menuLinkCopied, setMenuLinkCopied] = useState(false);
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
   const [lastReceiptOrder, setLastReceiptOrder] = useState<Order | null>(null);
+  const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
 
   const menuUrl = getAbsoluteMenuUrl(shop);
   const handleCopyMenuUrl = async () => {
@@ -326,7 +329,8 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         notes: orderNotes.trim(),
         itemsCount: totalCount,
         itemSummary: cartItems.map(
-          (c) => `${c.product.name}${c.note ? ` (${c.note})` : ''} × ${c.quantity}`
+          (c) =>
+            `${c.product.name}${c.note ? ` (${c.note})` : ''} × ${c.quantity} (${c.unitPrice * c.quantity})`
         ),
         subtotal: totals.subtotal,
         discount: totals.discount,
@@ -383,6 +387,32 @@ export const CashierPage: React.FC<CashierPageProps> = ({
 
   const paidNum = Number(paidAmount) || 0;
   const changeDue = paidNum > totals.total ? paidNum - totals.total : 0;
+
+  const activeReceiptData: InvoiceReceiptData =
+    lastReceiptOrder && cartItems.length === 0
+      ? orderToInvoiceData(lastReceiptOrder, shop)
+      : {
+          orderNumber: lastReceiptOrder?.orderNumber || 'POS-PREVIEW',
+          createdAt: Date.now(),
+          orderType,
+          paymentMethod,
+          customerName: customerInput.trim() || tx(isEn, 'عميل كاشير', 'Walk-in Customer'),
+          address: orderType === 'delivery' ? deliveryAddress.trim() : '',
+          driverName: orderType === 'delivery' ? driverName.trim() : '',
+          tableLabel: orderType === 'table' ? selectedTable : '',
+          notes: orderNotes.trim(),
+          subtotal: totals.subtotal,
+          discount: totals.discount,
+          deliveryFee: orderType === 'delivery' ? totals.deliveryFee : 0,
+          serviceFee: totals.serviceFee,
+          serviceFeePct: totals.serviceFeePct,
+          vat: totals.vat,
+          vatPct: totals.vatPct,
+          packagingFee: totals.packagingFee,
+          total: totals.total,
+          paidAmount: paidNum || totals.total,
+          cartItems,
+        };
 
   const orderTypeOptions = [
     { id: 'dine_in' as const, label: tx(isEn, 'محلي', 'Dine-in') },
@@ -734,12 +764,12 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       </div>
 
       {/* POS Action Buttons */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-5 gap-1.5">
         <button
           type="button"
           disabled={saving || cartItems.length === 0}
           onClick={() => void submitCashierOrder('completed', true)}
-          className="col-span-2 sf-btn-primary text-xs sm:text-sm disabled:opacity-40 tabular-nums"
+          className="col-span-2 sf-btn-primary text-xs sm:text-sm disabled:opacity-40 tabular-nums px-2"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
           <span>{tx(isEn, `إنهاء - ${totals.total}`, `Pay - ${totals.total}`)}</span>
@@ -748,7 +778,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
           type="button"
           disabled={saving || cartItems.length === 0}
           onClick={() => void submitCashierOrder('held')}
-          className="sf-btn text-xs bg-[#FEF9C3] text-[#14201A] border-[#FACC15] disabled:opacity-40 px-2"
+          className="sf-btn text-xs bg-[#FEF9C3] text-[#14201A] border-[#FACC15] disabled:opacity-40 px-1.5"
         >
           <PauseCircle className="w-3.5 h-3.5" />
           {tx(isEn, 'معلق', 'Hold')}
@@ -756,8 +786,18 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         <button
           type="button"
           disabled={cartItems.length === 0 && !lastReceiptOrder}
+          onClick={() => setInvoicePreviewOpen(true)}
+          className="sf-btn text-xs disabled:opacity-40 px-1.5"
+          title={tx(isEn, 'معاينة الفاتورة', 'Preview Invoice')}
+        >
+          <Eye className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{tx(isEn, 'معاينة', 'View')}</span>
+        </button>
+        <button
+          type="button"
+          disabled={cartItems.length === 0 && !lastReceiptOrder}
           onClick={handlePrintActiveOrLast}
-          className="sf-btn text-xs disabled:opacity-40 px-2"
+          className="sf-btn text-xs disabled:opacity-40 px-1.5"
         >
           <Printer className="w-3.5 h-3.5" />
           {tx(isEn, 'طباعة', 'Print')}
@@ -1367,141 +1407,55 @@ export const CashierPage: React.FC<CashierPageProps> = ({
         </div>
       )}
 
-      {/* Printable 80mm Thermal POS Receipt */}
-      <div
-        className={`hidden print-only p-4 ${isEn ? 'text-left' : 'text-right'} max-w-[320px] mx-auto`}
-        dir={isEn ? 'ltr' : 'rtl'}
-      >
-        <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-400">
-          <h2 className="text-lg font-extrabold">{displayShopName}</h2>
-          {shop.address && <p className="text-[11px]">{shop.address}</p>}
-          {shop.whatsapp && <p className="text-[11px]" dir="ltr">{shop.whatsapp}</p>}
-          <p className="text-xs font-bold pt-1">
-            {lastReceiptOrder
-              ? tx(isEn, `فاتورة رقم #${lastReceiptOrder.orderNumber}`, `Invoice #${lastReceiptOrder.orderNumber}`)
-              : tx(isEn, 'إيصال مبيعات كاشير POS', 'POS Sales Receipt')}
-          </p>
+      {/* Interactive Invoice Preview Modal */}
+      {invoicePreviewOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/55 backdrop-blur-xs no-print"
+          onClick={() => setInvoicePreviewOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="sf-card max-w-md w-full max-h-[92vh] flex flex-col justify-between p-4 sm:p-5 shadow-2xl space-y-3"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+              <h3 className="font-extrabold text-base">
+                {tx(isEn, 'معاينة شكل الفاتورة', 'Invoice Preview')}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setInvoicePreviewOpen(false)}
+                className="sf-btn min-h-[36px] w-9 px-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <InvoiceReceipt shop={shop} data={activeReceiptData} isEn={isEn} />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handlePrintActiveOrLast}
+                className="sf-btn-primary flex-1 min-h-[44px] text-sm"
+              >
+                <Printer className="w-4 h-4" />
+                {tx(isEn, 'طباعة الفاتورة', 'Print Invoice')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setInvoicePreviewOpen(false)}
+                className="sf-btn min-h-[44px] text-sm"
+              >
+                {tx(isEn, 'إغلاق', 'Close')}
+              </button>
+            </div>
+          </div>
         </div>
-        {lastReceiptOrder && cartItems.length === 0 ? (
-          <>
-            <div className="border-b border-dashed border-slate-400 py-2.5 space-y-1 text-xs">
-              {(lastReceiptOrder.itemSummary || []).map((line, i) => (
-                <div key={i} className="font-semibold">
-                  {line}
-                </div>
-              ))}
-            </div>
-            <div className="pt-2 space-y-1 text-xs">
-              <div className="flex justify-between">
-                <span>{tx(isEn, 'سعر الأكل', 'Subtotal')}</span>
-                <span>{lastReceiptOrder.subtotal}</span>
-              </div>
-              {lastReceiptOrder.discount ? (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'الخصم', 'Discount')}</span>
-                  <span>-{lastReceiptOrder.discount}</span>
-                </div>
-              ) : null}
-              {(lastReceiptOrder.deliveryFee ?? 0) > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'التوصيل', 'Delivery')}</span>
-                  <span>{Number(lastReceiptOrder.deliveryFee).toFixed(2)}</span>
-                </div>
-              )}
-              {lastReceiptOrder.serviceFee > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'الخدمة', 'Service')}</span>
-                  <span>{lastReceiptOrder.serviceFee.toFixed(2)}</span>
-                </div>
-              )}
-              {lastReceiptOrder.vat > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'الضريبة', 'Tax')}</span>
-                  <span>{lastReceiptOrder.vat.toFixed(2)}</span>
-                </div>
-              )}
-              {(lastReceiptOrder.packagingFee ?? 0) > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'التغليف', 'Packaging')}</span>
-                  <span>{Number(lastReceiptOrder.packagingFee).toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-slate-300">
-                <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
-                <span>{formatCompactMoney(lastReceiptOrder.total, shop.country, isEn)}</span>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="border-b border-dashed border-slate-400 py-2.5 space-y-1 text-xs">
-              {cartItems.map((c, idx) => (
-                <div key={`${c.product.id}-${idx}`} className="flex justify-between">
-                  <span>
-                    {c.product.name}
-                    {c.note ? ` (${c.note})` : ''} × {c.quantity}
-                  </span>
-                  <span>{c.unitPrice * c.quantity}</span>
-                </div>
-              ))}
-            </div>
-            <div className="pt-2 space-y-1 text-xs">
-              <div className="flex justify-between">
-                <span>{tx(isEn, 'سعر الأكل', 'Subtotal')}</span>
-                <span>{totals.subtotal}</span>
-              </div>
-              {totals.discount > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'الخصم', 'Discount')}</span>
-                  <span>-{totals.discount}</span>
-                </div>
-              )}
-              {orderType === 'delivery' && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'التوصيل', 'Delivery')}</span>
-                  <span>
-                    {totals.freeDeliveryApplied
-                      ? tx(isEn, 'مجاناً', 'Free')
-                      : totals.deliveryFee.toFixed(2)}
-                  </span>
-                </div>
-              )}
-              {totals.serviceFee > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, `رسوم الخدمة (${totals.serviceFeePct}%)`, `Service (${totals.serviceFeePct}%)`)}</span>
-                  <span>{totals.serviceFee.toFixed(2)}</span>
-                </div>
-              )}
-              {totals.vat > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, `الضريبة (${totals.vatPct}%)`, `Tax (${totals.vatPct}%)`)}</span>
-                  <span>{totals.vat.toFixed(2)}</span>
-                </div>
-              )}
-              {totals.packagingFee > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'التغليف', 'Packaging')}</span>
-                  <span>{totals.packagingFee.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-slate-300">
-                <span>{tx(isEn, 'الإجمالي', 'Total')}</span>
-                <span>{formatCompactMoney(totals.total, shop.country, isEn)}</span>
-              </div>
-              {paidNum > 0 && (
-                <div className="flex justify-between">
-                  <span>{tx(isEn, 'المدفوع / الباقي', 'Paid / Change')}</span>
-                  <span>
-                    {paidNum} / {changeDue}
-                  </span>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-        <p className="text-center text-[10px] pt-3 mt-2 border-t border-dashed border-slate-400">
-          {tx(isEn, 'شكراً لزيارتكم · Ghazalo POS', 'Thank you · Ghazalo POS')}
-        </p>
+      )}
+
+      {/* Printable 80mm Thermal POS Receipt */}
+      <div className="hidden print-only p-2">
+        <InvoiceReceipt shop={shop} data={activeReceiptData} isEn={isEn} compactThermal />
       </div>
     </div>
   );

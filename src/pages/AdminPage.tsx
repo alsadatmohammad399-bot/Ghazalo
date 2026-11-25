@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { toWhatsAppNumber } from '../utils/phone';
 import {
   ArrowRight,
   Ban,
@@ -7,6 +8,7 @@ import {
   CheckCircle2,
   Clock,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
@@ -16,6 +18,9 @@ import {
   Lock,
   LogOut,
   MessageCircle,
+  Printer,
+  QrCode,
+  RefreshCw,
   Search,
   Send,
   ShieldAlert,
@@ -28,6 +33,7 @@ import {
 import { GhazaloLogo } from '../components/BrandLogo';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { PlatformLoader } from '../components/PlatformLoader';
+import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
 import { auth, googleProvider } from '../firebase';
 import {
   approveAndActivateShop,
@@ -73,6 +79,21 @@ interface AdminPageProps {
 
 type AdminFilterId = 'all' | 'trial' | 'monthly' | 'yearly' | 'expired' | 'suspended';
 
+interface ServerAdminStoreEntry {
+  shopId: string;
+  storeSlug: string;
+  ownerId?: string;
+  nameAr: string;
+  email?: string;
+  phone?: string;
+  resetCode?: string;
+  resetCodeExpiresAt?: number;
+  createdAt?: number;
+  updatedAt?: number;
+  shop?: Partial<Shop>;
+  productsCount?: number;
+}
+
 interface UnifiedRestaurantRow {
   shopId: string;
   storeSlug: string;
@@ -82,6 +103,8 @@ interface UnifiedRestaurantRow {
   password: string;
   resetCode?: string;
   resetCodeExpiresAt?: number;
+  createdAt: number;
+  productsCount?: number;
   subscriptionDateFormatted: string;
   daysLeft: number;
   statusCategory: Exclude<AdminFilterId, 'all'>;
@@ -108,12 +131,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
   });
   const [pinInput, setPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [pinConfigured, setPinConfigured] = useState<boolean | null>(null);
   const [showPin, setShowPin] = useState(false);
   const [pinError, setPinError] = useState('');
   const [verifyingPin, setVerifyingPin] = useState(false);
 
   const [firestoreShops, setFirestoreShops] = useState<Shop[]>([]);
   const [firestoreCreds, setFirestoreCreds] = useState<StoreCredentialRecord[]>([]);
+  const [serverStores, setServerStores] = useState<ServerAdminStoreEntry[]>([]);
   const [serverCodes, setServerCodes] = useState<
     Record<string, { resetCode?: string; resetCodeExpiresAt?: number; email?: string; phone?: string }>
   >({});
@@ -121,6 +147,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     getLocalRestaurants()
   );
   const [loadingShops, setLoadingShops] = useState(false);
+  const [refreshingLive, setRefreshingLive] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number>(Date.now());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState('');
 
@@ -139,6 +167,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [deliveryEdits, setDeliveryEdits] = useState<Record<string, string>>({});
   const [copiedSlugId, setCopiedSlugId] = useState<string | null>(null);
   const [expandedPlanRowId, setExpandedPlanRowId] = useState<string | null>(null);
+  const [qrPreviewRow, setQrPreviewRow] = useState<UnifiedRestaurantRow | null>(null);
 
   // Change Restaurant Password Modal
   const [passwordModalRow, setPasswordModalRow] = useState<UnifiedRestaurantRow | null>(null);
@@ -168,16 +197,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    if (adminToken) return;
+    let active = true;
+    fetch('/api/admin/pin-status')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { configured?: boolean } | null) => {
+        if (active && data && typeof data.configured === 'boolean') {
+          setPinConfigured(data.configured);
+        }
+      })
+      .catch(() => {
+        if (active) setPinConfigured(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [adminToken]);
+
   const isAdminEmail =
     Boolean(user?.emailVerified) &&
     user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-  const refreshServerAdminData = useCallback(async (tokenToUse: string) => {
+  const refreshServerAdminData = useCallback(async (tokenToUse: string, manual = false) => {
     if (!tokenToUse) return;
+    if (manual) setRefreshingLive(true);
     try {
-      const [cfgRes, codesRes] = await Promise.all([
+      const [cfgRes, codesRes, storesRes] = await Promise.all([
         fetch('/api/platform-config'),
         fetch('/api/admin/store-codes', {
+          headers: { Authorization: `Bearer ${tokenToUse}` },
+        }),
+        fetch('/api/admin/stores', {
           headers: { Authorization: `Bearer ${tokenToUse}` },
         }),
       ]);
@@ -187,7 +238,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         setForceZeroFeesGlobally(val);
         savePlatformSettingsLocal({ forceZeroFeesGlobally: val });
       }
-      if (codesRes.status === 401) {
+      if (codesRes.status === 401 || storesRes.status === 401) {
         localStorage.removeItem(LS_KEYS.ADMIN_TOKEN);
         setAdminToken('');
         return;
@@ -219,8 +270,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         }
         setServerCodes(map);
       }
+      if (storesRes.ok) {
+        const storesData = (await storesRes.json()) as { stores?: ServerAdminStoreEntry[] };
+        setServerStores(Array.isArray(storesData.stores) ? storesData.stores : []);
+      }
+      setLocalRestaurants(getLocalRestaurants());
+      setLastSyncedAt(Date.now());
     } catch {
       // keep local state seamlessly
+    } finally {
+      if (manual) setRefreshingLive(false);
     }
   }, []);
 
@@ -228,6 +287,31 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     if (!adminToken) return;
     setLocalRestaurants(getLocalRestaurants());
     void refreshServerAdminData(adminToken);
+
+    const pollId = window.setInterval(() => {
+      void refreshServerAdminData(adminToken);
+    }, 4000);
+
+    const handleStorage = () => {
+      setLocalRestaurants(getLocalRestaurants());
+      void refreshServerAdminData(adminToken);
+    };
+    window.addEventListener('storage', handleStorage);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel('ghazalo_admin_sync');
+      channel.onmessage = () => {
+        setLocalRestaurants(getLocalRestaurants());
+        void refreshServerAdminData(adminToken);
+      };
+    }
+
+    return () => {
+      window.clearInterval(pollId);
+      window.removeEventListener('storage', handleStorage);
+      if (channel) channel.close();
+    };
   }, [adminToken, refreshServerAdminData]);
 
   useEffect(() => {
@@ -250,9 +334,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       return;
     }
 
+    if (pinConfigured === false) {
+      if (candidate.length < 4) {
+        setPinError('الرقم السري يجب ألا يقل عن 4 أحرف.');
+        return;
+      }
+      if (confirmPinInput.trim() !== candidate) {
+        setPinError('تأكيد الرقم السري غير متطابق.');
+        return;
+      }
+    }
+
     setVerifyingPin(true);
     try {
-      const res = await fetch('/api/admin/verify-pin', {
+      const endpoint = pinConfigured === false ? '/api/admin/claim-pin' : '/api/admin/verify-pin';
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin: candidate }),
@@ -260,6 +356,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       const data = (await res.json()) as { ok?: boolean; adminToken?: string; error?: string };
       if (!res.ok || !data.ok || !data.adminToken) {
         setPinError(data.error || 'الرقم السري غير صحيح.');
+        if (res.status === 403) {
+          setPinConfigured(true);
+        }
         return;
       }
 
@@ -268,8 +367,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       } catch {
         // ignore storage quota
       }
+      setPinConfigured(true);
       setAdminToken(data.adminToken);
       setPinInput('');
+      setConfirmPinInput('');
     } catch {
       setPinError('تعذر الاتصال بخادم الإدارة.');
     } finally {
@@ -361,7 +462,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
   };
 
-  // Merge Firestore + Store Credentials + Server Codes + LocalStorage "restaurants"
+  // Merge Firestore + Server Stores + Store Credentials + Server Codes + LocalStorage "restaurants"
   const rows = useMemo<UnifiedRestaurantRow[]>(() => {
     const credByShop: Record<string, StoreCredentialRecord> = {};
     for (const c of firestoreCreds) {
@@ -375,23 +476,35 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       if (r.storeSlug) localByKey[normalizeStoreSlug(r.storeSlug)] = r;
     }
 
+    const serverByKey: Record<string, ServerAdminStoreEntry> = {};
+    for (const srv of serverStores) {
+      if (srv.shopId) serverByKey[srv.shopId] = srv;
+      if (srv.storeSlug) serverByKey[normalizeStoreSlug(srv.storeSlug)] = srv;
+    }
+
     const mergedMap = new Map<string, UnifiedRestaurantRow>();
 
     const buildRow = (
       shop: Shop,
       fromFirestore: boolean,
-      localMatch?: DemoRestaurantRecord
+      localMatch?: DemoRestaurantRecord,
+      serverMatch?: ServerAdminStoreEntry
     ): UnifiedRestaurantRow => {
       const slug =
         normalizeStoreSlug(shop.storeSlug || '') ||
+        normalizeStoreSlug(serverMatch?.storeSlug || '') ||
         normalizeStoreSlug(localMatch?.storeSlug || '') ||
         normalizeStoreSlug(shop.nameEn || '') ||
         normalizeStoreSlug(shop.id) ||
         shop.id;
       const cred = credByShop[shop.id] || credByShop[slug];
-      const srv = serverCodes[shop.id] || serverCodes[slug];
+      const srv = serverCodes[shop.id] || serverCodes[slug] || serverMatch;
 
-      const access = getShopAccessState(shop);
+      const effectiveShop: Shop = serverMatch?.shop
+        ? { ...shop, ...serverMatch.shop, id: shop.id, storeSlug: slug }
+        : { ...shop, storeSlug: slug };
+
+      const access = getShopAccessState(effectiveShop);
       let statusCategory: UnifiedRestaurantRow['statusCategory'] = 'trial';
       let statusLabel = 'تجريبي';
 
@@ -414,24 +527,30 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
       const expDate =
         statusCategory === 'monthly' || statusCategory === 'yearly'
-          ? shop.subscriptionExpiresAt || localMatch?.subscriptionEndDate
-          : shop.trialEndsAt || localMatch?.trialEndDate;
+          ? effectiveShop.subscriptionExpiresAt || localMatch?.subscriptionEndDate
+          : effectiveShop.trialEndsAt || localMatch?.trialEndDate;
+
+      const resolvedCreatedAt = Number(
+        effectiveShop.createdAt || serverMatch?.createdAt || serverMatch?.updatedAt || Date.now()
+      );
 
       return {
-        shopId: shop.id,
+        shopId: effectiveShop.id,
         storeSlug: slug,
-        nameAr: shop.nameAr || localMatch?.nameAr || slug,
+        nameAr: effectiveShop.nameAr || serverMatch?.nameAr || localMatch?.nameAr || slug,
         email: cred?.email || srv?.email || localMatch?.email || '',
-        phone: shop.whatsapp || cred?.phone || srv?.phone || localMatch?.phone || '',
+        phone: effectiveShop.whatsapp || cred?.phone || srv?.phone || localMatch?.phone || '',
         password: localMatch?.password || '',
         resetCode: srv?.resetCode || localMatch?.resetCode,
         resetCodeExpiresAt: srv?.resetCodeExpiresAt || localMatch?.resetCodeExpiresAt,
+        createdAt: resolvedCreatedAt,
+        productsCount: serverMatch?.productsCount ?? localMatch?.products?.length,
         subscriptionDateFormatted: expDate ? formatArabicDate(expDate) : '-',
         daysLeft: access.daysLeft,
         statusCategory,
         statusLabel,
-        deliveryFee: Number(shop.deliveryFee ?? localMatch?.deliveryFee ?? 0),
-        shop: { ...shop, storeSlug: slug },
+        deliveryFee: Number(effectiveShop.deliveryFee ?? localMatch?.deliveryFee ?? 0),
+        shop: effectiveShop,
         fromFirestore,
         localRecord: localMatch,
       };
@@ -440,8 +559,45 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     for (const s of firestoreShops) {
       const slug = normalizeStoreSlug(s.storeSlug || s.id);
       const lm = localByKey[s.id] || (slug ? localByKey[slug] : undefined);
-      const row = buildRow(s, true, lm);
+      const sm = serverByKey[s.id] || (slug ? serverByKey[slug] : undefined);
+      const row = buildRow(s, true, lm, sm);
       mergedMap.set(row.storeSlug || row.shopId, row);
+    }
+
+    for (const srv of serverStores) {
+      const slug = normalizeStoreSlug(srv.storeSlug || srv.shopId);
+      const key = slug || srv.shopId;
+      if (!mergedMap.has(key) && !mergedMap.has(srv.shopId)) {
+        const lm = localByKey[srv.shopId] || (slug ? localByKey[slug] : undefined);
+        const now = Date.now();
+        const fallbackTrialEnd = Number(srv.createdAt || now) + 7 * 24 * 60 * 60 * 1000;
+        const baseDefaults: Shop = {
+          id: srv.shopId,
+          ownerId: srv.ownerId || '',
+          storeSlug: key,
+          nameAr: srv.nameAr || lm?.nameAr || key,
+          nameEn: '',
+          country: 'مصر',
+          menuLanguage: 'العربية',
+          themeColor: 'أخضر',
+          themeMode: 'light',
+          menuTemplate: 'classic',
+          deliveryFee: Number(lm?.deliveryFee ?? 0),
+          isOpen: true,
+          acceptOrders: true,
+          subscriptionStatus: 'trial',
+          trialEndsAt: fallbackTrialEnd,
+          createdAt: Number(srv.createdAt || now),
+          updatedAt: Number(srv.updatedAt || now),
+          whatsapp: srv.phone || lm?.phone || '',
+        };
+        const synthShop: Shop = {
+          ...baseDefaults,
+          ...(lm?.shop || {}),
+          ...(srv.shop || {}),
+        };
+        mergedMap.set(key, buildRow(synthShop, false, lm, srv));
+      }
     }
 
     for (const lr of localRestaurants) {
@@ -463,11 +619,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
 
     return Array.from(mergedMap.values()).sort((a, b) => {
+      if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt;
       if (a.statusCategory === 'expired' && b.statusCategory !== 'expired') return -1;
       if (b.statusCategory === 'expired' && a.statusCategory !== 'expired') return 1;
       return a.nameAr.localeCompare(b.nameAr, 'ar');
     });
-  }, [firestoreShops, firestoreCreds, serverCodes, localRestaurants]);
+  }, [firestoreShops, firestoreCreds, serverStores, serverCodes, localRestaurants]);
 
   const stats = useMemo(() => {
     const counts = {
@@ -498,6 +655,29 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     });
   }, [rows, searchQuery, statusFilter]);
 
+  const syncAdminUpdateToServer = (
+    row: UnifiedRestaurantRow,
+    shopUpdates: Partial<Shop>
+  ) => {
+    if (!adminToken) return;
+    void fetch('/api/admin/update-store', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        shopId: row.shopId,
+        storeSlug: row.storeSlug,
+        shopUpdates,
+      }),
+    })
+      .then((r) => {
+        if (r.ok) void refreshServerAdminData(adminToken);
+      })
+      .catch(() => undefined);
+  };
+
   const updateLocalRowShop = (
     row: UnifiedRestaurantRow,
     shopUpdates: Partial<Shop>,
@@ -523,6 +703,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     );
     setLocalRestaurants([...nextList]);
     void syncPublicStoreSnapshot(mergedShop, row.localRecord?.products);
+    syncAdminUpdateToServer(row, shopUpdates);
   };
 
   const handleSubscriptionAction = async (
@@ -813,10 +994,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 <ShieldCheck className="w-7 h-7" />
               </div>
               <h1 className="text-xl sm:text-2xl font-black">
-                دخول لوحة تحكم الأدمن
+                {pinConfigured === false ? 'إعداد الرقم السري للإدارة' : 'دخول لوحة تحكم الأدمن'}
               </h1>
               <p className="text-xs sm:text-sm font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
-                مخصصة لإدارة Ghazalo فقط — إدارة المطاعم والاشتراكات وكلمات السر والرسوم
+                {pinConfigured === false
+                  ? 'لم يتم تعيين الرقم السري للإدارة بعد — أنشئ رقماً سرياً قوياً (4 أحرف على الأقل) لحماية لوحة الإدارة'
+                  : 'مخصصة لإدارة Ghazalo فقط — إدارة المطاعم والاشتراكات وكلمات السر والرسوم'}
               </p>
             </div>
 
@@ -829,13 +1012,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <form onSubmit={(e) => void handleVerifyPin(e)} className="space-y-4">
               <div>
                 <label className="block text-xs font-extrabold text-[#14201A] dark:text-[#E8F2EB] mb-1.5">
-                  الرقم السري للأدمن (PIN)
+                  {pinConfigured === false ? 'الرقم السري الجديد للإدارة (PIN)' : 'الرقم السري للأدمن (PIN)'}
                 </label>
                 <div className="relative">
                   <input
                     type={showPin ? 'text' : 'password'}
                     dir="ltr"
                     required
+                    minLength={pinConfigured === false ? 4 : undefined}
                     value={pinInput}
                     onChange={(e) => setPinInput(e.target.value)}
                     placeholder="••••••"
@@ -852,6 +1036,24 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
               </div>
 
+              {pinConfigured === false && (
+                <div>
+                  <label className="block text-xs font-extrabold text-[#14201A] dark:text-[#E8F2EB] mb-1.5">
+                    تأكيد الرقم السري
+                  </label>
+                  <input
+                    type={showPin ? 'text' : 'password'}
+                    dir="ltr"
+                    required
+                    minLength={4}
+                    value={confirmPinInput}
+                    onChange={(e) => setConfirmPinInput(e.target.value)}
+                    placeholder="••••••"
+                    className="sf-inp text-center text-lg font-extrabold tracking-widest"
+                  />
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={verifyingPin}
@@ -862,7 +1064,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 ) : (
                   <Unlock className="w-4 h-4" />
                 )}
-                <span>فتح لوحة الأدمن</span>
+                <span>{pinConfigured === false ? 'حفظ الرقم السري وفتح اللوحة' : 'فتح لوحة الأدمن'}</span>
               </button>
             </form>
           </div>
@@ -874,7 +1076,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   return (
     <div dir="rtl" className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] text-[#14201A] dark:text-[#E8F2EB] pb-16">
       {/* Admin Top Header */}
-      <header className="sticky top-0 z-30 bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 backdrop-blur-md border-b border-[#CFE3D5] dark:border-[#2C3D32] px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-30 bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 backdrop-blur-md border-b border-[#CFE3D5] dark:border-[#2C3D32] px-4 sm:px-6 h-16 flex items-center justify-between gap-3 no-print">
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
@@ -911,6 +1113,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               فصل Google
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => void refreshServerAdminData(adminToken, true)}
+            className="px-3 py-2 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] font-bold text-xs inline-flex items-center gap-1.5"
+            title="تحديث فوري لقائمة المطاعم"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshingLive ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">تحديث فوري</span>
+          </button>
           <PWAInstallButton variant="compact" label="التطبيق" />
           <button
             type="button"
@@ -937,7 +1148,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 space-y-6 no-print">
         {/* Global Control Toggle: الغاء كل الرسوم والضرايب لكل المطاعم */}
         <div className="sf-card p-5 border-2 border-[#15803D]/40 flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-1 max-w-2xl">
@@ -964,11 +1175,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           </button>
         </div>
 
-        {/* Private Link + Quick Tools */}
+        {/* Private Link + Live Sync Status + Quick Tools */}
         <div className="sf-card p-4 flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-0.5 min-w-0">
-            <div className="text-xs font-extrabold text-[#15803D] dark:text-[#BBF7D0]">
-              رابط لوحة الأدمن الخاص
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-extrabold text-[#15803D] dark:text-[#BBF7D0]">
+                رابط لوحة الأدمن الخاص بك وحدك (محمي برقم PIN)
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] text-[10px] font-extrabold">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#15803D] animate-pulse" />
+                مزامنة فورية · {new Date(lastSyncedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
             </div>
             <div className="text-xs font-mono text-[#4B5B52] dark:text-[#A3B5AA] truncate" dir="ltr">
               {privateAdminUrl}
@@ -1056,373 +1273,359 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           </div>
         </div>
 
-        {/* All Restaurants Table */}
-        <div className="sf-card p-0 overflow-hidden">
-          {loadingShops && rows.length === 0 ? (
-            <div className="p-10 text-center">
-              <Loader2 className="w-8 h-8 animate-spin text-[#15803D] mx-auto" />
+        {/* Smooth Responsive Restaurant Cards Grid */}
+        {loadingShops && rows.length === 0 ? (
+          <div className="sf-card p-10 text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-[#15803D] mx-auto" />
+          </div>
+        ) : filteredRows.length === 0 ? (
+          <div className="sf-card p-10 text-center space-y-2">
+            <Store className="w-10 h-10 text-[#15803D] mx-auto opacity-60" />
+            <div className="font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
+              لا توجد مطاعم مطابقة للبحث أو التصنيف.
             </div>
-          ) : filteredRows.length === 0 ? (
-            <div className="p-10 text-center space-y-2">
-              <Store className="w-10 h-10 text-[#15803D] mx-auto opacity-60" />
-              <div className="font-bold text-[#4B5B52] dark:text-[#A3B5AA]">لا توجد مطاعم مطابقة للبحث أو التصنيف.</div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-right border-collapse min-w-[1180px]">
-                <thead>
-                  <tr className="bg-[#DCFCE7]/70 dark:bg-[#173323] border-b border-[#CFE3D5] dark:border-[#2C3D32] text-xs font-black text-[#14532D] dark:text-[#BBF7D0]">
-                    <th className="py-3.5 px-3">اسم المطعم</th>
-                    <th className="py-3.5 px-3">رابط المتجر</th>
-                    <th className="py-3.5 px-3">الايميل</th>
-                    <th className="py-3.5 px-3">رقم الموبايل</th>
-                    <th className="py-3.5 px-3">كلمة السر الحالية</th>
-                    <th className="py-3.5 px-3">تاريخ الاشتراك</th>
-                    <th className="py-3.5 px-3">باقي كام يوم</th>
-                    <th className="py-3.5 px-3">حالة الاشتراك</th>
-                    <th className="py-3.5 px-3">سعر التوصيل</th>
-                    <th className="py-3.5 px-3">اجراءات</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#CFE3D5]/70 dark:divide-[#2C3D32] text-xs">
-                  {filteredRows.map((row) => {
-                    const isBusy = busyId === row.shopId;
-                    const showPass = Boolean(revealedPasswords[row.shopId]);
-                    const deliveryVal =
-                      deliveryEdits[row.shopId] !== undefined
-                        ? deliveryEdits[row.shopId]
-                        : String(row.deliveryFee);
-                    const isPlansExpanded = expandedPlanRowId === row.shopId;
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {filteredRows.map((row) => {
+              const isBusy = busyId === row.shopId;
+              const showPass = Boolean(revealedPasswords[row.shopId]);
+              const deliveryVal =
+                deliveryEdits[row.shopId] !== undefined
+                  ? deliveryEdits[row.shopId]
+                  : String(row.deliveryFee);
+              const isPlansExpanded = expandedPlanRowId === row.shopId;
+              const isNewStore = Date.now() - row.createdAt < 24 * 60 * 60 * 1000;
 
-                    return (
-                      <React.Fragment key={row.shopId}>
-                        <tr className="hover:bg-[#F6FBF7] dark:hover:bg-[#173323]/40 align-top">
-                          <td className="py-3.5 px-3 font-extrabold text-[#14201A] dark:text-[#E8F2EB]">
-                            <div>{row.nameAr}</div>
-                            {row.resetCode && (
-                              <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#FEF9C3] text-[#14201A] text-[11px] font-extrabold tabular-nums">
-                                كود الاستعادة: {row.resetCode}
-                              </div>
-                            )}
-                          </td>
-
-                          <td className="py-3.5 px-3" dir="ltr">
-                            <span className="font-mono text-[11px] font-bold text-[#15803D] dark:text-[#BBF7D0]">
-                              /menu/{row.storeSlug}
+              return (
+                <div
+                  key={row.shopId}
+                  className="sf-card p-4 sm:p-5 space-y-4 transition-all hover:border-[#15803D]/60 flex flex-col justify-between"
+                >
+                  {/* Card Header: Logo + Name + Slug + Status Badges */}
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      {row.shop.logoUrl ? (
+                        <img
+                          loading="lazy"
+                          decoding="async"
+                          src={row.shop.logoUrl}
+                          alt={row.nameAr}
+                          className="w-12 h-12 rounded-2xl object-cover border border-[#CFE3D5] dark:border-[#2C3D32] bg-white shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-2xl bg-[#15803D] text-white font-black text-lg flex items-center justify-center shrink-0">
+                          {row.nameAr.trim().slice(0, 1) || 'م'}
+                        </div>
+                      )}
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-black text-base text-[#14201A] dark:text-[#E8F2EB] truncate">
+                            {row.nameAr}
+                          </h3>
+                          {isNewStore && (
+                            <span className="px-2 py-0.5 rounded-full bg-[#15803D] text-white text-[10px] font-black">
+                              جديد
                             </span>
-                          </td>
-
-                          <td className="py-3.5 px-3 font-semibold text-[#4B5B52] dark:text-[#A3B5AA]" dir="ltr">
-                            {row.email || '—'}
-                          </td>
-
-                          <td className="py-3.5 px-3 font-bold tabular-nums text-[#14201A] dark:text-[#E8F2EB]" dir="ltr">
-                            {row.phone || '—'}
-                          </td>
-
-                          {/* Password column + eye button */}
-                          <td className="py-3.5 px-3">
-                            <div className="inline-flex items-center gap-1.5">
-                              <span dir="ltr" className="font-mono font-bold text-[#14201A] dark:text-[#E8F2EB]">
-                                {showPass
-                                  ? row.password || 'مشفرة بالخادم'
-                                  : '••••••'}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRevealedPasswords((prev) => ({
-                                    ...prev,
-                                    [row.shopId]: !prev[row.shopId],
-                                  }))
-                                }
-                                title="اظهار كلمة السر"
-                                className="p-1.5 rounded-lg bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] hover:bg-[#BBF7D0]"
-                              >
-                                {showPass ? (
-                                  <EyeOff className="w-3.5 h-3.5" />
-                                ) : (
-                                  <Eye className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-3 font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
-                            {row.subscriptionDateFormatted}
-                          </td>
-
-                          <td className="py-3.5 px-3 font-extrabold tabular-nums">
-                            <span
-                              className={
-                                row.daysLeft <= 1
-                                  ? 'text-rose-600 dark:text-rose-400'
-                                  : 'text-[#14201A] dark:text-[#E8F2EB]'
-                              }
-                            >
-                              {row.daysLeft} يوم
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap text-[11px]" dir="ltr">
+                          <span className="font-mono font-bold text-[#15803D] dark:text-[#BBF7D0] truncate">
+                            /menu/{row.storeSlug}
+                          </span>
+                          {typeof row.productsCount === 'number' && (
+                            <span className="text-[#4B5B52] dark:text-[#A3B5AA] font-bold" dir="rtl">
+                              · {row.productsCount} صنف
                             </span>
-                          </td>
+                          )}
+                        </div>
+                      </div>
+                    </div>
 
-                          <td className="py-3.5 px-3">
-                            <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold whitespace-nowrap ${
-                                row.statusCategory === 'monthly' || row.statusCategory === 'yearly'
-                                  ? 'bg-[#DCFCE7] text-[#14532D] dark:bg-[#173323] dark:text-[#BBF7D0]'
-                                  : row.statusCategory === 'trial'
-                                    ? 'bg-[#FEF9C3] text-[#14201A] dark:bg-amber-950 dark:text-amber-300'
-                                    : row.statusCategory === 'expired'
-                                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                                      : 'bg-[#F6FBF7] text-[#4B5B52] dark:bg-[#173323] dark:text-[#A3B5AA]'
-                              }`}
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold whitespace-nowrap ${
+                          row.statusCategory === 'monthly' || row.statusCategory === 'yearly'
+                            ? 'bg-[#DCFCE7] text-[#14532D] dark:bg-[#173323] dark:text-[#BBF7D0]'
+                            : row.statusCategory === 'trial'
+                              ? 'bg-[#FEF9C3] text-[#14201A] dark:bg-amber-950 dark:text-amber-300'
+                              : row.statusCategory === 'expired'
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                : 'bg-[#F6FBF7] text-[#4B5B52] dark:bg-[#173323] dark:text-[#A3B5AA]'
+                        }`}
+                      >
+                        {row.statusCategory === 'expired' && <ShieldAlert className="w-3 h-3" />}
+                        {row.statusCategory === 'trial' && <Clock className="w-3 h-3" />}
+                        {(row.statusCategory === 'monthly' || row.statusCategory === 'yearly') && (
+                          <CheckCircle2 className="w-3 h-3" />
+                        )}
+                        {row.statusCategory === 'suspended' && <Ban className="w-3 h-3" />}
+                        {row.statusLabel}
+                      </span>
+                      <span
+                        className={`text-[11px] font-extrabold tabular-nums ${
+                          row.daysLeft <= 1
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-[#4B5B52] dark:text-[#A3B5AA]'
+                        }`}
+                      >
+                        متبقي {row.daysLeft} يوم · {row.subscriptionDateFormatted}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Merchant Contact + Password + Delivery Fee */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 rounded-2xl bg-[#F6FBF7] dark:bg-[#0F1712] p-3 border border-[#CFE3D5]/70 dark:border-[#2C3D32] text-xs">
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-[#4B5B52] dark:text-[#A3B5AA] shrink-0">الإيميل:</span>
+                        <span dir="ltr" className="font-bold truncate text-[#14201A] dark:text-[#E8F2EB]">
+                          {row.email || '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-[#4B5B52] dark:text-[#A3B5AA] shrink-0">الموبايل:</span>
+                        <span dir="ltr" className="font-extrabold tabular-nums text-[#14201A] dark:text-[#E8F2EB]">
+                          {row.phone || '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-[#4B5B52] dark:text-[#A3B5AA] shrink-0">كلمة السر:</span>
+                        <div className="inline-flex items-center gap-1.5">
+                          <span dir="ltr" className="font-mono font-bold text-[#14201A] dark:text-[#E8F2EB]">
+                            {showPass ? row.password || 'مشفرة بالخادم' : '••••••'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRevealedPasswords((prev) => ({
+                                ...prev,
+                                [row.shopId]: !prev[row.shopId],
+                              }))
+                            }
+                            aria-label="إظهار كلمة السر"
+                            className="p-1 rounded-lg bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0]"
+                          >
+                            {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 sm:border-s sm:border-[#CFE3D5]/70 dark:sm:border-[#2C3D32] sm:ps-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-[#4B5B52] dark:text-[#A3B5AA]">التوصيل (ج):</span>
+                        <div className="inline-flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={0}
+                            value={deliveryVal}
+                            onChange={(e) =>
+                              setDeliveryEdits((prev) => ({
+                                ...prev,
+                                [row.shopId]: e.target.value,
+                              }))
+                            }
+                            className="w-16 px-2 py-1 rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] text-center font-extrabold tabular-nums"
+                          />
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => void handleSaveDeliveryPrice(row)}
+                            className="p-1.5 rounded-xl bg-[#15803D] text-white hover:bg-[#166534]"
+                            title="حفظ سعر التوصيل"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {row.resetCode ? (
+                        <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                          <span className="px-2 py-0.5 rounded-lg bg-[#FEF9C3] text-[#14201A] text-[11px] font-extrabold tabular-nums">
+                            كود الاستعادة: {row.resetCode}
+                          </span>
+                          {row.phone && (
+                            <a
+                              href={`https://wa.me/${toWhatsAppNumber(row.phone)}?text=${encodeURIComponent(
+                                `مرحباً ${row.nameAr}، كود استعادة كلمة سر متجرك على Ghazalo هو: ${row.resetCode}`
+                              )}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2 py-0.5 rounded-lg bg-[#15803D] text-white text-[11px] font-extrabold inline-flex items-center gap-1"
                             >
-                              {row.statusCategory === 'expired' && <ShieldAlert className="w-3 h-3" />}
-                              {row.statusCategory === 'trial' && <Clock className="w-3 h-3" />}
-                              {(row.statusCategory === 'monthly' || row.statusCategory === 'yearly') && (
-                                <CheckCircle2 className="w-3 h-3" />
-                              )}
-                              {row.statusCategory === 'suspended' && <Ban className="w-3 h-3" />}
-                              {row.statusLabel}
-                            </span>
-                          </td>
+                              <MessageCircle className="w-3 h-3" />
+                              واتساب
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA] pt-0.5">
+                          القالب: {row.shop.menuTemplate || 'classic'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
-                          {/* Editable Delivery Fee per Restaurant */}
-                          <td className="py-3.5 px-3">
-                            <div className="inline-flex items-center gap-1">
-                              <input
-                                type="number"
-                                min={0}
-                                value={deliveryVal}
-                                onChange={(e) =>
-                                  setDeliveryEdits((prev) => ({
-                                    ...prev,
-                                    [row.shopId]: e.target.value,
-                                  }))
-                                }
-                                className="w-16 px-2 py-1 rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] text-center font-extrabold tabular-nums"
-                              />
-                              <button
-                                type="button"
-                                disabled={isBusy}
-                                onClick={() => void handleSaveDeliveryPrice(row)}
-                                className="p-1.5 rounded-xl bg-[#15803D] text-white hover:bg-[#166534]"
-                                title="حفظ سعر التوصيل"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
+                  {/* Quick Actions Toolbar */}
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    {onPreviewShop && (
+                      <button
+                        type="button"
+                        onClick={() => onPreviewShop(row.shop)}
+                        className="px-3 py-1.5 rounded-xl bg-[#14201A] dark:bg-[#173323] text-white font-extrabold inline-flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        فتح المنيو
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyMenuLink(row)}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#F6FBF7] dark:bg-[#173323] border border-[#CFE3D5] dark:border-[#2C3D32] font-bold inline-flex items-center gap-1"
+                    >
+                      <Copy className="w-3 h-3" />
+                      {copiedSlugId === row.shopId ? 'تم النسخ!' : 'نسخ اللينك'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQrPreviewRow(row)}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] font-bold inline-flex items-center gap-1"
+                    >
+                      <QrCode className="w-3 h-3" />
+                      QR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPasswordModalRow(row);
+                        setNewStorePassInput('');
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] font-bold inline-flex items-center gap-1"
+                    >
+                      <KeyRound className="w-3 h-3 text-[#15803D]" />
+                      تغيير الباسورد
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void handleGenerateResetCode(row)}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#FEF9C3] text-[#14201A] font-bold inline-flex items-center gap-1"
+                    >
+                      <Send className="w-3 h-3" />
+                      كود استعادة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedPlanRowId((prev) => (prev === row.shopId ? null : row.shopId))
+                      }
+                      className="px-3 py-1.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold inline-flex items-center gap-1 ms-auto"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {isPlansExpanded ? 'إخفاء الباقات' : 'إدارة الاشتراك'}
+                    </button>
+                  </div>
 
-                          {/* Per-Restaurant Admin Actions */}
-                          <td className="py-3.5 px-3">
-                            <div className="flex flex-wrap items-center gap-1.5 max-w-[300px]">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRevealedPasswords((prev) => ({
-                                    ...prev,
-                                    [row.shopId]: !prev[row.shopId],
-                                  }))
-                                }
-                                className="px-2.5 py-1.5 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] font-bold inline-flex items-center gap-1"
-                              >
-                                <Eye className="w-3 h-3" />
-                                اظهار كلمة السر
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPasswordModalRow(row);
-                                  setNewStorePassInput('');
-                                }}
-                                className="px-2.5 py-1.5 rounded-xl bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] font-bold inline-flex items-center gap-1"
-                              >
-                                <KeyRound className="w-3 h-3 text-[#15803D]" />
-                                تغيير كلمة السر
-                              </button>
-
-                              <button
-                                type="button"
-                                disabled={isBusy}
-                                onClick={() => void handleGenerateResetCode(row)}
-                                className="px-2.5 py-1.5 rounded-xl bg-[#FEF9C3] text-[#14201A] font-bold inline-flex items-center gap-1"
-                              >
-                                <Send className="w-3 h-3" />
-                                ارسال كود استعادة
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => void handleCopyMenuLink(row)}
-                                className="px-2.5 py-1.5 rounded-xl bg-[#F6FBF7] dark:bg-[#173323] border border-[#CFE3D5] dark:border-[#2C3D32] font-bold inline-flex items-center gap-1"
-                              >
-                                <Copy className="w-3 h-3" />
-                                {copiedSlugId === row.shopId ? 'تم النسخ!' : 'نسخ اللينك'}
-                              </button>
-
-                              {onPreviewShop && (
-                                <button
-                                  type="button"
-                                  onClick={() => onPreviewShop(row.shop)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-[#14201A] dark:bg-[#173323] text-white font-bold inline-flex items-center gap-1"
-                                >
-                                  <ExternalLink className="w-3 h-3" />
-                                  فتح المنيو
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedPlanRowId((prev) =>
-                                    prev === row.shopId ? null : row.shopId
-                                  )
-                                }
-                                className="px-3 py-1.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold inline-flex items-center gap-1"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                {isPlansExpanded ? 'إخفاء التفعيل' : 'تفعيل'}
-                              </button>
-                            </div>
-                            {isPlansExpanded && (
-                              <div className="mt-2 p-2.5 rounded-[16px] bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] flex flex-wrap items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  disabled={isBusy}
-                                  onClick={() => {
-                                    void handleSubscriptionAction(row, 'monthly');
-                                    setExpandedPlanRowId(null);
-                                  }}
-                                  className="px-3 py-1.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-[11px]"
-                                >
-                                  شهري (30 يوم - {SUBSCRIPTION_PRICING.MONTHLY_EGP} ج)
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={isBusy}
-                                  onClick={() => {
-                                    void handleSubscriptionAction(row, 'yearly');
-                                    setExpandedPlanRowId(null);
-                                  }}
-                                  className="px-3 py-1.5 rounded-xl bg-[#14201A] hover:bg-[#15803D] text-white font-extrabold text-[11px]"
-                                >
-                                  سنوي (365 يوم - {SUBSCRIPTION_PRICING.YEARLY_EGP} ج)
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-
-                        {/* 3 Clear Subscription Cards Row per Restaurant */}
-                        <tr className="bg-[#F6FBF7]/80 dark:bg-[#0F1712]/60">
-                          <td colSpan={10} className="px-4 py-3">
-                            <div
-                              className={`grid grid-cols-1 sm:grid-cols-4 gap-3 items-stretch ${
-                                isPlansExpanded ? '' : 'max-h-[400px]'
-                              }`}
-                            >
-                              {/* Card 1: Trial 7 days */}
-                              <div className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-[16px] p-3.5 border border-[#FACC15] dark:border-[#2C3D32] flex items-center justify-between gap-3">
-                                <div>
-                                  <div className="font-extrabold text-xs">
-                                    تجريبي مجاني - 7 أيام
-                                  </div>
-                                  <div className="text-xs font-extrabold text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
-                                    السعر: 0 جنيه
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  disabled={isBusy}
-                                  onClick={() => void handleSubscriptionAction(row, 'trial')}
-                                  className="px-3.5 py-2 rounded-xl bg-[#FACC15] hover:bg-[#EAB308] text-[#14201A] font-extrabold text-xs shrink-0"
-                                >
-                                  بدأ التجربة
-                                </button>
-                              </div>
-
-                              {/* Card 2: Monthly 30 days */}
-                              <div className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-[16px] p-3.5 border border-[#CFE3D5] dark:border-[#2C3D32] flex items-center justify-between gap-3">
-                                <div>
-                                  <div className="font-extrabold text-xs">
-                                    التفعيل الشهري - 30 يوم
-                                  </div>
-                                  <div className="text-xs font-extrabold text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
-                                    {SUBSCRIPTION_PRICING.MONTHLY_EGP} جنيه
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  disabled={isBusy}
-                                  onClick={() => void handleSubscriptionAction(row, 'monthly')}
-                                  className="px-3.5 py-2 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-xs shrink-0"
-                                >
-                                  تفعيل شهري
-                                </button>
-                              </div>
-
-                              {/* Card 3: Yearly 365 days */}
-                              <div className="bg-[#DCFCE7] dark:bg-[#173323] rounded-[16px] p-3.5 border-2 border-[#15803D] flex items-center justify-between gap-3">
-                                <div>
-                                  <div className="font-extrabold text-xs">
-                                    التفعيل السنوي - 365 يوم
-                                  </div>
-                                  <div className="text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0] tabular-nums">
-                                    {SUBSCRIPTION_PRICING.YEARLY_EGP.toLocaleString('en-US')} جنيه
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  disabled={isBusy}
-                                  onClick={() => void handleSubscriptionAction(row, 'yearly')}
-                                  className="px-3.5 py-2 rounded-xl bg-[#14201A] hover:bg-[#15803D] text-white font-extrabold text-xs shrink-0 transition-colors"
-                                >
-                                  تفعيل سنوي
-                                </button>
-                              </div>
-
-                              {/* Suspend + WhatsApp reset code quick send */}
-                              <div className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-[16px] p-3.5 border border-[#CFE3D5] dark:border-[#2C3D32] flex items-center justify-between gap-2">
-                                {row.resetCode && row.phone ? (
-                                  <a
-                                    href={`https://wa.me/${row.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                                      `مرحباً ${row.nameAr}، كود استعادة كلمة سر متجرك على Ghazalo هو: ${row.resetCode}`
-                                    )}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="px-3 py-2 rounded-xl bg-[#15803D] text-white font-extrabold text-xs inline-flex items-center gap-1"
-                                  >
-                                    <MessageCircle className="w-3.5 h-3.5" />
-                                    واتساب بالكود
-                                  </a>
-                                ) : (
-                                  <span className="text-[11px] font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
-                                    إجراءات الحساب
-                                  </span>
-                                )}
-                                <button
-                                  type="button"
-                                  disabled={isBusy}
-                                  onClick={() => void handleSubscriptionAction(row, 'suspend')}
-                                  className="px-3 py-2 rounded-xl bg-[#FEF9C3] hover:bg-[#FACC15] text-[#14201A] font-extrabold text-xs inline-flex items-center gap-1"
-                                >
-                                  <Ban className="w-3.5 h-3.5" />
-                                  إيقاف
-                                </button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                  {/* Subscription Controls Strip (Always visible 4 crisp controls + expanded details) */}
+                  <div
+                    className={`grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#CFE3D5]/70 dark:border-[#2C3D32] ${
+                      isPlansExpanded ? '' : ''
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void handleSubscriptionAction(row, 'trial')}
+                      className="py-2 px-2.5 rounded-xl bg-[#FEF9C3] hover:bg-[#FACC15] text-[#14201A] font-extrabold text-[11px] text-center transition-colors"
+                    >
+                      تجربة 7 أيام (0 ج)
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void handleSubscriptionAction(row, 'monthly')}
+                      className="py-2 px-2.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-[11px] text-center transition-colors"
+                    >
+                      شهري ({SUBSCRIPTION_PRICING.MONTHLY_EGP} ج)
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void handleSubscriptionAction(row, 'yearly')}
+                      className="py-2 px-2.5 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] border border-[#15803D] text-[#14532D] dark:text-[#BBF7D0] hover:bg-[#15803D] hover:text-white font-extrabold text-[11px] text-center transition-colors"
+                    >
+                      سنوي ({SUBSCRIPTION_PRICING.YEARLY_EGP} ج)
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void handleSubscriptionAction(row, 'suspend')}
+                      className="py-2 px-2.5 rounded-xl bg-[#FFFFFF] dark:bg-[#18231C] border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 hover:bg-rose-50 font-extrabold text-[11px] inline-flex items-center justify-center gap-1 transition-colors"
+                    >
+                      <Ban className="w-3 h-3" />
+                      إيقاف
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </main>
+
+      {/* Admin QR Quick Preview & Print Modal */}
+      {qrPreviewRow && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs no-print"
+          onClick={() => setQrPreviewRow(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="sf-card max-w-sm w-full p-6 space-y-4 text-center shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black truncate">{qrPreviewRow.nameAr}</h3>
+              <button
+                type="button"
+                onClick={() => setQrPreviewRow(null)}
+                className="w-8 h-8 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex justify-center">
+              <QrCodeImage value={getAbsoluteMenuUrl(qrPreviewRow.storeSlug)} size={190} />
+            </div>
+            <div dir="ltr" className="text-xs font-mono text-[#15803D] dark:text-[#BBF7D0] break-all">
+              {getAbsoluteMenuUrl(qrPreviewRow.storeSlug)}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  void downloadQrPng(
+                    getAbsoluteMenuUrl(qrPreviewRow.storeSlug),
+                    `${qrPreviewRow.storeSlug}-qr.png`
+                  )
+                }
+                className="sf-btn-primary text-xs min-h-[42px]"
+              >
+                <Download className="w-4 h-4" />
+                تحميل PNG
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="sf-btn text-xs min-h-[42px]"
+              >
+                <Printer className="w-4 h-4" />
+                طباعة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Change Restaurant Password Modal */}
       {passwordModalRow && (
@@ -1522,6 +1725,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+      {/* Printable QR Poster for Admin QR Preview */}
+      {qrPreviewRow && (
+        <div className="hidden print-only p-8 text-center max-w-md mx-auto">
+          <div className="border-2 border-emerald-700 rounded-3xl p-6 space-y-4">
+            <h2 className="text-2xl font-black text-slate-900">{qrPreviewRow.nameAr}</h2>
+            <p className="text-sm font-bold text-slate-600">امسح الرمز لتصفح المنيو والطلب أونلاين</p>
+            <div className="flex justify-center">
+              <QrCodeImage value={getAbsoluteMenuUrl(qrPreviewRow.storeSlug)} size={240} />
+            </div>
+            <div dir="ltr" className="text-xs font-mono text-emerald-800">
+              {getAbsoluteMenuUrl(qrPreviewRow.storeSlug)}
+            </div>
+            <div className="text-xs font-extrabold text-slate-500">Ghazalo Digital Menu</div>
+          </div>
         </div>
       )}
     </div>

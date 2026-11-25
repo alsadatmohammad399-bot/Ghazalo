@@ -337,6 +337,9 @@ export const FIELD_LIMITS = {
   DELIVERY_TIME_MAX: 60,
   LOGO_URL_MAX: 24000,
   COVER_IMAGE_MAX: 90000,
+  SOCIAL_URL_MAX: 300,
+  MAPS_URL_MAX: 400,
+  ADS_ID_MAX: 64,
 } as const;
 
 export interface UserProfile {
@@ -373,6 +376,12 @@ export interface Shop {
   paymentMethods?: string[];
   bio?: string;
   whatsapp?: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
+  tiktokUrl?: string;
+  googleMapsUrl?: string;
+  googleAdsId?: string;
+  googleAdsConversionLabel?: string;
   coverImage?: string;
   isOpen: boolean;
   subscriptionStatus: SubscriptionStatus;

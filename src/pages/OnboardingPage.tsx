@@ -19,7 +19,8 @@ import {
 } from '../services/firestoreService';
 import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
 import { sortExtractedMenuItems, sortMenuCategories } from '../utils/menuSorting';
-import { syncPublicStoreSnapshot } from '../utils/menuLink';
+import { notifyAdminStoreSync, syncPublicStoreSnapshot } from '../utils/menuLink';
+import { trackAdsConversion } from '../utils/adsTracking';
 import { getProductOptions } from '../utils/productVariants';
 import { setStoredUiLang } from '../utils/uiLang';
 import {
@@ -265,27 +266,27 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
         savePhoneEmailMapping(cleanPhone, ownerEmail);
       }
 
-      if (initialPassword) {
-        try {
-          await fetch('/api/store-auth/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              shopId: newShop.id,
-              storeSlug: finalSlug,
-              ownerId,
-              nameAr: newShop.nameAr,
-              email: ownerEmail,
-              phone: cleanPhone,
-              password: initialPassword,
-            }),
-          });
-        } catch {
-          // non-blocking
-        }
+      try {
+        await fetch('/api/store-auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shopId: newShop.id,
+            storeSlug: finalSlug,
+            ownerId,
+            nameAr: newShop.nameAr,
+            email: ownerEmail,
+            phone: cleanPhone,
+            ...(initialPassword ? { password: initialPassword } : {}),
+          }),
+        });
+      } catch {
+        // non-blocking
       }
 
       await syncPublicStoreSnapshot(newShop, createdProducts);
+      notifyAdminStoreSync('store-onboarded');
+      trackAdsConversion('generate_lead', { currency: 'EGP', value: 0 });
 
       onCompleted(newShop, createdProducts);
     } catch (err: unknown) {

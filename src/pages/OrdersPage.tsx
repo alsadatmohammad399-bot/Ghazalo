@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, MailOpen, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, MailOpen, Printer, Receipt, Search, X } from 'lucide-react';
+import { InvoiceReceipt, orderToInvoiceData } from '../components/InvoiceReceipt';
 import { updateOrderStatus } from '../services/firestoreService';
 import { formatMoney } from '../utils/calculations';
 import { tx, useUiLang } from '../utils/uiLang';
@@ -25,6 +26,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'preparing' | 'ready'>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'cashier' | 'menu'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'delivery' | 'pickup' | 'dine_in' | 'table'>('all');
+  const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
 
   const statusLabels: Record<OrderStatus, string> = {
     new: tx(isEn, 'جديد', 'New'),
@@ -78,7 +80,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
 
   return (
     <div dir={isEn ? 'ltr' : 'rtl'} className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] pb-20">
-      <header className="sticky top-0 z-20 bg-[#FFFFFF] dark:bg-[#18231C] border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+      <header className="sticky top-0 z-20 bg-[#FFFFFF] dark:bg-[#18231C] border-b border-[#CFE3D5] dark:border-[#2C3D32] no-print">
         <div className="max-w-[560px] mx-auto px-4 py-2.5 flex items-center justify-between gap-2">
           <button
             type="button"
@@ -101,7 +103,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
         </div>
       </header>
 
-      <main className="max-w-[560px] mx-auto px-4 pt-3.5 space-y-3.5">
+      <main className="max-w-[560px] mx-auto px-4 pt-3.5 space-y-3.5 no-print">
         {/* Search */}
         <div className="relative">
           <Search
@@ -225,29 +227,99 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                   </div>
                 )}
 
-                <div className="flex items-center justify-between gap-3 pt-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                   <div className="text-base font-extrabold text-[#15803D] dark:text-[#4ADE80] tabular-nums">
                     {formatMoney(ord.total, shop.country)}
                   </div>
-                  {ord.status !== 'completed' && (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => void handleAdvanceStatus(ord)}
-                      className="sf-btn-mint min-h-[42px] text-xs px-4"
+                      onClick={() => setPreviewOrder(ord)}
+                      className="sf-btn min-h-[40px] text-xs px-3"
                     >
-                      {ord.status === 'new'
-                        ? tx(isEn, 'تحويل إلى قيد التحضير', 'Start Preparing')
-                        : ord.status === 'preparing'
-                          ? tx(isEn, 'تحويل إلى جاهز', 'Mark Ready')
-                          : tx(isEn, 'إتمام الطلب', 'Complete')}
+                      <Receipt className="w-3.5 h-3.5 text-[#15803D]" />
+                      {tx(isEn, 'الفاتورة', 'Invoice')}
                     </button>
-                  )}
+                    {ord.status !== 'completed' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleAdvanceStatus(ord)}
+                        className="sf-btn-mint min-h-[40px] text-xs px-4"
+                      >
+                        {ord.status === 'new'
+                          ? tx(isEn, 'تحويل إلى قيد التحضير', 'Start Preparing')
+                          : ord.status === 'preparing'
+                            ? tx(isEn, 'تحويل إلى جاهز', 'Mark Ready')
+                            : tx(isEn, 'إتمام الطلب', 'Complete')}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </main>
+
+      {previewOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/55 backdrop-blur-xs no-print"
+          onClick={() => setPreviewOrder(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="sf-card max-w-md w-full max-h-[92vh] flex flex-col justify-between p-4 sm:p-5 shadow-2xl space-y-3"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+              <h3 className="font-extrabold text-base">
+                {tx(isEn, `فاتورة الطلب #${previewOrder.orderNumber}`, `Invoice #${previewOrder.orderNumber}`)}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewOrder(null)}
+                className="sf-btn min-h-[36px] w-9 px-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <InvoiceReceipt
+                shop={shop}
+                data={orderToInvoiceData(previewOrder, shop)}
+                isEn={isEn}
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="sf-btn-primary flex-1 min-h-[44px] text-sm"
+              >
+                <Printer className="w-4 h-4" />
+                {tx(isEn, 'طباعة الفاتورة', 'Print Invoice')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewOrder(null)}
+                className="sf-btn min-h-[44px] text-sm"
+              >
+                {tx(isEn, 'إغلاق', 'Close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewOrder && (
+        <div className="hidden print-only p-2">
+          <InvoiceReceipt
+            shop={shop}
+            data={orderToInvoiceData(previewOrder, shop)}
+            isEn={isEn}
+            compactThermal
+          />
+        </div>
+      )}
     </div>
   );
 };

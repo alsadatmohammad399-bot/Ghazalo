@@ -4,12 +4,21 @@ import {
   ExternalLink,
   Languages,
   Mail,
+  MapPin,
+  Megaphone,
   Menu,
   MessageCircle,
+  MessageSquare,
   Minus,
   Moon,
   Plus,
+  QrCode,
+  Send,
+  Share2,
+  ShieldCheck,
+  Sparkles,
   Sun,
+  TrendingUp,
   Utensils,
   X,
 } from 'lucide-react';
@@ -151,6 +160,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'signup' | 'login'>('signup');
   const [selectedPlanPreview, setSelectedPlanPreview] = useState<'monthly' | 'yearly'>('yearly');
+  const [supportChatOpen, setSupportChatOpen] = useState(false);
+  const [supportName, setSupportName] = useState('');
+  const [supportPhone, setSupportPhone] = useState('');
+  const [supportMessage, setSupportMessage] = useState('');
+  const [supportReadyText, setSupportReadyText] = useState('');
 
   const [mockupCounts, setMockupCounts] = useState<Record<string, number>>({
     m1: 1,
@@ -387,6 +401,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         className="rounded-2xl bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] p-2.5 flex items-center gap-2.5"
                       >
                         <img
+                          loading="lazy"
+                          decoding="async"
                           src={item.image}
                           alt={isEn ? item.nameEn : item.nameAr}
                           referrerPolicy="no-referrer"
@@ -488,6 +504,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="space-y-3">
                   <div className="h-36 rounded-2xl overflow-hidden bg-[#DCFCE7] dark:bg-[#173323]">
                     <img
+                      loading="lazy"
+                      decoding="async"
                       src={demo.image}
                       alt={demo.title}
                       referrerPolicy="no-referrer"
@@ -783,6 +801,198 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
+      {/* PAPERLESS MENU SAVINGS + SELF-MARKETING & GOOGLE ADS + CONTINUOUS SUPPORT & LOCATION */}
+      <section className="py-14 sm:py-20 bg-[#FFFFFF] dark:bg-[#0F1712] border-t border-[#CFE3D5] dark:border-[#2C3D32]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-12">
+          {/* 1. No More Paper Menu */}
+          <div
+            id="paperless-menu"
+            className="rounded-[28px] bg-[#F6FBF7] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center"
+          >
+            <div className="lg:col-span-7 space-y-3 text-center lg:text-start">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] text-xs font-extrabold">
+                <QrCode className="w-3.5 h-3.5" />
+                <span>{tx(isEn, 'وداعاً للمنيو الورقي', 'No More Paper Menus')}</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-[#14201A] dark:text-white">
+                {tx(
+                  isEn,
+                  'وفّر تكلفة الطباعة للأبد وحدّث أسعارك في ثانية',
+                  'Eliminate Printing Costs Forever & Update Prices Instantly'
+                )}
+              </h2>
+              <p className="text-sm sm:text-base font-semibold text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed">
+                {tx(
+                  isEn,
+                  'بدلاً من إعادة طباعة المنيو الورقي مع كل تغيير سعر أو صنف جديد، منيو غزالو الإلكتروني يمنحك أقساماً وأصنافاً غير محدودة مع QR للطاولات يتحدث فورياً.',
+                  'Stop reprinting expensive paper menus every time a price changes. Get unlimited categories, unlimited dishes, and instant table QR codes.'
+                )}
+              </p>
+            </div>
+            <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-white dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] p-4 space-y-1.5">
+                <div className="text-xs font-extrabold text-[#4B5B52] dark:text-[#A3B5AA]">
+                  {tx(isEn, 'المنيو الورقي التقليدي', 'Paper Printing')}
+                </div>
+                <div className="text-sm font-black text-rose-600 dark:text-rose-400">
+                  {tx(isEn, 'مكلف ومتلف ويتغير بصعوبة', 'High cost & hard to update')}
+                </div>
+                <p className="text-[11px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+                  {tx(isEn, 'إعادة طباعة متكررة وبدون طلب أونلاين', 'Repeated print bills & no online orders')}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] border-2 border-[#15803D] p-4 space-y-1.5">
+                <div className="text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0]">
+                  {tx(isEn, 'منيو غزالو الرقمي', 'Ghazalo Digital Menu')}
+                </div>
+                <div className="text-sm font-black text-[#15803D] dark:text-[#4ADE80]">
+                  {tx(isEn, 'أقسام وأصناف غير محدودة', 'Unlimited Items & Categories')}
+                </div>
+                <p className="text-[11px] font-bold text-[#14532D] dark:text-[#BBF7D0]">
+                  {tx(isEn, 'تعديل لحظي + QR للطاولات + طلب واتساب', 'Instant edits + Table QR + WhatsApp orders')}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Self-Marketing, Google Ads Ready & All Social Platforms */}
+          <div id="growth-marketing" className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="rounded-[26px] bg-[#F6FBF7] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] p-6 space-y-4">
+              <div className="w-11 h-11 rounded-2xl bg-[#15803D] text-white flex items-center justify-center">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <h3 className="text-xl font-extrabold text-[#14201A] dark:text-white">
+                {tx(
+                  isEn,
+                  'التسويق الذاتي وجاهزية إعلانات جوجل (Google Ads Ready)',
+                  'Self-Marketing & Google Ads Ready Architecture'
+                )}
+              </h3>
+              <p className="text-sm font-semibold text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed">
+                {tx(
+                  isEn,
+                  'بنية سريعة ومتوافقة مع حملات Google Ads وتقيس تحويلات الطلبات تلقائياً، مع بوستات تسويق جاهزة وروابط متاجر سريعة على الموبايل والكمبيوتر والتابلت.',
+                  'Built to convert ad traffic into direct orders with clean GCLID/conversion attribution, Schema.org metadata, and 1-click social promotional copy.'
+                )}
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1 text-xs font-extrabold">
+                <span className="px-3 py-1 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]">
+                  Google Ads Ready
+                </span>
+                <span className="px-3 py-1 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]">
+                  {tx(isEn, 'تسويق ذاتي بنقرة واحدة', '1-Click Self-Marketing')}
+                </span>
+                <span className="px-3 py-1 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0]">
+                  {tx(isEn, 'متجاوب لكل الشاشات', 'Mobile · Tablet · Desktop')}
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-[26px] bg-[#F6FBF7] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] p-6 space-y-4">
+              <div className="w-11 h-11 rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] dark:text-[#BBF7D0] flex items-center justify-center">
+                <Share2 className="w-5 h-5" />
+              </div>
+              <h3 className="text-xl font-extrabold text-[#14201A] dark:text-white">
+                {tx(
+                  isEn,
+                  'ربط المنيو بكل منصات التواصل الاجتماعي',
+                  'Connect Your Menu to Every Social Platform'
+                )}
+              </h3>
+              <p className="text-sm font-semibold text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed">
+                {tx(
+                  isEn,
+                  'اربط منيو مطعمك مباشرة بحسابات فيسبوك وإنستجرام وتيك توك وواتساب بيزنس ليستطيع العميل الطلب من أي إعلان أو بايو بضغطة واحدة.',
+                  'Link Facebook, Instagram, TikTok, and WhatsApp Business directly on your storefront so followers convert into customers immediately.'
+                )}
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1 text-xs font-extrabold">
+                {['Facebook', 'Instagram', 'TikTok', 'WhatsApp Business'].map((plat) => (
+                  <span
+                    key={plat}
+                    className="px-3 py-1 rounded-full bg-white dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] text-[#15803D] dark:text-[#4ADE80]"
+                  >
+                    {plat}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Continuous Technical Support After Delivery + Business Location on Google Maps */}
+          <div
+            id="support-location"
+            className="rounded-[28px] bg-[#14201A] text-white p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center"
+          >
+            <div className="lg:col-span-7 space-y-3">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#15803D] text-white text-xs font-extrabold">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>{tx(isEn, 'دعم فني مستمر بعد التسليم', 'Continuous Technical Support After Delivery')}</span>
+              </div>
+              <h3 className="text-2xl sm:text-3xl font-black">
+                {tx(
+                  isEn,
+                  'معاك خطوة بخطوة: دعم فني متواصل وتواصل فوري داخل المنصة',
+                  'Continuous Support & Direct Assistance Anytime'
+                )}
+              </h3>
+              <p className="text-sm font-semibold text-[#A3B5AA] leading-relaxed">
+                {tx(
+                  isEn,
+                  'لا ينتهي دورنا عند تسليم المنيو! فريق غزالو متاح لمتابعة تعديلاتك، تجهيز باركود QR للطاولات، وربط حملاتك الإعلانية مع موقعنا الواضح على خرائط جوجل.',
+                  'Our relationship starts at launch: ongoing updates, QR setup, ads tracking support, plus in-app live support chat.'
+                )}
+              </p>
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSupportChatOpen(true)}
+                  className="px-5 py-2.5 rounded-full bg-[#FACC15] hover:bg-[#EAB308] text-[#14201A] font-extrabold text-xs sm:text-sm inline-flex items-center gap-2 transition-colors"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>{tx(isEn, 'شات التواصل السريع', 'Open Support Chat')}</span>
+                </button>
+                <a
+                  href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-5 py-2.5 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-xs sm:text-sm inline-flex items-center gap-2 transition-colors"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>{tx(isEn, 'تواصل واتساب بيزنس', 'WhatsApp Business')}</span>
+                </a>
+              </div>
+            </div>
+
+            <div className="lg:col-span-5 rounded-2xl bg-[#18231C] border border-[#2C3D32] p-5 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-[#15803D] text-white flex items-center justify-center shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-black text-sm">
+                    {tx(isEn, 'موقعنا على الخريطة', 'Our Location on Google Maps')}
+                  </div>
+                  <div className="text-xs font-semibold text-[#A3B5AA]">
+                    {tx(isEn, 'القاهرة، جمهورية مصر العربية · خدمة لجميع المحافظات والدول العربية', 'Cairo, Egypt · Serving all Arab regions')}
+                  </div>
+                </div>
+              </div>
+              <a
+                href="https://maps.google.com/?q=Cairo,Egypt"
+                target="_blank"
+                rel="noreferrer"
+                className="w-full py-2.5 px-4 rounded-xl bg-white text-[#14201A] font-extrabold text-xs inline-flex items-center justify-center gap-2 hover:bg-[#DCFCE7] transition-colors"
+              >
+                <MapPin className="w-4 h-4 text-[#15803D]" />
+                <span>{tx(isEn, 'عرض الموقع على خرائط Google Maps', 'Open in Google Maps')}</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CONTACT US + CLEAN FOOTER */}
       <footer
         id="contact-us"
@@ -802,6 +1012,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-extrabold">
             <a
+              href="https://maps.google.com/?q=Cairo,Egypt"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-[#15803D] dark:text-[#4ADE80] hover:underline"
+            >
+              <MapPin className="w-4 h-4" />
+              <span>{tx(isEn, 'موقعنا (Google Maps)', 'Google Maps')}</span>
+            </a>
+            <a
               href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}`}
               target="_blank"
               rel="noreferrer"
@@ -819,6 +1038,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </a>
             <button
               type="button"
+              onClick={() => setSupportChatOpen(true)}
+              className="inline-flex items-center gap-1.5 text-[#15803D] dark:text-[#4ADE80] hover:underline"
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>{tx(isEn, 'شات الدعم', 'Support Chat')}</span>
+            </button>
+            <button
+              type="button"
               onClick={openLoginModal}
               className="text-[#14201A] dark:text-[#E8F2EB] hover:text-[#15803D] underline"
             >
@@ -827,6 +1054,120 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </footer>
+
+      {/* Floating Customer Contact & Quick Chat Button */}
+      <button
+        type="button"
+        onClick={() => setSupportChatOpen(true)}
+        aria-label={tx(isEn, 'تواصل مباشر مع غزالو', 'Quick Contact Chat')}
+        className={`fixed bottom-5 ${
+          isEn ? 'right-4' : 'left-4'
+        } z-40 h-12 px-4 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-xs shadow-xl inline-flex items-center gap-2 transition-transform hover:scale-105`}
+      >
+        <MessageSquare className="w-4 h-4" />
+        <span>{tx(isEn, 'تواصل / استفسار', 'Live Contact')}</span>
+      </button>
+
+      {/* In-App Support & Customer Inquiry Modal */}
+      {supportChatOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#14201A]/60 backdrop-blur-xs"
+          onClick={() => setSupportChatOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#FFFFFF] dark:bg-[#18231C] rounded-t-[24px] sm:rounded-[24px] max-w-md w-full p-5 sm:p-6 border border-[#CFE3D5] dark:border-[#2C3D32] shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-[#15803D] text-white flex items-center justify-center">
+                  <Megaphone className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm">
+                    {tx(isEn, 'تواصل مباشر مع فريق غزالو', 'Contact Ghazalo Team')}
+                  </h3>
+                  <p className="text-[11px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+                    {tx(isEn, 'رد سريع عبر واتساب أو الإيميل', 'Fast response via WhatsApp or Email')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSupportChatOpen(false)}
+                className="w-9 h-9 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const compiled = `مرحباً فريق Ghazalo،\nالاسم: ${supportName || '-'}\nالهاتف: ${supportPhone || '-'}\nالاستفسار: ${supportMessage || 'أرغب في معرفة المزيد عن تشغيل المنيو'}`;
+                setSupportReadyText(compiled);
+              }}
+              className="space-y-3"
+            >
+              <input
+                type="text"
+                required
+                value={supportName}
+                onChange={(e) => setSupportName(e.target.value)}
+                placeholder={tx(isEn, 'الاسم / اسم المطعم', 'Your Name / Restaurant')}
+                className="sf-inp min-h-[42px] text-xs"
+              />
+              <input
+                type="tel"
+                required
+                dir="ltr"
+                value={supportPhone}
+                onChange={(e) => setSupportPhone(e.target.value)}
+                placeholder={tx(isEn, 'رقم الموبايل أو واتساب', 'Mobile / WhatsApp Number')}
+                className={`sf-inp min-h-[42px] text-xs ${isEn ? 'text-left' : 'text-right'}`}
+              />
+              <textarea
+                rows={3}
+                required
+                value={supportMessage}
+                onChange={(e) => setSupportMessage(e.target.value)}
+                placeholder={tx(isEn, 'اكتب سؤالك أو اطلب عرض توضيحي...', 'Write your question or request a demo...')}
+                className="sf-inp py-2.5 text-xs"
+              />
+              <button type="submit" className="sf-btn-primary w-full text-xs min-h-[42px]">
+                <Send className="w-3.5 h-3.5" />
+                {tx(isEn, 'تجهيز الرسالة وإرسالها', 'Prepare & Send Message')}
+              </button>
+            </form>
+
+            {supportReadyText && (
+              <div className="rounded-2xl bg-[#DCFCE7]/70 dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] p-3.5 space-y-2.5">
+                <div className="text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0]">
+                  {tx(isEn, 'رسالتك جاهزة! اضغط للإرسال الفوري:', 'Message ready! Click below to send instantly:')}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    href={`https://wa.me/${SUPPORT_CONTACT.WHATSAPP_NUMBER}?text=${encodeURIComponent(supportReadyText)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="sf-btn-primary min-h-[38px] text-xs"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    {tx(isEn, 'إرسال واتساب', 'Send WhatsApp')}
+                  </a>
+                  <a
+                    href={`mailto:${SUPPORT_CONTACT.EMAIL}?subject=${encodeURIComponent('استفسار من موقع Ghazalo')}&body=${encodeURIComponent(supportReadyText)}`}
+                    className="sf-btn min-h-[38px] text-xs"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    {tx(isEn, 'إرسال إيميل', 'Send Email')}
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* MOBILE DRAWER */}
       {drawerOpen && (

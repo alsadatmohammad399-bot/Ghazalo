@@ -128,6 +128,30 @@
           "type": "string",
           "maxLength": 40
         },
+        "facebookUrl": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "instagramUrl": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "tiktokUrl": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "googleMapsUrl": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "googleAdsId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "googleAdsConversionLabel": {
+          "type": "string",
+          "maxLength": 64
+        },
         "coverImage": {
           "type": "string",
           "maxLength": 90000

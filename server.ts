@@ -11,9 +11,40 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = 3000;
-const DEFAULT_ADMIN_PIN = process.env.ADMIN_PIN || '202600';
+// No default PIN: ADMIN_PIN must be set in the environment (Vercel > Settings > Environment Variables).
+const DEFAULT_ADMIN_PIN = process.env.ADMIN_PIN || '';
+// Stable secret so login tokens survive restarts and work across serverless instances.
+if (process.env.VERCEL && !process.env.SESSION_SECRET) {
+  console.error('SESSION_SECRET is not set. Tokens will not survive restarts.');
+}
 const TOKEN_SIGNING_SECRET =
   process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+
+// Simple in-memory limiter for admin PIN attempts (per IP, 5 tries / 15 minutes).
+const pinAttempts = new Map<string, { count: number; resetAt: number }>();
+function getClientIp(req: Request): string {
+  const fwd = req.headers['x-forwarded-for'];
+  const first = Array.isArray(fwd) ? fwd[0] : String(fwd || '').split(',')[0];
+  return String(first || req.ip || 'unknown').trim() || 'unknown';
+}
+function pinRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const rec = pinAttempts.get(ip);
+  if (!rec || now > rec.resetAt) {
+    pinAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > 5;
+}
+function safeEqualString(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 const STORE_REGISTRY_PATH = '/tmp/ghazalo_store_registry.json';
 
 interface ServerStoreCredential {
@@ -26,6 +57,7 @@ interface ServerStoreCredential {
   passwordHash: string;
   resetCode?: string;
   resetCodeExpiresAt?: number;
+  createdAt?: number;
   updatedAt: number;
 }
 
@@ -34,11 +66,14 @@ interface PublicMenuSnapshot {
   storeSlug: string;
   shop: Record<string, unknown>;
   products: Record<string, unknown>[];
+  createdAt?: number;
   updatedAt: number;
 }
 
 interface ServerRegistryState {
   adminPin?: string;
+  adminPinSalt?: string;
+  adminPinHash?: string;
   forceZeroFeesGlobally: boolean;
   stores: Record<string, ServerStoreCredential>;
   publicMenus: Record<string, PublicMenuSnapshot>;
@@ -51,6 +86,8 @@ function loadRegistryState(): ServerRegistryState {
       const parsed = JSON.parse(raw) as Partial<ServerRegistryState>;
       return {
         adminPin: parsed.adminPin,
+        adminPinSalt: parsed.adminPinSalt,
+        adminPinHash: parsed.adminPinHash,
         forceZeroFeesGlobally: Boolean(parsed.forceZeroFeesGlobally),
         stores: parsed.stores || {},
         publicMenus: parsed.publicMenus || {},
@@ -441,11 +478,64 @@ async function startServer() {
     res.json({ forceZeroFeesGlobally: Boolean(serverRegistry.forceZeroFeesGlobally) });
   });
 
+  function isAdminPinConfigured(): boolean {
+    return Boolean(
+      (serverRegistry.adminPinHash && serverRegistry.adminPinSalt) ||
+        serverRegistry.adminPin ||
+        DEFAULT_ADMIN_PIN
+    );
+  }
+
+  function verifyAdminPinMatch(submitted: string): boolean {
+    if (!submitted) return false;
+    if (serverRegistry.adminPinHash && serverRegistry.adminPinSalt) {
+      return verifyPasswordScrypt(submitted, serverRegistry.adminPinSalt, serverRegistry.adminPinHash);
+    }
+    if (serverRegistry.adminPin) {
+      return safeEqualString(submitted, serverRegistry.adminPin);
+    }
+    if (DEFAULT_ADMIN_PIN) {
+      return safeEqualString(submitted, DEFAULT_ADMIN_PIN);
+    }
+    return false;
+  }
+
+  app.get('/api/admin/pin-status', (_req: Request, res: Response) => {
+    res.json({ ok: true, configured: isAdminPinConfigured() });
+  });
+
+  app.post('/api/admin/claim-pin', (req: Request, res: Response) => {
+    if (pinRateLimited(getClientIp(req))) {
+      res.status(429).json({ ok: false, error: 'محاولات كثيرة. حاول بعد 15 دقيقة.' });
+      return;
+    }
+    if (isAdminPinConfigured()) {
+      res.status(403).json({ ok: false, error: 'تم تعيين الرقم السري للإدارة مسبقاً.' });
+      return;
+    }
+    const body = req.body as { pin?: string };
+    const clean = String(body.pin || '').trim().slice(0, 32);
+    if (clean.length < 4) {
+      res.status(400).json({ ok: false, error: 'الرقم السري يجب ألا يقل عن 4 أحرف.' });
+      return;
+    }
+    const { salt, hash } = hashPasswordScrypt(clean);
+    serverRegistry.adminPin = undefined;
+    serverRegistry.adminPinSalt = salt;
+    serverRegistry.adminPinHash = hash;
+    persistRegistryState(serverRegistry);
+    const adminToken = signToken({ role: 'admin' }, 24 * 60 * 60 * 1000);
+    res.json({ ok: true, adminToken });
+  });
+
   app.post('/api/admin/verify-pin', (req: Request, res: Response) => {
     const body = req.body as { pin?: string };
     const submitted = String(body.pin || '').trim();
-    const expectedPin = serverRegistry.adminPin || DEFAULT_ADMIN_PIN;
-    if (!submitted || submitted !== expectedPin) {
+    if (pinRateLimited(getClientIp(req))) {
+      res.status(429).json({ ok: false, error: 'محاولات كثيرة. حاول بعد 15 دقيقة.' });
+      return;
+    }
+    if (!isAdminPinConfigured() || !submitted || !verifyAdminPinMatch(submitted)) {
       res.status(401).json({ ok: false, error: 'الرقم السري غير صحيح.' });
       return;
     }
@@ -461,7 +551,10 @@ async function startServer() {
       res.status(400).json({ ok: false, error: 'الرقم السري يجب ألا يقل عن 4 أحرف.' });
       return;
     }
-    serverRegistry.adminPin = clean;
+    const { salt, hash } = hashPasswordScrypt(clean);
+    serverRegistry.adminPin = undefined;
+    serverRegistry.adminPinSalt = salt;
+    serverRegistry.adminPinHash = hash;
     persistRegistryState(serverRegistry);
     res.json({ ok: true });
   });
@@ -484,8 +577,138 @@ async function startServer() {
       phone: s.phone,
       resetCode: s.resetCode && (!s.resetCodeExpiresAt || Date.now() < s.resetCodeExpiresAt) ? s.resetCode : undefined,
       resetCodeExpiresAt: s.resetCodeExpiresAt,
+      createdAt: s.createdAt || s.updatedAt,
+      updatedAt: s.updatedAt,
     }));
     res.json({ ok: true, stores: items });
+  });
+
+  app.get('/api/admin/stores', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+    const merged = new Map<string, Record<string, unknown>>();
+    const credsBySlug = serverRegistry.stores || {};
+    const menusBySlug = serverRegistry.publicMenus || {};
+
+    for (const cred of Object.values(credsBySlug)) {
+      const key = cred.storeSlug || cred.shopId;
+      const snap = menusBySlug[key] || Object.values(menusBySlug).find((m) => m.shopId === cred.shopId);
+      const shopObj = snap?.shop && typeof snap.shop === 'object' ? snap.shop : {};
+      merged.set(key, {
+        shopId: cred.shopId,
+        storeSlug: cred.storeSlug,
+        nameAr: String(shopObj.nameAr || cred.nameAr || cred.storeSlug),
+        email: cred.email || '',
+        phone: String(shopObj.whatsapp || cred.phone || ''),
+        resetCode:
+          cred.resetCode && (!cred.resetCodeExpiresAt || Date.now() < cred.resetCodeExpiresAt)
+            ? cred.resetCode
+            : undefined,
+        resetCodeExpiresAt: cred.resetCodeExpiresAt,
+        createdAt: Number(cred.createdAt || snap?.createdAt || shopObj.createdAt || cred.updatedAt || Date.now()),
+        updatedAt: Number(snap?.updatedAt || cred.updatedAt || Date.now()),
+        shop: {
+          ...shopObj,
+          id: cred.shopId,
+          storeSlug: cred.storeSlug,
+          nameAr: String(shopObj.nameAr || cred.nameAr || cred.storeSlug),
+          whatsapp: String(shopObj.whatsapp || cred.phone || ''),
+          country: String(shopObj.country || 'مصر'),
+          subscriptionStatus: String(shopObj.subscriptionStatus || 'trial'),
+        },
+        productsCount: Array.isArray(snap?.products) ? snap.products.length : 0,
+      });
+    }
+
+    for (const snap of Object.values(menusBySlug)) {
+      const key = snap.storeSlug || snap.shopId;
+      if (merged.has(key)) continue;
+      const shopObj = snap.shop && typeof snap.shop === 'object' ? snap.shop : {};
+      const byShopId = Array.from(merged.values()).find((item) => item.shopId === snap.shopId);
+      if (byShopId) continue;
+      merged.set(key, {
+        shopId: snap.shopId,
+        storeSlug: snap.storeSlug,
+        nameAr: String(shopObj.nameAr || snap.storeSlug),
+        email: '',
+        phone: String(shopObj.whatsapp || ''),
+        createdAt: Number(snap.createdAt || shopObj.createdAt || snap.updatedAt || Date.now()),
+        updatedAt: Number(snap.updatedAt || Date.now()),
+        shop: {
+          ...shopObj,
+          id: snap.shopId,
+          storeSlug: snap.storeSlug,
+          country: String(shopObj.country || 'مصر'),
+          subscriptionStatus: String(shopObj.subscriptionStatus || 'trial'),
+        },
+        productsCount: Array.isArray(snap.products) ? snap.products.length : 0,
+      });
+    }
+
+    const stores = Array.from(merged.values()).sort(
+      (a, b) => Number(b.createdAt || b.updatedAt || 0) - Number(a.createdAt || a.updatedAt || 0)
+    );
+    res.json({ ok: true, stores });
+  });
+
+  app.post('/api/admin/update-store', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+    const body = req.body as {
+      shopId?: string;
+      storeSlug?: string;
+      updates?: Record<string, unknown>;
+    };
+    const slug = normalizeSlugServer(body.storeSlug || body.shopId || '');
+    const shopId = String(body.shopId || slug || '').trim();
+    if (!slug && !shopId) {
+      res.status(400).json({ ok: false, error: 'معرف المتجر مطلوب.' });
+      return;
+    }
+    const updates = body.updates && typeof body.updates === 'object' ? body.updates : {};
+    const menus = serverRegistry.publicMenus || {};
+    const existingSnap =
+      menus[slug] ||
+      Object.values(menus).find((m) => m.shopId === shopId || m.storeSlug === slug);
+    const cred =
+      serverRegistry.stores[slug] ||
+      Object.values(serverRegistry.stores).find((s) => s.shopId === shopId || s.storeSlug === slug);
+
+    const targetSlug = existingSnap?.storeSlug || cred?.storeSlug || slug || shopId;
+    const targetShopId = existingSnap?.shopId || cred?.shopId || shopId || targetSlug;
+    const prevShop = existingSnap?.shop || {
+      id: targetShopId,
+      storeSlug: targetSlug,
+      nameAr: cred?.nameAr || targetSlug,
+      country: 'مصر',
+      acceptOrders: true,
+      isOpen: true,
+      subscriptionStatus: 'trial',
+    };
+    const nextShop = {
+      ...prevShop,
+      ...updates,
+      id: targetShopId,
+      storeSlug: targetSlug,
+      updatedAt: Date.now(),
+    };
+    serverRegistry.publicMenus = {
+      ...menus,
+      [targetSlug]: {
+        shopId: targetShopId,
+        storeSlug: targetSlug,
+        shop: nextShop,
+        products: existingSnap?.products || [],
+        createdAt: existingSnap?.createdAt || cred?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      },
+    };
+    if (cred) {
+      cred.updatedAt = Date.now();
+      if (typeof updates.whatsapp === 'string') cred.phone = updates.whatsapp.slice(0, 40);
+      if (typeof updates.nameAr === 'string') cred.nameAr = updates.nameAr.slice(0, 120);
+      serverRegistry.stores[cred.storeSlug] = cred;
+    }
+    persistRegistryState(serverRegistry);
+    res.json({ ok: true, shop: nextShop });
   });
 
   app.post('/api/admin/generate-code', (req: Request, res: Response) => {
@@ -566,13 +789,21 @@ async function startServer() {
       phone?: string;
       password?: string;
     };
-    const slug = normalizeSlugServer(body.storeSlug || body.shopId || '');
+    const slug = normalizeSlugServer(body.storeSlug || body.shopId || body.nameAr || '');
     const pass = String(body.password || '');
-    if (!slug || pass.length < 4) {
-      res.status(400).json({ ok: false, error: 'يرجى إدخال عنوان المتجر وكلمة السر.' });
+    if (!slug) {
+      res.status(400).json({ ok: false, error: 'يرجى إدخال عنوان المتجر.' });
       return;
     }
-    const { salt, hash } = hashPasswordScrypt(pass);
+    if (serverRegistry.stores[slug]) {
+      res.status(409).json({ ok: false, error: 'اسم المتجر مستخدم بالفعل. اختر اسماً آخر أو تواصل مع الدعم.' });
+      return;
+    }
+    const hasNewPass = pass.trim().length >= 4;
+    const { salt, hash } = hasNewPass
+      ? hashPasswordScrypt(pass)
+      : { salt: '', hash: '' };
+    const now = Date.now();
     const cred: ServerStoreCredential = {
       shopId: body.shopId || slug,
       storeSlug: slug,
@@ -581,7 +812,8 @@ async function startServer() {
       phone: String(body.phone || '').slice(0, 40),
       passwordSalt: salt,
       passwordHash: hash,
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
     };
     serverRegistry.stores[slug] = cred;
     persistRegistryState(serverRegistry);
@@ -765,6 +997,7 @@ async function startServer() {
     const menus = serverRegistry.publicMenus || {};
     const existing = menus[storeSlug];
     const incomingProducts = Array.isArray(body.products) ? body.products.slice(0, 400) : existing?.products || [];
+    const now = Date.now();
     const snapshot: PublicMenuSnapshot = {
       shopId,
       storeSlug,
@@ -774,7 +1007,8 @@ async function startServer() {
         storeSlug,
       },
       products: incomingProducts,
-      updatedAt: Date.now(),
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
     };
     serverRegistry.publicMenus = {
       ...menus,

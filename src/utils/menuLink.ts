@@ -1,4 +1,5 @@
 import { normalizeStoreSlug, type Product, type Shop } from '../types';
+import { toWhatsAppNumber } from './phone';
 
 export function getStoreSlug(shopOrSlug: string | Partial<Shop>): string {
   if (typeof shopOrSlug === 'string') {
@@ -72,6 +73,18 @@ export async function copyMenuLink(menuUrl: string): Promise<boolean> {
   }
 }
 
+export function notifyAdminStoreSync(reason = 'store-updated'): void {
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const ch = new BroadcastChannel('ghazalo_admin_sync');
+      ch.postMessage({ type: reason, ts: Date.now() });
+      ch.close();
+    }
+  } catch {
+    // ignore unsupported BroadcastChannel
+  }
+}
+
 export async function syncPublicStoreSnapshot(
   shop: Shop,
   products?: Product[]
@@ -85,10 +98,93 @@ export async function syncPublicStoreSnapshot(
         products,
       }),
     });
+    if (res.ok) {
+      notifyAdminStoreSync('store-snapshot-synced');
+    }
     return res.ok;
   } catch {
     return false;
   }
+}
+
+export function buildWhatsAppOrderUrl(input: {
+  whatsappPhone?: string;
+  shopName: string;
+  orderNumber?: string;
+  orderType: string;
+  customerName?: string;
+  customerPhone?: string;
+  address?: string;
+  floor?: string;
+  apartment?: string;
+  tableLabel?: string;
+  notes?: string;
+  paymentMethod?: string;
+  itemsSummary: string[];
+  subtotal: number;
+  deliveryFee?: number;
+  serviceFee?: number;
+  vat?: number;
+  packagingFee?: number;
+  total: number;
+  isEn?: boolean;
+}): string {
+  const cleanPhone = toWhatsAppNumber(input.whatsappPhone);
+  const typeLabel =
+    input.orderType === 'delivery'
+      ? input.isEn
+        ? 'Delivery'
+        : 'توصيل'
+      : input.orderType === 'pickup'
+        ? input.isEn
+          ? 'Pickup'
+          : 'استلام من الفرع'
+        : input.orderType === 'table'
+          ? input.isEn
+            ? `Table (${input.tableLabel || '-'})`
+            : `طاولة (${input.tableLabel || '-'})`
+          : input.isEn
+            ? 'Dine-in'
+            : 'محلي';
+
+  const lines: string[] = [
+    input.isEn
+      ? `*New Order — ${input.shopName}*${input.orderNumber ? ` (#${input.orderNumber})` : ''}`
+      : `*طلب جديد — ${input.shopName}*${input.orderNumber ? ` (#${input.orderNumber})` : ''}`,
+    `${input.isEn ? 'Order Type' : 'نوع الطلب'}: ${typeLabel}`,
+    ...(input.customerName ? [`${input.isEn ? 'Customer' : 'الاسم'}: ${input.customerName}`] : []),
+    ...(input.customerPhone ? [`${input.isEn ? 'Phone' : 'الهاتف'}: ${input.customerPhone}`] : []),
+    ...(input.address
+      ? [
+          `${input.isEn ? 'Address' : 'العنوان'}: ${input.address}${
+            input.floor ? ` - ${input.isEn ? 'Floor' : 'دور'} ${input.floor}` : ''
+          }${input.apartment ? ` - ${input.isEn ? 'Apt' : 'شقة'} ${input.apartment}` : ''}`,
+        ]
+      : []),
+    ...(input.paymentMethod
+      ? [`${input.isEn ? 'Payment' : 'الدفع'}: ${input.paymentMethod}`]
+      : []),
+    '',
+    input.isEn ? '*Items:*' : '*الأصناف:*',
+    ...input.itemsSummary.map((line) => `• ${line}`),
+    '',
+    `${input.isEn ? 'Subtotal' : 'المجموع الفرعي'}: ${input.subtotal}`,
+    ...(input.deliveryFee && input.deliveryFee > 0
+      ? [`${input.isEn ? 'Delivery' : 'التوصيل'}: ${input.deliveryFee}`]
+      : []),
+    ...(input.serviceFee && input.serviceFee > 0
+      ? [`${input.isEn ? 'Service' : 'الخدمة'}: ${input.serviceFee}`]
+      : []),
+    ...(input.vat && input.vat > 0 ? [`${input.isEn ? 'VAT' : 'الضريبة'}: ${input.vat}`] : []),
+    ...(input.packagingFee && input.packagingFee > 0
+      ? [`${input.isEn ? 'Packaging' : 'التغليف'}: ${input.packagingFee}`]
+      : []),
+    `*${input.isEn ? 'Grand Total' : 'الإجمالي النهائي'}: ${input.total}*`,
+    ...(input.notes ? [`${input.isEn ? 'Notes' : 'ملاحظات'}: ${input.notes}`] : []),
+  ];
+
+  const encoded = encodeURIComponent(lines.join('\n'));
+  return cleanPhone ? `https://wa.me/${cleanPhone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
 }
 
 export async function fetchPublicStoreSnapshot(

@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { toWhatsAppNumber } from '../utils/phone';
 import {
   Grid,
   Heart,
@@ -31,10 +32,21 @@ import {
   Truck,
   ShieldCheck,
   ChefHat,
+  ExternalLink,
+  MapPin,
+  Printer,
+  QrCode,
 } from 'lucide-react';
 import { ShopInitialAvatar } from '../components/BrandLogo';
 import { ChefAiAssistant } from '../components/ChefAiAssistant';
+import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
 import { createOrder } from '../services/firestoreService';
+import {
+  buildGoogleMapsLink,
+  ensureGoogleAdsLoaded,
+  sanitizeExternalUrl,
+  trackAdsConversion,
+} from '../utils/adsTracking';
 import {
   calculateOrderTotals,
   formatMoney,
@@ -45,6 +57,7 @@ import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
 import {
+  buildWhatsAppOrderUrl,
   copyMenuLink,
   getAbsoluteMenuUrl,
   getWhatsAppShareUrl,
@@ -130,10 +143,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [ordersPageOpen, setOrdersPageOpen] = useState(false);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
   const [chefChatOpen, setChefChatOpen] = useState(false);
   const [pendingChefQuestion, setPendingChefQuestion] = useState<{ id: string; text: string } | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [shareToast, setShareToast] = useState('');
+
+  useEffect(() => {
+    ensureGoogleAdsLoaded(shop.googleAdsId);
+  }, [shop.googleAdsId]);
 
   // Checkout state
   const [orderType, setOrderType] = useState<'delivery' | 'pickup' | 'dine_in' | 'table'>(
@@ -438,6 +456,15 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   };
 
   const menuShareUrl = getAbsoluteMenuUrl(shop);
+  const fbUrl = sanitizeExternalUrl(shop.facebookUrl);
+  const igUrl = sanitizeExternalUrl(shop.instagramUrl);
+  const ttUrl = sanitizeExternalUrl(shop.tiktokUrl);
+  const mapsUrl = buildGoogleMapsLink({
+    googleMapsUrl: shop.googleMapsUrl,
+    address: shop.address,
+    city: shop.city,
+    nameAr: shop.nameAr,
+  });
 
   const handleShareMenu = async () => {
     const ok = await copyMenuLink(menuShareUrl);
@@ -526,6 +553,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       }
 
       onOrderPlaced?.(created);
+      trackAdsConversion('purchase', {
+        adsId: shop.googleAdsId,
+        conversionLabel: shop.googleAdsConversionLabel,
+        value: created.total,
+        currency: 'EGP',
+        transactionId: created.orderNumber,
+      });
 
       const nextOrders = [created, ...customerOrders];
       setCustomerOrders(nextOrders);
@@ -844,6 +878,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             : `${templateStyles.pageBackgroundClass} text-[#14201A] dark:text-[#E8F2EB]`
       }`}
     >
+      <div className="no-print">
       {/* Generic Store Fallback Banner when opened via unknown slug */}
       {isFallbackMenu && (
         <div
@@ -1003,6 +1038,19 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           </button>
           <button
             type="button"
+            onClick={() => setQrModalOpen(true)}
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+              templateId === 'modern'
+                ? 'bg-white/10 text-white border border-white/15'
+                : 'glass-btn text-[#15803D] dark:text-[#BBF7D0]'
+            }`}
+            aria-label={tx(isEn, 'باركود QR للمنيو', 'Menu QR Code')}
+            title={tx(isEn, 'باركود QR للمنيو', 'Menu QR Code')}
+          >
+            <QrCode className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => setSideMenuOpen(true)}
             className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
               templateId === 'modern'
@@ -1024,6 +1072,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             {shop.coverImage && (
               <>
                 <img
+                  loading="lazy"
+                  decoding="async"
                   src={shop.coverImage}
                   alt={displayShopName}
                   referrerPolicy="no-referrer"
@@ -1038,6 +1088,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <div className="flex items-center gap-4 min-w-0">
                   {shop.logoUrl ? (
                     <img
+                      loading="lazy"
+                      decoding="async"
                       src={shop.logoUrl}
                       alt={displayShopName}
                       className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full object-cover border-2 border-[#C9A35B] bg-white shadow-md shrink-0"
@@ -1102,7 +1154,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     {tx(isEn, 'اسأل الشيف الذكي', 'Ask AI Chef')}
                   </button>
                   <a
-                    href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
+                    href={`https://wa.me/${toWhatsAppNumber(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER)}`}
                     target="_blank"
                     rel="noreferrer"
                     className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-[12px] border font-bold text-xs whitespace-nowrap transition-colors ${
@@ -1124,6 +1176,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             {shop.coverImage && (
               <div className="relative h-32 sm:h-40 rounded-[18px] overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32]">
                 <img
+                  loading="lazy"
+                  decoding="async"
                   src={shop.coverImage}
                   alt={displayShopName}
                   referrerPolicy="no-referrer"
@@ -1135,6 +1189,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               <div className="flex items-center gap-3.5">
                 {shop.logoUrl ? (
                   <img
+                    loading="lazy"
+                    decoding="async"
                     src={shop.logoUrl}
                     alt={displayShopName}
                     className="w-14 h-14 rounded-2xl object-cover border border-[#CFE3D5] dark:border-[#2C3D32] bg-white shrink-0"
@@ -1165,7 +1221,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 </div>
               </div>
               <a
-                href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
+                href={`https://wa.me/${toWhatsAppNumber(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER)}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{ borderColor: themeHex, color: effectiveDark ? '#BBF7D0' : themeHex }}
@@ -1195,6 +1251,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             {shop.coverImage ? (
               <>
                 <img
+                  loading="lazy"
+                  decoding="async"
                   src={shop.coverImage}
                   alt={shop.nameAr}
                   referrerPolicy="no-referrer"
@@ -1231,6 +1289,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 <div className="flex items-center gap-3.5 min-w-0">
                   {shop.logoUrl ? (
                     <img
+                      loading="lazy"
+                      decoding="async"
                       src={shop.logoUrl}
                       alt={shop.nameAr}
                       className={`${templateId === 'compact' ? 'w-12 h-12 rounded-[14px]' : 'w-14 h-14 sm:w-16 sm:h-16 rounded-[18px]'} object-cover border-2 bg-white shadow-md shrink-0 ${
@@ -1278,7 +1338,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 </div>
 
                 <a
-                  href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
+                  href={`https://wa.me/${toWhatsAppNumber(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER)}`}
                   target="_blank"
                   rel="noreferrer"
                   style={{ backgroundColor: themeHex, borderColor: themeHex }}
@@ -1416,6 +1476,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       <div className="relative h-28 rounded-[16px] bg-[#DCFCE7] dark:bg-[#173323] overflow-hidden flex items-center justify-center">
                         {product.imageUrl && !brokenImages[product.id] ? (
                           <img
+                            loading="lazy"
+                            decoding="async"
                             src={product.imageUrl}
                             alt={product.name}
                             referrerPolicy="no-referrer"
@@ -1440,6 +1502,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
                         {showDishLogo && shop.logoUrl && (
                           <img
+                            loading="lazy"
+                            decoding="async"
                             src={shop.logoUrl}
                             alt={displayShopName}
                             className="w-7 h-7 rounded-full object-cover border-2 border-white bg-white shadow-sm absolute top-2 left-2"
@@ -1691,6 +1755,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       >
                         {product.imageUrl && !brokenImages[product.id] ? (
                           <img
+                            loading="lazy"
+                            decoding="async"
                             src={product.imageUrl}
                             alt={product.name}
                             referrerPolicy="no-referrer"
@@ -1711,6 +1777,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
                         {showDishLogo && shop.logoUrl && (
                           <img
+                            loading="lazy"
+                            decoding="async"
                             src={shop.logoUrl}
                             alt={displayShopName}
                             className="w-7 h-7 rounded-full object-cover border border-[#C9A35B] bg-white shadow-sm absolute top-2 left-2"
@@ -1811,6 +1879,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       >
                         {product.imageUrl && !brokenImages[product.id] ? (
                           <img
+                            loading="lazy"
+                            decoding="async"
                             src={product.imageUrl}
                             alt={product.name}
                             referrerPolicy="no-referrer"
@@ -1824,6 +1894,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         )}
                         {showDishLogo && shop.logoUrl && (
                           <img
+                            loading="lazy"
+                            decoding="async"
                             src={shop.logoUrl}
                             alt={shop.nameAr}
                             className="w-5 h-5 rounded-full object-cover border border-white bg-white shadow-xs absolute top-1 left-1"
@@ -1928,6 +2000,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-[14px] bg-[#F6FBF7] dark:bg-[#173323] border border-[#CFE3D5]/70 dark:border-[#2C3D32] flex items-center justify-center overflow-hidden shrink-0">
                         {product.imageUrl && !brokenImages[product.id] ? (
                           <img
+                            loading="lazy"
+                            decoding="async"
                             src={product.imageUrl}
                             alt={product.name}
                             referrerPolicy="no-referrer"
@@ -2120,6 +2194,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-[18px] bg-[#DCFCE7] dark:bg-[#173323] shrink-0 overflow-hidden flex items-center justify-center">
                       {product.imageUrl && !brokenImages[product.id] ? (
                         <img
+                          loading="lazy"
+                          decoding="async"
                           src={product.imageUrl}
                           alt={product.name}
                           referrerPolicy="no-referrer"
@@ -2146,6 +2222,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       </button>
                       {showDishLogo && shop.logoUrl && (
                         <img
+                          loading="lazy"
+                          decoding="async"
                           src={shop.logoUrl}
                           alt={displayShopName}
                           className="w-7 h-7 rounded-full object-cover border-2 border-white bg-white shadow-sm absolute bottom-2 left-2"
@@ -2167,6 +2245,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     <div className="relative h-28 sm:h-32 rounded-[16px] bg-[#FFFFFF]/85 dark:bg-[#18231C] flex items-center justify-center overflow-hidden">
                       {product.imageUrl && !brokenImages[product.id] ? (
                         <img
+                          loading="lazy"
+                          decoding="async"
                           src={product.imageUrl}
                           alt={product.name}
                           referrerPolicy="no-referrer"
@@ -2200,6 +2280,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
                       {showDishLogo && shop.logoUrl && (
                         <img
+                          loading="lazy"
+                          decoding="async"
                           src={shop.logoUrl}
                           alt={displayShopName}
                           className="w-7 h-7 rounded-full object-cover border-2 border-white bg-white shadow-sm absolute top-2 left-2"
@@ -2286,11 +2368,108 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         )}
       </div>
 
+      {/* Store Location, Social Platforms & Table QR Strip */}
+      <footer className={`${maxWidthClass} mt-8`}>
+        <div
+          className={`rounded-[22px] border p-4 sm:p-5 space-y-3 ${
+            templateId === 'royal'
+              ? 'bg-[#FFFFFF] dark:bg-[#1B2540] border-[#E3DCCB] dark:border-[#2A3550]'
+              : 'bg-[#FFFFFF] dark:bg-[#18231C] border-[#CFE3D5] dark:border-[#2C3D32]'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="font-extrabold text-sm">{displayShopName}</div>
+              {(shop.city || shop.address) && (
+                <div className="text-xs font-semibold opacity-75 flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 shrink-0 text-[#15803D]" />
+                  <span>{[shop.city, shop.address].filter(Boolean).join(' - ')}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] text-[#14532D] dark:text-[#BBF7D0] text-xs font-extrabold inline-flex items-center gap-1 hover:opacity-90"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>{tx(isEn, 'الموقع على الخريطة', 'Google Maps')}</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <button
+                type="button"
+                onClick={() => setQrModalOpen(true)}
+                className="px-3 py-1.5 rounded-full border border-[#CFE3D5] dark:border-[#2C3D32] text-xs font-extrabold inline-flex items-center gap-1 hover:border-[#15803D]"
+              >
+                <QrCode className="w-3.5 h-3.5 text-[#15803D]" />
+                <span>{tx(isEn, 'باركود QR والطباعة', 'QR & Print')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setChefChatOpen(true)}
+                className="px-3 py-1.5 rounded-full bg-[#15803D] text-white text-xs font-extrabold inline-flex items-center gap-1 hover:opacity-95"
+              >
+                <ChefHat className="w-3.5 h-3.5" />
+                <span>{tx(isEn, 'استفسر من المساعد الذكي', 'Ask AI Chat')}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-current/10 text-xs font-bold">
+            <a
+              href={`https://wa.me/${toWhatsAppNumber(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1 rounded-full bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] text-[#15803D] dark:text-[#4ADE80] inline-flex items-center gap-1"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>WhatsApp</span>
+            </a>
+            {fbUrl && (
+              <a
+                href={fbUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1 rounded-full bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] inline-flex items-center gap-1 hover:border-[#15803D]"
+              >
+                <span>Facebook</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+            {igUrl && (
+              <a
+                href={igUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1 rounded-full bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] inline-flex items-center gap-1 hover:border-[#15803D]"
+              >
+                <span>Instagram</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+            {ttUrl && (
+              <a
+                href={ttUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1 rounded-full bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] inline-flex items-center gap-1 hover:border-[#15803D]"
+              >
+                <span>TikTok</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+        </div>
+      </footer>
+
       {/* Bottom Floating Cart Bar */}
       {totalItemsCount > 0 && (
         <div
           className={`fixed bottom-4 ${
-            templateId === 'royal' ? 'left-4 right-4 sm:left-24 sm:right-24' : 'left-4 right-4'
+            templateId === 'royal' ? 'left-4 right-4 sm:left-24 sm:right-24' : 'left-4 right-4 sm:left-24 sm:right-24'
           } z-30 max-w-[560px] mx-auto`}
         >
           <div
@@ -2322,23 +2501,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         </div>
       )}
 
-      {/* Zain El Sham Style Orbital AI Chef Assistant */}
-      {templateId === 'royal' && (
-        <ChefAiAssistant
-          shop={shop}
-          products={activeProducts}
-          categories={categories}
-          darkMode={effectiveDark}
-          isEn={isEn}
-          isOpen={chefChatOpen}
-          onOpenChange={setChefChatOpen}
-          onAddToCart={(prod) => addToCart(prod)}
-          onOpenProductDetail={openProductDetail}
-          hasBottomDock={totalItemsCount > 0}
-          pendingQuestion={pendingChefQuestion}
-          onPendingQuestionHandled={() => setPendingChefQuestion(null)}
-        />
-      )}
+      {/* AI Chef & Customer Assistant across ALL templates */}
+      <ChefAiAssistant
+        variant={templateId === 'royal' ? 'royal' : 'emerald'}
+        shop={shop}
+        products={activeProducts}
+        categories={categories}
+        darkMode={effectiveDark}
+        isEn={isEn}
+        isOpen={chefChatOpen}
+        onOpenChange={setChefChatOpen}
+        onAddToCart={(prod) => addToCart(prod)}
+        onOpenProductDetail={openProductDetail}
+        hasBottomDock={totalItemsCount > 0}
+        pendingQuestion={pendingChefQuestion}
+        onPendingQuestionHandled={() => setPendingChefQuestion(null)}
+      />
 
       {/* Share Toast */}
       {shareToast && (
@@ -2381,6 +2559,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         <div className="w-12 h-12 rounded-[14px] bg-[#DCFCE7] dark:bg-[#173323] border border-[#CFE3D5] dark:border-[#2C3D32] flex items-center justify-center shrink-0 overflow-hidden">
                           {product.imageUrl && !brokenImages[product.id] ? (
                             <img
+                              loading="lazy"
+                              decoding="async"
                               src={product.imageUrl}
                               alt={product.name}
                               className="w-full h-full object-cover"
@@ -2699,16 +2879,53 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="sf-btn-primary w-full text-base tabular-nums"
-            >
-              {submitting && <Loader2 className="w-5 h-5 animate-spin" />}
-              <span>
-                {tx(isEn, 'تأكيد الطلب', 'Place Order')} - {formatMoney(totals.total, shop.country, undefined, isEn)}
-              </span>
-            </button>
+            <div className="space-y-2">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="sf-btn-primary w-full text-base tabular-nums"
+              >
+                {submitting && <Loader2 className="w-5 h-5 animate-spin" />}
+                <span>
+                  {tx(isEn, 'تأكيد الطلب', 'Place Order')} - {formatMoney(totals.total, shop.country, undefined, isEn)}
+                </span>
+              </button>
+
+              <a
+                href={buildWhatsAppOrderUrl({
+                  whatsappPhone: shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER,
+                  shopName: displayShopName,
+                  orderType,
+                  customerName,
+                  customerPhone,
+                  address: orderType === 'pickup' ? tx(isEn, 'استلام من الفرع', 'Branch Pickup') : address,
+                  floor,
+                  apartment,
+                  tableLabel,
+                  notes,
+                  paymentMethod,
+                  itemsSummary: cartItems.map(
+                    (c) =>
+                      `${c.product.name}${c.note ? ` (${c.note})` : ''} × ${c.quantity} (${c.unitPrice * c.quantity})`
+                  ),
+                  subtotal: totals.subtotal,
+                  deliveryFee: totals.deliveryFee,
+                  serviceFee: totals.serviceFee,
+                  vat: totals.vat,
+                  packagingFee: totals.packagingFee,
+                  total: totals.total,
+                  isEn,
+                })}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full py-3 px-5 rounded-full bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] text-[#14532D] dark:text-[#BBF7D0] font-extrabold text-sm flex items-center justify-center gap-2 hover:opacity-95 transition-opacity"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>
+                  {tx(isEn, 'إرسال الطلب مباشرة على واتساب', 'Send Order Directly via WhatsApp')}
+                </span>
+              </a>
+            </div>
           </form>
         </div>
       )}
@@ -2727,14 +2944,46 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             <p className="text-lg font-black text-[#15803D] dark:text-[#BBF7D0] tabular-nums">
               {tx(isEn, 'الإجمالي:', 'Total:')} {formatMoney(placedOrder.total, shop.country, undefined, isEn)}
             </p>
-            <div className="flex gap-3 pt-2">
+            <a
+              href={buildWhatsAppOrderUrl({
+                whatsappPhone: shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER,
+                shopName: displayShopName,
+                orderNumber: placedOrder.orderNumber,
+                orderType: placedOrder.orderType,
+                customerName: placedOrder.customerName,
+                customerPhone: placedOrder.customerPhone,
+                address: placedOrder.address,
+                floor: placedOrder.floor,
+                apartment: placedOrder.apartment,
+                tableLabel: placedOrder.tableLabel,
+                notes: placedOrder.notes,
+                paymentMethod: placedOrder.paymentMethod,
+                itemsSummary: placedOrder.itemSummary || [],
+                subtotal: placedOrder.subtotal,
+                deliveryFee: placedOrder.deliveryFee,
+                serviceFee: placedOrder.serviceFee,
+                vat: placedOrder.vat,
+                packagingFee: placedOrder.packagingFee,
+                total: placedOrder.total,
+                isEn,
+              })}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-3 px-4 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-sm inline-flex items-center justify-center gap-2 transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span>
+                {tx(isEn, 'إرسال نسخة من الطلب عبر واتساب', 'Send Order Copy via WhatsApp')}
+              </span>
+            </a>
+            <div className="flex gap-3 pt-1">
               <button
                 type="button"
                 onClick={() => {
                   setPlacedOrder(null);
                   setOrdersPageOpen(true);
                 }}
-                className="sf-btn-primary flex-1 text-sm"
+                className="sf-btn-mint flex-1 text-sm"
               >
                 {tx(isEn, 'عرض طلباتي', 'View My Orders')}
               </button>
@@ -2845,8 +3094,28 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   <Info className="w-4 h-4 text-[#15803D]" />
                   {tx(isEn, 'عن المطعم', 'About Restaurant')}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSideMenuOpen(false);
+                    setQrModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
+                >
+                  <QrCode className="w-4 h-4 text-[#15803D]" />
+                  {tx(isEn, 'باركود QR والطباعة', 'Menu QR & Print')}
+                </button>
                 <a
-                  href={`https://wa.me/${(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER).replace(/[^0-9]/g, '')}`}
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
+                >
+                  <MapPin className="w-4 h-4 text-[#15803D]" />
+                  {tx(isEn, 'موقعنا على الخريطة', 'Location on Maps')}
+                </a>
+                <a
+                  href={`https://wa.me/${toWhatsAppNumber(shop.whatsapp || SUPPORT_CONTACT.WHATSAPP_NUMBER)}`}
                   target="_blank"
                   rel="noreferrer"
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] border border-[#CFE3D5] dark:border-[#2C3D32] text-start"
@@ -2879,7 +3148,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             <p className="text-sm font-medium text-[#4B5B52] dark:text-[#A3B5AA]">
               {shop.bio || tx(isEn, 'أشهى المأكولات والمشروبات الطازجة يومياً.', 'Freshly prepared food and drinks daily.')}
             </p>
-            <div className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] space-y-1">
+            <div className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] space-y-1.5">
               {shop.address && (
                 <div>
                   {tx(isEn, 'العنوان:', 'Address:')} {shop.city} - {shop.address}
@@ -2888,6 +3157,81 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               <div>
                 {tx(isEn, 'ساعات العمل:', 'Opening Hours:')} {shop.workFrom || '4م'} - {shop.workTo || '2ص'}
               </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="sf-btn-primary min-h-[38px] px-3.5 text-xs"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                {tx(isEn, 'افتح في خرائط جوجل', 'Open Google Maps')}
+              </a>
+              {fbUrl && (
+                <a href={fbUrl} target="_blank" rel="noreferrer" className="sf-btn min-h-[38px] px-3 text-xs">
+                  Facebook
+                </a>
+              )}
+              {igUrl && (
+                <a href={igUrl} target="_blank" rel="noreferrer" className="sf-btn min-h-[38px] px-3 text-xs">
+                  Instagram
+                </a>
+              )}
+              {ttUrl && (
+                <a href={ttUrl} target="_blank" rel="noreferrer" className="sf-btn min-h-[38px] px-3 text-xs">
+                  TikTok
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Storefront QR Share & Print Modal */}
+      {qrModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          onClick={() => setQrModalOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="sf-card max-w-sm w-full p-6 text-center space-y-4 shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black">
+                {tx(isEn, 'باركود QR للمنيو', 'Menu QR Code')}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setQrModalOpen(false)}
+                className="w-9 h-9 rounded-xl bg-[#DCFCE7] dark:bg-[#173323] text-[#15803D] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="inline-block p-3 bg-white rounded-2xl border border-[#CFE3D5]">
+              <QrCodeImage value={menuShareUrl} size={190} />
+            </div>
+            <p className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(isEn, 'وجّه كاميرا الموبايل للمنيو أو اطبع الكود للطاولات', 'Scan to open menu or print for tables')}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => void downloadQrPng(menuShareUrl, `${shop.nameAr}-qr.png`)}
+                className="sf-btn-mint min-h-[40px] text-xs"
+              >
+                {tx(isEn, 'حفظ صورة', 'Download PNG')}
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="sf-btn-primary min-h-[40px] text-xs"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                {tx(isEn, 'طباعة QR', 'Print QR')}
+              </button>
             </div>
           </div>
         </div>
@@ -2907,6 +3251,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             <div className="relative h-60 sm:h-72 bg-[#DCFCE7] dark:bg-[#173323] shrink-0 overflow-hidden flex items-center justify-center">
               {detailProduct.imageUrl && !brokenImages[detailProduct.id] ? (
                 <img
+                  loading="lazy"
+                  decoding="async"
                   src={detailProduct.imageUrl}
                   alt={detailProduct.name}
                   referrerPolicy="no-referrer"
@@ -2930,6 +3276,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
               {showDishLogo && shop.logoUrl && (
                 <img
+                  loading="lazy"
+                  decoding="async"
                   src={shop.logoUrl}
                   alt={displayShopName}
                   className="w-10 h-10 rounded-full object-cover border-2 border-white bg-white shadow-md absolute top-3 right-3"
@@ -3022,40 +3370,42 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   </div>
                 </div>
               )}
-              {templateId === 'royal' && (
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const askedName = detailProduct.name;
-                      setDetailProduct(null);
-                      setPendingChefQuestion({
-                        id: `${detailProduct.id}-${Date.now()}`,
-                        text: tx(
-                          isEn,
-                          `ما هي مكونات صنف "${askedName}" وما تفاصيل أسعاره وأحجامه المتاحة؟`,
-                          `What are the ingredients, sizes, and exact prices of "${askedName}"?`
-                        ),
-                      });
-                      setChefChatOpen(true);
-                    }}
-                    className={`w-full py-2.5 px-4 rounded-[14px] text-xs font-extrabold border inline-flex items-center justify-center gap-2 transition-colors ${
-                      effectiveDark
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const askedName = detailProduct.name;
+                    setDetailProduct(null);
+                    setPendingChefQuestion({
+                      id: `${detailProduct.id}-${Date.now()}`,
+                      text: tx(
+                        isEn,
+                        `ما هي مكونات صنف "${askedName}" وما تفاصيل أسعاره وأحجامه المتاحة؟`,
+                        `What are the ingredients, sizes, and exact prices of "${askedName}"?`
+                      ),
+                    });
+                    setChefChatOpen(true);
+                  }}
+                  className={`w-full py-2.5 px-4 rounded-[14px] text-xs font-extrabold border inline-flex items-center justify-center gap-2 transition-colors ${
+                    templateId === 'royal'
+                      ? effectiveDark
                         ? 'bg-[#1B2540] border-[#C9A35B]/55 text-[#DCB877] hover:border-[#C9A35B]'
                         : 'bg-[#FAF7F0] border-[#A9813F]/55 text-[#722914] hover:border-[#A9813F]'
-                    }`}
-                  >
-                    <ChefHat className="w-4 h-4 shrink-0" />
-                    <span>
-                      {tx(
-                        isEn,
-                        'اسأل الشيف AI عن المكونات والسعر',
-                        'Ask Chef AI: Ingredients & Price'
-                      )}
-                    </span>
-                  </button>
-                </div>
-              )}
+                      : effectiveDark
+                        ? 'bg-[#173323] border-[#2C3D32] text-[#BBF7D0] hover:border-[#4ADE80]'
+                        : 'bg-[#DCFCE7]/70 border-[#86EFAC] text-[#14532D] hover:border-[#15803D]'
+                  }`}
+                >
+                  <ChefHat className="w-4 h-4 shrink-0" />
+                  <span>
+                    {tx(
+                      isEn,
+                      'اسأل الشيف AI عن المكونات والسعر',
+                      'Ask Chef AI: Ingredients & Price'
+                    )}
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* Footer: Quantity +/- & Add to Cart Button */}
@@ -3095,6 +3445,32 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           </div>
         </div>
       )}
+      </div>
+
+      {/* Printable Menu QR Code Poster */}
+      <div className="hidden print-only bg-white text-[#14201A] p-8 text-center">
+        <div className="max-w-md mx-auto border-[3px] border-[#15803D] rounded-[28px] p-8 space-y-5">
+          {shop.logoUrl && (
+            <img
+              src={shop.logoUrl}
+              alt={displayShopName}
+              className="w-20 h-20 rounded-full object-cover mx-auto border-2 border-[#15803D]"
+            />
+          )}
+          <div className="space-y-1">
+            <h2 className="text-2xl font-black text-[#14201A]">{displayShopName}</h2>
+            <p className="text-sm font-bold text-[#15803D]">
+              {tx(isEn, 'امسح الكود لتصفح المنيو والطلب أونلاين', 'Scan to browse menu & order')}
+            </p>
+          </div>
+          <div className="inline-block p-3 bg-white border-2 border-[#CFE3D5] rounded-2xl">
+            <QrCodeImage value={menuShareUrl} size={230} />
+          </div>
+          <div dir="ltr" className="text-xs font-bold text-[#4B5B52] break-all">
+            {menuShareUrl}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
