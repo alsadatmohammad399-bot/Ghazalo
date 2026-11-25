@@ -272,7 +272,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={openLoginModal}
-              className="px-4 h-10 rounded-full border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] hover:border-[#15803D] text-[#14201A] dark:text-[#E8F2EB] font-extrabold text-xs sm:text-sm transition-colors whitespace-nowrap shrink-0"
+              className="max-[419px]:hidden px-4 h-10 rounded-full border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#FFFFFF] dark:bg-[#18231C] hover:border-[#15803D] text-[#14201A] dark:text-[#E8F2EB] font-extrabold text-xs sm:text-sm transition-colors whitespace-nowrap shrink-0"
             >
               {tx(isEn, 'تسجيل الدخول', 'Login')}
             </button>
