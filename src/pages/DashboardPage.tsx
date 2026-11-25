@@ -213,6 +213,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [designSavedToast, setDesignSavedToast] = useState('');
 
   // Delivery & Optional Fees (All OFF by default)
+  const editsInitializedRef = useRef(false);
   const [editDeliveryFee, setEditDeliveryFee] = useState(String(shop.deliveryFee ?? 0));
   const [editFreeDelivery, setEditFreeDelivery] = useState(Boolean(shop.freeDelivery));
   const [editFreeDeliveryMinOrder, setEditFreeDeliveryMinOrder] = useState(
@@ -283,7 +284,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   }, [shop.menuTemplate]);
 
   useEffect(() => {
-    if (!settingsModalOpen && !designModalOpen && !locationModalOpen) return;
+    const anyOpen = settingsModalOpen || designModalOpen || locationModalOpen;
+    const wasOpen = editsInitializedRef.current;
+    editsInitializedRef.current = anyOpen;
+    // Fill the edit fields only when a modal opens. Re-running on every `shop` update
+    // (realtime snapshots, local saves) wiped what the owner was typing, e.g. the delivery fee.
+    if (!anyOpen || wasOpen) return;
     const presetTpl = presetTemplateOnOpenRef.current;
     presetTemplateOnOpenRef.current = null;
     setEditNameAr(shop.nameAr);
@@ -330,7 +336,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setLocationSavedToast('');
     setLogoError('');
     setCoverError('');
-  }, [settingsModalOpen, designModalOpen, locationModalOpen, shop]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsModalOpen, designModalOpen, locationModalOpen]);
 
   useEffect(() => {
     if (!renameModalOpen) return;
@@ -962,15 +969,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     try {
       const updates = buildSettingsUpdates();
       persistShopLocal(updates);
+      let cloudFailed = false;
       if (canUseFirestore) {
         try {
           await updateShop(shop.id, updates);
-        } catch {
-          // saved locally
+        } catch (err) {
+          cloudFailed = true;
+          console.error('delivery settings cloud save failed', err);
         }
       }
       setDeliverySavedToast(
-        tx(isEn, 'تم حفظ اعدادات التوصيل بنجاح', 'Delivery settings saved successfully')
+        cloudFailed
+          ? tx(
+              isEn,
+              'اتحفظ على الجهاز بس، فشل الحفظ على السيرفر. جرب تاني',
+              'Saved on this device only, cloud save failed. Try again'
+            )
+          : tx(isEn, 'تم حفظ اعدادات التوصيل بنجاح', 'Delivery settings saved successfully')
       );
       setTimeout(() => setDeliverySavedToast(''), 3000);
     } finally {
@@ -3014,9 +3029,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <input
                     type="number"
                     min={0}
-                    disabled={editFreeDelivery}
                     value={editFreeDelivery ? '0' : editDeliveryFee}
-                    onChange={(e) => setEditDeliveryFee(e.target.value)}
+                    onFocus={() => {
+                      if (editFreeDelivery) {
+                        setEditFreeDelivery(false);
+                        if (!Number(editDeliveryFee)) setEditDeliveryFee('');
+                      }
+                    }}
+                    onChange={(e) => {
+                      setEditDeliveryFee(e.target.value);
+                      if (Number(e.target.value) > 0) setEditFreeDelivery(false);
+                    }}
                     placeholder={tx(isEn, 'مثال: 20', 'e.g. 20')}
                     className="sf-inp min-h-[42px] text-sm tabular-nums disabled:opacity-60"
                   />
