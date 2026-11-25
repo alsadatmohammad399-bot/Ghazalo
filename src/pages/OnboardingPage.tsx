@@ -627,7 +627,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                 {logoUrl && (
                   <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32]">
                     <div className="flex items-center gap-2">
-                      <img
+                      <img loading="lazy" decoding="async"
                         src={logoUrl}
                         alt="لوجو"
                         className="w-9 h-9 rounded-full object-cover border border-white bg-white"
@@ -868,7 +868,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             <div className="w-10 h-10 rounded-[12px] bg-[#DCFCE7] dark:bg-[#18231C] flex items-center justify-center shrink-0 overflow-hidden">
                               {item.imageUrl ? (
-                                <img
+                                <img loading="lazy" decoding="async"
                                   src={item.imageUrl}
                                   alt={item.name}
                                   referrerPolicy="no-referrer"

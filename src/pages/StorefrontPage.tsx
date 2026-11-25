@@ -3470,7 +3470,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       <div className="hidden print-only bg-white text-[#14201A] p-8 text-center">
         <div className="max-w-md mx-auto border-[3px] border-[#15803D] rounded-[28px] p-8 space-y-5">
           {shop.logoUrl && (
-            <img
+            <img loading="lazy" decoding="async"
               src={shop.logoUrl}
               alt={displayShopName}
               className="w-20 h-20 rounded-full object-cover mx-auto border-2 border-[#15803D]"

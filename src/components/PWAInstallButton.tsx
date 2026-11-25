@@ -79,7 +79,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
       {variant === 'card' ? (
         <div className="bg-[#15803D] rounded-[24px] p-5 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3.5">
-            <img
+            <img loading="lazy" decoding="async"
               src="/pwa-192x192.png"
               alt="Ghazalo POS"
               className="w-14 h-14 rounded-2xl border-2 border-white/40 bg-white object-cover shrink-0 shadow-xs"
@@ -169,7 +169,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             {/* Store Listing Header */}
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3.5">
-                <img
+                <img loading="lazy" decoding="async"
                   src="/pwa-192x192.png"
                   alt="Ghazalo POS"
                   className="w-16 h-16 rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] object-cover shadow-xs shrink-0"
@@ -278,14 +278,14 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             {/* Store Screenshots Preview */}
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-1 rounded-2xl overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32] h-28 bg-[#14201A]">
-                <img
+                <img loading="lazy" decoding="async"
                   src="/screenshot-mobile.png"
                   alt={tx(isEn, 'معاينة التطبيق للموبايل', 'Mobile App Preview')}
                   className="w-full h-full object-cover"
                 />
               </div>
               <div className="col-span-2 rounded-2xl overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32] h-28 bg-[#14201A]">
-                <img
+                <img loading="lazy" decoding="async"
                   src="/screenshot-desktop.png"
                   alt={tx(isEn, 'معاينة نظام الكاشير POS', 'Desktop POS Preview')}
                   className="w-full h-full object-cover"
