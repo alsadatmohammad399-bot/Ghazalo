@@ -17,8 +17,18 @@ const DEFAULT_ADMIN_PIN = process.env.ADMIN_PIN || '';
 if (process.env.VERCEL && !process.env.SESSION_SECRET) {
   console.error('SESSION_SECRET is not set. Tokens will not survive restarts.');
 }
+// Without SESSION_SECRET a random secret per serverless instance made admin/merchant logins bounce
+// back to the login screen (another instance could not verify the token). Derive a stable one from
+// other server-only secrets instead. Setting SESSION_SECRET explicitly is still the best option.
+const DERIVED_SECRET_SOURCE = [process.env.ADMIN_PIN, process.env.GEMINI_API_KEY]
+  .filter(Boolean)
+  .join('|');
+const HAS_STABLE_SECRET = Boolean(process.env.SESSION_SECRET || DERIVED_SECRET_SOURCE);
 let TOKEN_SIGNING_SECRET =
-  process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+  process.env.SESSION_SECRET ||
+  (DERIVED_SECRET_SOURCE
+    ? crypto.createHash('sha256').update(`ghazalo-session:${DERIVED_SECRET_SOURCE}`).digest('hex')
+    : crypto.randomBytes(32).toString('hex'));
 
 // Simple in-memory limiter for admin PIN attempts (per IP, 5 tries / 15 minutes).
 const pinAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -144,7 +154,7 @@ let secretReady = false;
 async function refreshRegistryFromRemote(): Promise<void> {
   if (!REMOTE_STORE) return;
   try {
-    if (!secretReady && !process.env.SESSION_SECRET) {
+    if (!secretReady && !HAS_STABLE_SECRET) {
       // No SESSION_SECRET set: keep one stable secret in the shared store so logins work on every instance.
       let secret = (await redisCmd(['GET', SECRET_KEY])) as string | null;
       if (!secret) {
