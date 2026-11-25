@@ -1210,6 +1210,31 @@ async function startServer() {
   });
 
   // Explore: public, privacy-stripped list of restaurants that have at least one product.
+  // A restaurant owner (or the admin) can permanently delete a server-registry shop and its orders.
+  app.post('/api/store-auth/delete-shop', async (req: Request, res: Response) => {
+    const slug = String((req.body as { storeSlug?: string })?.storeSlug || '');
+    if (!okShopId(slug) || !(merchantShopId(req) === slug || adminFromReq(req))) {
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    const stores = { ...serverRegistry.stores };
+    const menus = { ...(serverRegistry.publicMenus || {}) };
+    delete stores[slug];
+    delete menus[slug];
+    serverRegistry.stores = stores;
+    serverRegistry.publicMenus = menus;
+    persistRegistryState(serverRegistry);
+    try {
+      memOrders.delete(slug);
+      if (REMOTE_STORE) {
+        await redisCmd(['DEL', `ghazalo:orders:${slug}`, `ghazalo:ordseq:${slug}`, `ghazalo:ordstatus:${slug}`]);
+      }
+    } catch {
+      // ignore
+    }
+    res.json({ ok: true });
+  });
+
   app.get('/api/explore', (_req: Request, res: Response) => {
     const list = Object.values(serverRegistry.publicMenus || {})
       .filter((m) => Array.isArray(m.products) && m.products.length > 0)
