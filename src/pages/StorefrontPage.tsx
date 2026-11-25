@@ -1001,7 +1001,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               {resolvedBackLabel}
             </button>
           )}
-          <span className="text-sm font-black truncate max-w-[150px] sm:max-w-[240px]">
+          <span className="hidden min-[480px]:inline text-sm font-black truncate max-w-[240px]">
             {displayShopName}
           </span>
         </div>
