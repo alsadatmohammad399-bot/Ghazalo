@@ -1320,7 +1320,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       )}
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-black text-base text-[#14201A] dark:text-[#E8F2EB] truncate">
+                          <h3 className="font-black text-[15px] text-[#14201A] dark:text-[#E8F2EB] break-words leading-snug">
                             {row.nameAr}
                           </h3>
                           {isNewStore && (
@@ -1585,7 +1585,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             className="sf-card max-w-sm w-full p-6 space-y-4 text-center shadow-2xl"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-black truncate">{qrPreviewRow.nameAr}</h3>
+              <h3 className="text-base font-black break-words leading-snug">{qrPreviewRow.nameAr}</h3>
               <button
                 type="button"
                 onClick={() => setQrPreviewRow(null)}
