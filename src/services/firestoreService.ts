@@ -891,3 +891,25 @@ export async function updateOrderStatus(
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
+
+/** Admin only: permanently delete a shop with its products, tables, orders and credentials. */
+export async function adminDeleteShopFully(shopId: string): Promise<void> {
+  for (const sub of ['products', 'tables', 'orders']) {
+    try {
+      const snap = await getDocs(collection(db, 'shops', shopId, sub));
+      for (let i = 0; i < snap.docs.length; i += 400) {
+        const batch = writeBatch(db);
+        snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+    } catch {
+      // continue: the shop record itself is what must go
+    }
+  }
+  try {
+    await deleteDoc(doc(db, 'store_credentials', shopId));
+  } catch {
+    // may not exist
+  }
+  await deleteDoc(doc(db, 'shops', shopId));
+}

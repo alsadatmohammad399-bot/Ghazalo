@@ -680,3 +680,29 @@ html{-webkit-tap-highlight-color:transparent;scroll-behavior:smooth}
 @media (prefers-reduced-motion: reduce) {
   .sf-btn, .sf-btn-primary, .sf-btn-yellow, .sf-btn-mint, .sf-chip, .sf-chip-on, .gz-fab-pulse { animation: none !important; transition: none !important; transform: none !important; will-change: auto; }
 }
+
+/* ===== Delete button (admin): same motion language as the premium buttons ===== */
+.gz-delete-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 14px; border-radius: 14px; font-weight: 800; font-size: 12px;
+  color: #BE123C; background-color: #FFF1F2; border: 1px solid #FDA4AF;
+  --sheen: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.7) 50%, transparent 65%);
+  background-image: var(--sheen);
+  background-size: 260% 100%; background-position: 130% 0; background-repeat: no-repeat;
+  box-shadow: 0 6px 14px -9px rgba(225,29,72,.5);
+  transition: transform .26s cubic-bezier(.2,.9,.3,1.3), box-shadow .26s ease, background-color .2s ease, color .2s ease;
+  animation: gz-sheen 5s ease-in-out infinite;
+}
+.gz-delete-solid { color: #fff; background-color: #E11D48; border-color: #BE123C; box-shadow: 0 1px 0 rgba(255,255,255,.3) inset, 0 8px 18px -8px rgba(225,29,72,.7); font-size: 14px; }
+.gz-delete-icon { transition: transform .3s ease; transform-origin: 50% 85%; }
+@media (hover: hover) {
+  .gz-delete-btn:not(:disabled):hover { transform: translateY(-2px) scale(1.02); background-color: #E11D48; color: #fff; box-shadow: 0 14px 26px -10px rgba(225,29,72,.75), 0 0 0 4px rgba(251,113,133,.22); }
+  .gz-delete-btn:not(:disabled):hover .gz-delete-icon { animation: gz-wiggle .5s ease-in-out 1; }
+}
+.gz-delete-btn:not(:disabled):active { transform: translateY(1px) scale(.96); transition-duration: .08s; }
+.gz-delete-modal { animation: gz-pop .28s cubic-bezier(.2,.9,.3,1.3) 1; }
+.gz-delete-pulse { animation: gz-pulse 1.6s ease-in-out infinite; }
+@keyframes gz-wiggle { 0%,100% { transform: rotate(0) } 20% { transform: rotate(-16deg) } 40% { transform: rotate(14deg) } 60% { transform: rotate(-9deg) } 80% { transform: rotate(6deg) } }
+@keyframes gz-pop { from { opacity: 0; transform: translateY(14px) scale(.94) } to { opacity: 1; transform: none } }
+@keyframes gz-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(225,29,72,.35) } 50% { box-shadow: 0 0 0 10px rgba(225,29,72,0) } }
+@media (prefers-reduced-motion: reduce) { .gz-delete-btn, .gz-delete-modal, .gz-delete-pulse, .gz-delete-icon { animation: none !important; transition: none !important; } }

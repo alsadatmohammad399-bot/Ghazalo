@@ -4,6 +4,7 @@ import { toWhatsAppNumber } from '../utils/phone';
 import {
   ArrowRight,
   Ban,
+  Trash2,
   Check,
   CheckCircle2,
   Clock,
@@ -45,6 +46,7 @@ import {
   subscribeToAllShops,
   suspendShop,
   updateShop,
+  adminDeleteShopFully,
 } from '../services/firestoreService';
 import { formatArabicDate, getShopAccessState } from '../utils/calculations';
 import { copyMenuLink, getAbsoluteMenuUrl, syncPublicStoreSnapshot } from '../utils/menuLink';
@@ -844,6 +846,48 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       }
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const [deleteTarget, setDeleteTarget] = useState<UnifiedRestaurantRow | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    const row = deleteTarget;
+    if (!row) return;
+    if (row.fromFirestore && !isAdminEmail) {
+      showToast('سجّل دخول جوجل بإيميل الأدمن الأول عشان تحذف المطعم ده');
+      return;
+    }
+    setDeleting(true);
+    try {
+      if (row.fromFirestore) {
+        await adminDeleteShopFully(row.shopId);
+      }
+      const slugs = Array.from(new Set([row.storeSlug, row.shopId].filter(Boolean)));
+      await Promise.all(
+        slugs.map((slug) =>
+          fetch('/api/store-auth/delete-shop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+            body: JSON.stringify({ storeSlug: slug }),
+          }).catch(() => null)
+        )
+      );
+      const keep = (id: string, slug: string) => id !== row.shopId && slug !== row.storeSlug;
+      saveLocalRestaurants(getLocalRestaurants().filter((r) => keep(r.shopId || r.id || '', r.storeSlug || '')));
+      setLocalRestaurants(getLocalRestaurants());
+      setFirestoreShops((prev) => prev.filter((x) => keep(x.id, x.storeSlug || '')));
+      setServerStores((prev) => prev.filter((x) => keep(x.shopId, x.storeSlug)));
+      setFirestoreCreds((prev) => prev.filter((x) => x.shopId !== row.shopId));
+      showToast(`تم حذف ${row.nameAr} نهائياً`);
+      setDeleteTarget(null);
+      setDeleteConfirmText('');
+    } catch {
+      showToast('تعذر الحذف. تأكد من دخولك بإيميل الأدمن وحاول تاني');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1649,6 +1693,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       <Ban className="w-3 h-3" />
                       إيقاف
                     </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => {
+                        setDeleteConfirmText('');
+                        setDeleteTarget(row);
+                      }}
+                      className="gz-delete-btn col-span-2"
+                    >
+                      <Trash2 className="w-4 h-4 gz-delete-icon" />
+                      حذف المطعم نهائياً
+                    </button>
                   </div>
                 </div>
               );
@@ -1659,6 +1715,50 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           </div>
         )}
       </main>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm no-print" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div dir="rtl" onClick={(e) => e.stopPropagation()} className="gz-delete-modal w-full max-w-sm rounded-3xl bg-white dark:bg-[#18231C] border border-rose-200 dark:border-rose-900 p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950 text-rose-600 flex items-center justify-center gz-delete-pulse">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="font-black text-[16px] text-[#14201A] dark:text-[#E8F2EB]">حذف {deleteTarget.nameAr}؟</div>
+                <div className="text-xs font-bold text-rose-600">مش هتقدر ترجعه تاني</div>
+              </div>
+            </div>
+            <p className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed">
+              هيتمسح المطعم بالمنيو والأصناف والطلبات وبيانات الدخول بتاعته من كل مكان. اكتب اسم المطعم بالظبط عشان تأكد:
+            </p>
+            <input
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={deleteTarget.nameAr}
+              className="w-full rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] px-3 py-2.5 text-sm font-bold outline-none focus:border-rose-500"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="py-2.5 rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] font-extrabold text-sm"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={deleting || deleteConfirmText.trim() !== deleteTarget.nameAr.trim()}
+                onClick={() => void handleConfirmDelete()}
+                className="gz-delete-btn gz-delete-solid disabled:opacity-40"
+              >
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4 gz-delete-icon" />}
+                احذف نهائياً
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin QR Quick Preview & Print Modal */}
       {qrPreviewRow && (
