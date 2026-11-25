@@ -7,6 +7,8 @@ import type { CartItem, Order, Shop } from '../types';
 
 export interface InvoiceReceiptData {
   orderNumber: string;
+  /** Per-shop sequence that restarts at 1 every Cairo calendar day. */
+  dailyNumber?: number;
   createdAt?: number;
   orderType: 'delivery' | 'pickup' | 'dine_in' | 'table';
   paymentMethod?: string;
@@ -40,9 +42,40 @@ interface InvoiceReceiptProps {
   compactThermal?: boolean;
 }
 
-export function orderToInvoiceData(order: Order, shop: Shop): InvoiceReceiptData {
+const CAIRO_DAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Africa/Cairo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function orderMillis(o: Pick<Order, 'createdAt'>): number {
+  const c = o.createdAt as unknown;
+  if (typeof c === 'number') return c;
+  if (c && typeof (c as { toMillis?: () => number }).toMillis === 'function') {
+    return (c as { toMillis: () => number }).toMillis();
+  }
+  return Date.now();
+}
+
+/** 1 for the first order of the Cairo day, 2 for the next, and so on. */
+export function dailyOrderNumber(order: Order, allOrders: Order[]): number {
+  const ms = orderMillis(order);
+  const day = CAIRO_DAY.format(ms);
+  let before = 0;
+  for (const o of allOrders) {
+    if (o.id === order.id) continue;
+    const m = orderMillis(o);
+    if (CAIRO_DAY.format(m) !== day) continue;
+    if (m < ms || (m === ms && o.id < order.id)) before += 1;
+  }
+  return before + 1;
+}
+
+export function orderToInvoiceData(order: Order, shop: Shop, allOrders?: Order[]): InvoiceReceiptData {
   return {
     orderNumber: order.orderNumber || 'POS',
+    dailyNumber: allOrders ? dailyOrderNumber(order, allOrders) : undefined,
     createdAt:
       typeof order.createdAt === 'number'
         ? order.createdAt
@@ -219,8 +252,13 @@ export const InvoiceReceipt: React.FC<InvoiceReceiptProps> = ({
           <div>
             <div className="font-extrabold" style={{ fontSize: 11, letterSpacing: 2, ...muted }} dir="ltr">ORDER</div>
             <div className="font-black tabular-nums" dir="ltr" style={{ fontSize: 66, lineHeight: 0.95, letterSpacing: -2 }}>
-              #{data.orderNumber}
+              #{data.dailyNumber ?? data.orderNumber}
             </div>
+            {data.dailyNumber !== undefined && (
+              <div className="font-bold tabular-nums" dir="ltr" style={{ fontSize: 11, marginTop: 4, ...muted }}>
+                {data.orderNumber}
+              </div>
+            )}
           </div>
           <div className="text-center">
             <div

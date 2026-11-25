@@ -390,7 +390,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
 
   const activeReceiptData: InvoiceReceiptData =
     lastReceiptOrder && cartItems.length === 0
-      ? orderToInvoiceData(lastReceiptOrder, shop)
+      ? orderToInvoiceData(lastReceiptOrder, shop, orders)
       : {
           orderNumber: lastReceiptOrder?.orderNumber || 'POS-PREVIEW',
           createdAt: Date.now(),

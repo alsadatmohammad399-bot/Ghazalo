@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, MailOpen, MapPin, Phone, Printer, Receipt, Search, X } from 'lucide-react';
-import { InvoiceReceipt, orderToInvoiceData } from '../components/InvoiceReceipt';
+import { InvoiceReceipt, orderToInvoiceData, dailyOrderNumber } from '../components/InvoiceReceipt';
 import { updateOrderStatus } from '../services/firestoreService';
 import { formatMoney } from '../utils/calculations';
 import { tx, useUiLang } from '../utils/uiLang';
@@ -204,7 +204,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
               <div key={ord.id} className="sf-card space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-extrabold text-base text-[#14201A] dark:text-[#E8F2EB] tabular-nums">
-                    #{ord.orderNumber} ·{' '}
+                    #{dailyOrderNumber(ord, orders)} <span className="text-xs font-bold opacity-60">({ord.orderNumber})</span> ·{' '}
                     {ord.source === 'cashier'
                       ? tx(isEn, 'الكاشير', 'Cashier')
                       : tx(isEn, 'المنيو', 'Menu')}
@@ -330,7 +330,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
             <div className="overflow-y-auto flex-1">
               <InvoiceReceipt
                 shop={shop}
-                data={orderToInvoiceData(previewOrder, shop)}
+                data={orderToInvoiceData(previewOrder, shop, orders)}
                 isEn={isEn}
               />
             </div>
@@ -359,7 +359,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
         <div className="hidden print-only p-2">
           <InvoiceReceipt
             shop={shop}
-            data={orderToInvoiceData(previewOrder, shop)}
+            data={orderToInvoiceData(previewOrder, shop, orders)}
             isEn={isEn}
             compactThermal
           />
