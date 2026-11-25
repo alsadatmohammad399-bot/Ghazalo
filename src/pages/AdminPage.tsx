@@ -1077,7 +1077,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     <div dir="rtl" className="min-h-screen bg-[#F6FBF7] dark:bg-[#0F1712] text-[#14201A] dark:text-[#E8F2EB] pb-16">
       {/* Admin Top Header */}
       <header className="sticky top-0 z-30 bg-[#FFFFFF]/95 dark:bg-[#18231C]/95 backdrop-blur-md border-b border-[#CFE3D5] dark:border-[#2C3D32] px-4 sm:px-6 h-16 flex items-center justify-between gap-3 no-print">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
             onClick={onBack}
@@ -1086,9 +1086,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <ArrowRight className="w-4 h-4" />
             العودة
           </button>
-          <div className="flex items-center gap-2 font-black text-sm sm:text-lg truncate">
-            <ShieldCheck className="w-5 h-5 text-[#15803D] dark:text-[#BBF7D0] shrink-0" />
-            <span className="truncate">لوحة تحكم الأدمن · Ghazalo</span>
+          <div className="hidden sm:flex items-center gap-1.5 font-black text-sm sm:text-lg">
+            <ShieldCheck className="hidden sm:block w-5 h-5 text-[#15803D] dark:text-[#BBF7D0] shrink-0" />
+            <span className="whitespace-nowrap"><span className="hidden sm:inline">لوحة تحكم الأدمن · Ghazalo</span></span>
           </div>
         </div>
 
