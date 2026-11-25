@@ -133,6 +133,46 @@ function loadRegistryState(): ServerRegistryState {
 
 let pendingWrites: Promise<void> = Promise.resolve();
 
+// New-shop email alert to the platform owner (Resend). Best effort: never blocks or fails a signup.
+function escHtml(v: unknown): string {
+  return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+async function notifyNewShopByEmail(info: { nameAr: string; slug: string; phone: string; email: string; city: string }): Promise<void> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return;
+  const to = process.env.NOTIFY_EMAIL || 'alsadatmohammad399@gmail.com';
+  const when = new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', dateStyle: 'full', timeStyle: 'short' });
+  const rows: [string, string][] = [
+    ['اسم المطعم', info.nameAr],
+    ['رقم الهاتف / واتساب', info.phone || 'غير مسجل'],
+    ['البريد', info.email || 'غير مسجل'],
+    ['المدينة', info.city || 'غير مسجلة'],
+    ['وقت التسجيل (القاهرة)', when],
+    ['رابط المنيو', `https://ghazalo.vercel.app/menu/${info.slug}`],
+  ];
+  const html = `<div dir="rtl" style="font-family:Arial,sans-serif;max-width:520px;margin:auto;border:1px solid #cfe3d5;border-radius:16px;overflow:hidden"><div style="background:#15803D;color:#fff;padding:16px 20px;font-size:18px;font-weight:bold">مطعم جديد سجل في غزالو 🎉</div><table style="width:100%;border-collapse:collapse">${rows
+    .map(([k, v]) => `<tr><td style="padding:10px 20px;color:#4B5B52;border-bottom:1px solid #eef5f0;width:42%">${escHtml(k)}</td><td style="padding:10px 20px;font-weight:bold;border-bottom:1px solid #eef5f0">${escHtml(v)}</td></tr>`)
+    .join('')}</table></div>`;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Ghazalo <onboarding@resend.dev>',
+        to: [to],
+        subject: `مطعم جديد: ${info.nameAr}`,
+        html,
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+  } catch {
+    // ignore email failures
+  }
+}
+
 function persistRegistryState(state: ServerRegistryState): void {
   try {
     fs.writeFileSync(STORE_REGISTRY_PATH, JSON.stringify(state), 'utf8');
@@ -1377,6 +1417,16 @@ async function startServer() {
       };
     }
     persistRegistryState(serverRegistry);
+    if (!existing && !(await overLimit('regmail', 'all', 30, 3600))) {
+      const cred = serverRegistry.stores[storeSlug];
+      await notifyNewShopByEmail({
+        nameAr: String(shopObj.nameAr || cred?.nameAr || storeSlug).slice(0, 120),
+        slug: storeSlug,
+        phone: String(shopObj.whatsapp || shopObj.whatsappPhone || cred?.phone || '').slice(0, 40),
+        email: String(cred?.email || '').slice(0, 200),
+        city: String(shopObj.city || '').slice(0, 80),
+      });
+    }
     res.json({ ok: true, storeSlug });
   });
 
