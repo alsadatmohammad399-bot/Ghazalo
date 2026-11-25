@@ -27,7 +27,8 @@ export const ADMIN_PORTAL_KEY: string =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_PORTAL_KEY) ||
   'ghz-991-owner';
 
-export type MenuTemplateId = 'classic' | 'modern' | 'minimal' | 'compact' | 'royal';
+export type LayoutBaseId = 'classic' | 'modern' | 'minimal' | 'compact' | 'royal';
+export type MenuTemplateId = LayoutBaseId | 'midnight' | 'fresh' | 'street' | 'snow';
 export type LegacyMenuTemplateId = 'luxury' | 'magazine';
 export type ShopMenuTemplateId = MenuTemplateId | LegacyMenuTemplateId;
 
@@ -54,6 +55,8 @@ export interface MenuTemplateStyleTokens {
 
 export interface MenuTemplateConfig {
   id: MenuTemplateId;
+  /** Which built-in page layout this template uses; colours and shapes come from styles. */
+  layoutBase: LayoutBaseId;
   name: string;
   englishName: string;
   tagline: string;
@@ -68,7 +71,7 @@ export interface MenuTemplateConfig {
   styles: MenuTemplateStyleTokens;
 }
 
-export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> = {
+const BASE_TEMPLATE_CONFIGS: Record<LayoutBaseId, Omit<MenuTemplateConfig, 'layoutBase'>> = {
   classic: {
     id: 'classic',
     name: 'كلاسيكي',
@@ -260,20 +263,147 @@ export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> =
   },
 };
 
+function withBase(id: LayoutBaseId): MenuTemplateConfig {
+  return { ...BASE_TEMPLATE_CONFIGS[id], layoutBase: id };
+}
+
+function variant(
+  base: LayoutBaseId,
+  meta: Pick<MenuTemplateConfig, 'id' | 'name' | 'englishName' | 'tagline' | 'badge'>,
+  styles: Partial<MenuTemplateStyleTokens>
+): MenuTemplateConfig {
+  const b = withBase(base);
+  return { ...b, ...meta, layoutBase: base, styles: { ...b.styles, ...styles } };
+}
+
+export const MENU_TEMPLATE_CONFIGS: Record<MenuTemplateId, MenuTemplateConfig> = {
+  classic: withBase('classic'),
+  modern: withBase('modern'),
+  minimal: withBase('minimal'),
+  compact: withBase('compact'),
+  royal: withBase('royal'),
+  midnight: variant(
+    'modern',
+    {
+      id: 'midnight',
+      name: 'منتصف الليل (فخم داكن)',
+      englishName: 'Midnight Luxe',
+      tagline: 'خلفية سوداء فاخرة بلمسات ذهبية وصور كبيرة، مثالي للمطاعم الراقية والستيك هاوس',
+      badge: 'فخم',
+    },
+    {
+      pageBackgroundClass: 'bg-[#0B0B10] dark:bg-[#0B0B10]',
+      heroShellClass: 'bg-[#15151D] dark:bg-[#15151D] border-[#2B2B38] dark:border-[#2B2B38] rounded-[26px] shadow-lg',
+      offersSectionClass: 'bg-[#1B1B26] dark:bg-[#1B1B26] border-[#3A3320] dark:border-[#3A3320] rounded-[26px]',
+      offersCardClass: 'bg-[#15151D] dark:bg-[#15151D] rounded-[22px] p-3 border border-[#2B2B38] dark:border-[#2B2B38] hover:border-[#D4AF37]',
+      categoryActiveClass: 'bg-[#D4AF37] dark:bg-[#D4AF37] text-[#0B0B10] dark:text-[#0B0B10] border-[1.5px] border-[#D4AF37]',
+      categoryIdleClass: 'bg-[#15151D] dark:bg-[#15151D] text-[#EDE6D3] dark:text-[#EDE6D3] border-[1.5px] border-[#2B2B38] dark:border-[#2B2B38]',
+      cardClass: 'bg-[#15151D] dark:bg-[#15151D] rounded-[22px] p-2.5 border border-[#2B2B38] dark:border-[#2B2B38] hover:border-[#D4AF37]',
+      cardImageBoxClass: 'relative h-28 sm:h-32 rounded-[16px] bg-[#0B0B10] dark:bg-[#0B0B10]',
+      priceTextClass: 'text-[#D4AF37] dark:text-[#D4AF37]',
+      primaryButtonClass: 'bg-[#D4AF37] hover:bg-[#E5C255] text-[#0B0B10]',
+      badgeClass: 'bg-[#2B2610] dark:bg-[#2B2610] text-[#D4AF37] dark:text-[#D4AF37]',
+      cardPreviewClass: 'bg-[#0B0B10] border-[#D4AF37]/40 text-[#EDE6D3]',
+    }
+  ),
+  fresh: variant(
+    'classic',
+    {
+      id: 'fresh',
+      name: 'كافيه فريش (فاتح)',
+      englishName: 'Fresh Cafe',
+      tagline: 'ألوان دافئة وخفيفة بلمسة برتقالية، مناسب للكافيهات والحلويات والمشروبات',
+      badge: 'كافيه',
+    },
+    {
+      pageBackgroundClass: 'bg-[#FFF8EE] dark:bg-[#1C1612]',
+      heroShellClass: 'bg-[#FFFFFF] dark:bg-[#271E18] border-[#F3DFC6] dark:border-[#4A382A] rounded-[28px]',
+      offersSectionClass: 'bg-[#FFEBD2]/70 dark:bg-[#33261C]/70 border-[#F6C998] dark:border-[#4A382A] rounded-[28px]',
+      offersCardClass: 'bg-[#FFFFFF] dark:bg-[#271E18] rounded-[24px] p-3 border border-[#F3DFC6] dark:border-[#4A382A] shadow-xs hover:border-[#E8743B]',
+      categoryActiveClass: 'bg-[#E8743B] text-white border-[1.5px] border-[#E8743B]',
+      categoryIdleClass: 'bg-[#FFFFFF] dark:bg-[#271E18] text-[#3A2A1E] dark:text-[#F8EBDD] border-[1.5px] border-[#F3DFC6] dark:border-[#4A382A]',
+      cardClass: 'bg-[#FFFFFF] dark:bg-[#271E18] rounded-[24px] p-2.5 border border-[#F3DFC6] dark:border-[#4A382A] shadow-xs',
+      cardImageBoxClass: 'relative h-24 sm:h-28 rounded-[18px] bg-[#FFF1DF] dark:bg-[#33261C]',
+      priceTextClass: 'text-[#D45A1F] dark:text-[#FFB27D]',
+      primaryButtonClass: 'bg-[#E8743B] hover:bg-[#D45A1F] text-white',
+      badgeClass: 'bg-[#FFEBD2] dark:bg-[#33261C] text-[#B2461A] dark:text-[#FFB27D]',
+      cardPreviewClass: 'bg-[#FFF8EE] border-[#F3DFC6] text-[#3A2A1E]',
+    }
+  ),
+  street: variant(
+    'compact',
+    {
+      id: 'street',
+      name: 'ستريت فود (جريء)',
+      englishName: 'Street Bold',
+      tagline: 'ألوان حادة وحدود سميكة وخطوط عريضة للمأكولات السريعة والبرجر والشاورما',
+      badge: 'جريء',
+    },
+    {
+      pageBackgroundClass: 'bg-[#FFE9A8] dark:bg-[#1A1A1A]',
+      heroShellClass: 'bg-[#FFFFFF] dark:bg-[#242424] border-2 border-[#111111] dark:border-[#FFD23F] rounded-[14px] shadow-[4px_4px_0_#111111] dark:shadow-[4px_4px_0_#FFD23F]',
+      offersSectionClass: 'bg-[#FF4B2B]/15 dark:bg-[#242424] border-2 border-[#111111] dark:border-[#FFD23F] rounded-[14px]',
+      offersCardClass: 'bg-[#FFFFFF] dark:bg-[#242424] rounded-[12px] p-3 border-2 border-[#111111] dark:border-[#FFD23F]',
+      categoryActiveClass: 'bg-[#FF4B2B] text-white border-2 border-[#111111] dark:border-[#FFD23F]',
+      categoryIdleClass: 'bg-[#FFFFFF] dark:bg-[#242424] text-[#111111] dark:text-[#FFFFFF] border-2 border-[#111111] dark:border-[#FFD23F]',
+      cardClass: 'bg-[#FFFFFF] dark:bg-[#242424] rounded-[12px] p-2.5 border-2 border-[#111111] dark:border-[#FFD23F] shadow-[3px_3px_0_#111111] dark:shadow-[3px_3px_0_#FFD23F]',
+      cardImageBoxClass: 'relative w-14 h-14 rounded-[10px] bg-[#FFE9A8] dark:bg-[#1A1A1A] shrink-0',
+      priceTextClass: 'text-[#E02E10] dark:text-[#FFD23F] font-black',
+      primaryButtonClass: 'bg-[#FF4B2B] hover:bg-[#E02E10] text-white border-2 border-[#111111]',
+      badgeClass: 'bg-[#FFD23F] text-[#111111] border border-[#111111]',
+      cardPreviewClass: 'bg-[#FFE9A8] border-[#111111] text-[#111111]',
+    }
+  ),
+  snow: variant(
+    'minimal',
+    {
+      id: 'snow',
+      name: 'ثلجي (أبيض بسيط)',
+      englishName: 'Snow Minimal',
+      tagline: 'أبيض نظيف وخطوط رفيعة وتركيز كامل على الأسماء والأسعار، أنيق وسريع التحميل',
+      badge: 'بسيط',
+    },
+    {
+      pageBackgroundClass: 'bg-[#FFFFFF] dark:bg-[#0A0A0A]',
+      heroShellClass: 'bg-[#FFFFFF] dark:bg-[#111111] border-[#E7E7E7] dark:border-[#262626] rounded-[18px]',
+      offersSectionClass: 'bg-[#F7F7F7] dark:bg-[#111111] border-[#E7E7E7] dark:border-[#262626] rounded-[18px]',
+      offersCardClass: 'bg-[#FFFFFF] dark:bg-[#111111] rounded-[14px] p-3 border border-[#E7E7E7] dark:border-[#262626] hover:border-[#111111]',
+      categoryActiveClass: 'bg-[#111111] dark:bg-[#FFFFFF] text-white dark:text-[#111111] border border-[#111111] dark:border-[#FFFFFF]',
+      categoryIdleClass: 'bg-[#FFFFFF] dark:bg-[#111111] text-[#555555] dark:text-[#BBBBBB] border border-[#E7E7E7] dark:border-[#262626]',
+      cardClass: 'bg-[#FFFFFF] dark:bg-[#111111] rounded-[14px] p-3 border border-[#EFEFEF] dark:border-[#262626]',
+      cardImageBoxClass: 'relative w-14 h-14 rounded-[10px] bg-[#F4F4F4] dark:bg-[#1C1C1C] shrink-0',
+      priceTextClass: 'text-[#111111] dark:text-[#FFFFFF] font-bold',
+      primaryButtonClass: 'bg-[#111111] hover:bg-[#2A2A2A] text-white dark:bg-[#FFFFFF] dark:text-[#111111]',
+      badgeClass: 'bg-[#F4F4F4] dark:bg-[#1C1C1C] text-[#333333] dark:text-[#DDDDDD]',
+      cardPreviewClass: 'bg-[#FFFFFF] border-[#E7E7E7] text-[#111111]',
+    }
+  ),
+};
+
 export const MENU_TEMPLATES_LIST: MenuTemplateConfig[] = [
   MENU_TEMPLATE_CONFIGS.classic,
   MENU_TEMPLATE_CONFIGS.modern,
   MENU_TEMPLATE_CONFIGS.minimal,
   MENU_TEMPLATE_CONFIGS.compact,
   MENU_TEMPLATE_CONFIGS.royal,
+  MENU_TEMPLATE_CONFIGS.midnight,
+  MENU_TEMPLATE_CONFIGS.fresh,
+  MENU_TEMPLATE_CONFIGS.street,
+  MENU_TEMPLATE_CONFIGS.snow,
 ];
 
 export function normalizeMenuTemplateId(id?: string | null): MenuTemplateId {
   if (id === 'modern' || id === 'luxury' || id === 'magazine') return 'modern';
+  if (id === 'midnight' || id === 'fresh' || id === 'street' || id === 'snow') return id;
   if (id === 'minimal') return 'minimal';
   if (id === 'compact') return 'compact';
   if (id === 'royal' || id === 'zain' || id === 'bistro') return 'royal';
   return 'classic';
+}
+
+/** Firestore security rules only know the original template ids, so persist the layout base there. */
+export function toFirestoreTemplateId(id?: string | null): LayoutBaseId {
+  return getMenuTemplateConfig(id).layoutBase;
 }
 
 export function getMenuTemplateConfig(id?: string | null): MenuTemplateConfig {

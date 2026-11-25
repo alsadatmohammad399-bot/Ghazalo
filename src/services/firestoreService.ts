@@ -18,7 +18,7 @@ import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import { sortProductsCulinary } from '../utils/menuSorting';
 import {
   FIELD_LIMITS,
-  normalizeMenuTemplateId,
+  toFirestoreTemplateId,
   normalizeStoreSlug,
   type ExtractedMenuItem,
   type Order,
@@ -169,7 +169,7 @@ export async function createShopWithProducts(
       workDays: (shopData.workDays || []).slice(0, 7),
       themeColor: (shopData.themeColor || 'برتقالي').slice(0, 30),
       themeMode: shopData.themeMode === 'dark' ? 'dark' : 'light',
-      menuTemplate: normalizeMenuTemplateId(shopData.menuTemplate),
+      menuTemplate: toFirestoreTemplateId(shopData.menuTemplate),
       logoUrl: (shopData.logoUrl || '').slice(0, FIELD_LIMITS.LOGO_URL_MAX),
       showLogoOnItems: Boolean(shopData.showLogoOnItems),
       acceptOrders: Boolean(shopData.acceptOrders),
@@ -330,7 +330,7 @@ export async function updateShop(
     if (updates.themeColor !== undefined) allowed.themeColor = updates.themeColor.slice(0, 30);
     if (updates.themeMode !== undefined) allowed.themeMode = updates.themeMode;
     if (updates.menuTemplate !== undefined) {
-      allowed.menuTemplate = normalizeMenuTemplateId(updates.menuTemplate);
+      allowed.menuTemplate = toFirestoreTemplateId(updates.menuTemplate);
     }
     if (updates.logoUrl !== undefined) allowed.logoUrl = updates.logoUrl.slice(0, FIELD_LIMITS.LOGO_URL_MAX);
     if (updates.showLogoOnItems !== undefined) allowed.showLogoOnItems = Boolean(updates.showLogoOnItems);

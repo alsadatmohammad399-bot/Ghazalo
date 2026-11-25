@@ -119,6 +119,10 @@ export function translateTemplateMeta(
       name: 'Royal Bistro + AI Chef',
       tagline: 'Signature Navy/Ivory & Gold storefront with interactive AI Chef Assistant',
     },
+    midnight: { name: 'Midnight Luxe', tagline: 'Black and gold fine-dining look with big photos' },
+    fresh: { name: 'Fresh Cafe', tagline: 'Warm light cafe palette for coffee, desserts and drinks' },
+    street: { name: 'Street Bold', tagline: 'Loud colours and thick borders for burgers and street food' },
+    snow: { name: 'Snow Minimal', tagline: 'Clean white, thin lines, all focus on names and prices' },
   };
   return map[id] || { name: fallbackName, tagline: fallbackTagline };
 }

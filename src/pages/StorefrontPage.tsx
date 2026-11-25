@@ -90,6 +90,8 @@ interface StorefrontPageProps {
   onOrderPlaced?: (order: Order) => void;
   onBack?: () => void;
   backLabel?: string;
+  /** Explore mode: browse the menu only, no ordering and no owner contacts. */
+  viewOnly?: boolean;
 }
 
 const ALL_CATEGORIES_KEY = '__all__';
@@ -115,6 +117,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   onOrderPlaced,
   onBack,
   backLabel,
+  viewOnly = false,
 }) => {
   const { isEn, toggleLang } = useUiLang();
   const displayShopName = getShopDisplayName(shop, isEn);
@@ -191,7 +194,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     () => getMenuTemplateConfig(shop.menuTemplate),
     [shop.menuTemplate]
   );
-  const templateId = templateConfig.id;
+  const templateId = templateConfig.layoutBase;
   const templateStyles = templateConfig.styles;
   const showDishLogo = Boolean(shop.logoUrl && shop.showLogoOnItems);
 
@@ -384,6 +387,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   };
 
   const addToCart = (product: Product) => {
+    if (viewOnly) return;
     const options = getProductOptions(product);
     if (options.length > 0) {
       openProductDetail(product);
@@ -403,7 +407,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   };
 
   const addDetailToCart = () => {
-    if (!detailProduct) return;
+    if (!detailProduct || viewOnly) return;
     const option = selectedDetailOption;
     const cartKey = option ? `${detailProduct.id}__${option.label}` : detailProduct.id;
     const unitPrice = option ? option.price : detailProduct.price;
@@ -635,7 +639,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     );
   }
 
-  if (!isDemo && !shopAccess.isActive) {
+  if (!isDemo && !viewOnly && !shopAccess.isActive) {
     const waText = encodeURIComponent(
       `مرحباً إدارة غزالة، أرغب في تفعيل ${
         selectedPlan === 'monthly'
@@ -878,7 +882,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   return (
     <div
       dir={isEn ? 'ltr' : 'rtl'}
-      className={`${effectiveDark ? 'dark ' : ''}min-h-screen pb-28 transition-colors ${
+      className={`${effectiveDark ? 'dark ' : ''}${viewOnly ? 'gz-viewonly ' : ''}${templateConfig.id !== templateConfig.layoutBase ? `gz-t-${templateConfig.id} ` : ''}min-h-screen pb-28 transition-colors ${
         templateId === 'royal'
           ? 'bg-[#F7F4ED] dark:bg-[#0E1526] text-[#20263A] dark:text-[#F5F1E8]'
           : templateId === 'minimal'
@@ -887,6 +891,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       }`}
     >
       <div className="no-print">
+      {viewOnly && (
+        <div className="px-4 py-2 text-center text-xs font-extrabold bg-[#14201A] text-white">
+          {tx(isEn, 'وضع الاستعراض فقط: شكل المطعم والمنيو بدون طلبات', 'Preview mode: browse this menu only, ordering is off')}
+        </div>
+      )}
       {/* Generic Store Fallback Banner when opened via unknown slug */}
       {isFallbackMenu && (
         <div
@@ -1553,7 +1562,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       {inCartQty === 0 || options.length > 0 ? (
                         <button
                           type="button"
-                          onClick={() => openProductDetail(product)}
+                          data-gz-order onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
                           style={{ backgroundColor: themeHex }}
                           className="px-3.5 py-1.5 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums text-white hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
@@ -1569,7 +1578,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
                           <button
                             type="button"
-                            onClick={() => addToCart(product)}
+                            data-gz-order onClick={() => addToCart(product)}
                             style={{ backgroundColor: themeHex }}
                             className="w-6 h-6 rounded-full text-white flex items-center justify-center"
                           >
@@ -1830,7 +1839,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       {inCartQty === 0 || options.length > 0 ? (
                         <button
                           type="button"
-                          onClick={() => openProductDetail(product)}
+                          data-gz-order onClick={() => openProductDetail(product)}
                           disabled={!shop.acceptOrders}
                           className="px-4 py-2 rounded-[10px] bg-[#A9813F] hover:bg-[#8E6A31] dark:bg-[#C9A35B] dark:hover:bg-[#DCB877] text-white dark:text-[#0E1526] disabled:opacity-40 text-xs font-black inline-flex items-center gap-1 tabular-nums transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                         >
@@ -1845,7 +1854,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         <div className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#E3DCCB] dark:border-[#2A3550] bg-[#F7F4ED] dark:bg-[#0E1526] px-1.5 py-1">
                           <button
                             type="button"
-                            onClick={() => addToCart(product)}
+                            data-gz-order onClick={() => addToCart(product)}
                             className="w-7 h-7 rounded-[8px] bg-[#A9813F] dark:bg-[#C9A35B] text-white dark:text-[#0E1526] flex items-center justify-center"
                           >
                             <Plus className="w-3.5 h-3.5" />
@@ -1955,7 +1964,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         <button
                           type="button"
                           onClick={() => openProductDetail(product)}
-                          disabled={!shop.acceptOrders}
+                          data-gz-order disabled={!shop.acceptOrders}
                           aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
                           style={{ backgroundColor: themeHex }}
                           className={
@@ -1973,7 +1982,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
                           <button
                             type="button"
-                            onClick={() => addToCart(product)}
+                            data-gz-order onClick={() => addToCart(product)}
                             style={{ backgroundColor: themeHex }}
                             className="w-7 h-7 rounded-full text-white flex items-center justify-center"
                           >
@@ -2062,7 +2071,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             <button
                               type="button"
                               onClick={() => openProductDetail(product)}
-                              disabled={!shop.acceptOrders}
+                              data-gz-order disabled={!shop.acceptOrders}
                               aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
                               style={{
                                 borderColor: themeHex,
@@ -2083,7 +2092,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                             <div className="inline-flex items-center gap-1.5 border border-[#CFE3D5] dark:border-[#2C3D32] rounded-full px-1.5 py-0.5">
                               <button
                                 type="button"
-                                onClick={() => addToCart(product)}
+                                data-gz-order onClick={() => addToCart(product)}
                                 style={{ backgroundColor: themeHex }}
                                 className="w-6 h-6 rounded-full text-white flex items-center justify-center"
                               >
@@ -2162,7 +2171,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                         {inCartQty === 0 || options.length > 0 ? (
                           <button
                             type="button"
-                            onClick={() => openProductDetail(product)}
+                            data-gz-order onClick={() => openProductDetail(product)}
                             disabled={!shop.acceptOrders}
                             style={{ backgroundColor: themeHex }}
                             className="px-4 py-2 rounded-full disabled:opacity-40 text-xs font-extrabold inline-flex items-center gap-1 tabular-nums text-white hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
@@ -2178,7 +2187,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                           <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
                             <button
                               type="button"
-                              onClick={() => addToCart(product)}
+                              data-gz-order onClick={() => addToCart(product)}
                               style={{ backgroundColor: themeHex }}
                               className="w-7 h-7 rounded-full text-white flex items-center justify-center"
                             >
@@ -2332,7 +2341,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       <button
                         type="button"
                         onClick={() => openProductDetail(product)}
-                        disabled={!shop.acceptOrders}
+                        data-gz-order disabled={!shop.acceptOrders}
                         aria-label={tx(isEn, `إضافة ${product.name}`, `Add ${product.name}`)}
                         style={{ backgroundColor: themeHex }}
                         className={
@@ -2350,7 +2359,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       <div className="inline-flex items-center gap-1.5 glass-surface rounded-full px-1.5 py-1">
                         <button
                           type="button"
-                          onClick={() => addToCart(product)}
+                          data-gz-order onClick={() => addToCart(product)}
                           style={{ backgroundColor: themeHex }}
                           className="w-6 h-6 rounded-full text-white flex items-center justify-center"
                         >
@@ -2640,7 +2649,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                       </div>
                       <button
                         type="button"
-                        onClick={() => addToCart(item)}
+                        data-gz-order onClick={() => addToCart(item)}
                         className="w-8 h-8 rounded-full bg-[#15803D] text-white flex items-center justify-center shrink-0"
                       >
                         <Plus className="w-4 h-4" />
@@ -3433,7 +3442,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
             </div>
 
             {/* Footer: Quantity +/- & Add to Cart Button */}
-            <div className="p-4 sm:p-5 bg-[#FFFFFF] dark:bg-[#18231C] border-t border-[#CFE3D5] dark:border-[#2C3D32] flex items-center gap-3 shrink-0">
+            <div data-gz-order className="p-4 sm:p-5 bg-[#FFFFFF] dark:bg-[#18231C] border-t border-[#CFE3D5] dark:border-[#2C3D32] flex items-center gap-3 shrink-0">
               <div className="inline-flex items-center gap-2.5 bg-[#F6FBF7] dark:bg-[#0F1712] border border-[#CFE3D5] dark:border-[#2C3D32] rounded-full px-2.5 py-1.5 shrink-0">
                 <button
                   type="button"
@@ -3458,7 +3467,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
               <button
                 type="button"
-                disabled={!shop.acceptOrders}
+                data-gz-order disabled={!shop.acceptOrders}
                 onClick={addDetailToCart}
                 className="flex-1 py-3.5 px-5 rounded-full glass-btn-primary disabled:opacity-40 font-extrabold text-sm sm:text-base flex items-center justify-between gap-2 shadow-md tabular-nums"
               >

@@ -1485,6 +1485,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </button>
               <button
                 type="button"
+                onClick={() => window.location.assign('/explore')}
+                className="sf-btn w-full min-h-[42px] text-sm"
+              >
+                {tx(isEn, 'استكشاف المطاعم', 'Explore restaurants')}
+              </button>
+              <button
+                type="button"
                 onClick={onOpenShareQr}
                 className="sf-btn w-full min-h-[42px] text-sm"
               >

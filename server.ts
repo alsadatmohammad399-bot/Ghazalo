@@ -1200,6 +1200,33 @@ async function startServer() {
     }
   });
 
+  // Explore: public, privacy-stripped list of restaurants that have at least one product.
+  app.get('/api/explore', (_req: Request, res: Response) => {
+    const list = Object.values(serverRegistry.publicMenus || {})
+      .filter((m) => Array.isArray(m.products) && m.products.length > 0)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .slice(0, 200)
+      .map((m) => {
+        const sh = m.shop as Record<string, unknown>;
+        const photos = m.products
+          .map((p) => String((p as Record<string, unknown>).imageUrl || (p as Record<string, unknown>).image || ''))
+          .filter((u) => u && u.length < 2000 && !u.startsWith('data:'))
+          .slice(0, 3);
+        return {
+          storeSlug: m.storeSlug,
+          nameAr: String(sh.nameAr || '').slice(0, 120),
+          nameEn: String(sh.nameEn || '').slice(0, 120),
+          logoUrl: typeof sh.logoUrl === 'string' && sh.logoUrl.length < 2000 && !sh.logoUrl.startsWith('data:') ? sh.logoUrl : '',
+          coverImage: typeof sh.coverImage === 'string' && sh.coverImage.length < 2000 && !sh.coverImage.startsWith('data:') ? sh.coverImage : '',
+          menuTemplate: String(sh.menuTemplate || 'classic'),
+          themeColor: String(sh.themeColor || ''),
+          productCount: m.products.length,
+          photos,
+        };
+      });
+    res.json({ ok: true, restaurants: list });
+  });
+
   app.get('/api/public-stores/:slug', (req: Request, res: Response) => {
     const rawSlug = decodeURIComponent(String(req.params.slug || '')).trim().toLowerCase();
     const norm = normalizeSlugServer(rawSlug);

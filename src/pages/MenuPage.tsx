@@ -380,14 +380,17 @@ export const MenuPage: React.FC<MenuPageProps> = ({
       darkMode={darkMode}
       onToggleDarkMode={onToggleDarkMode}
       onOrderPlaced={(newOrder) => savePublicLocalOrder(resolvedState.shop.id, newOrder)}
+      viewOnly={new URLSearchParams(location.search).get('explore') === '1'}
       onBack={() => {
-        if (hasOwnerSession) {
+        if (new URLSearchParams(location.search).get('explore') === '1') {
+          navigate('/explore');
+        } else if (hasOwnerSession) {
           navigate(`/dashboard/${storedSession.lastStore}`);
         } else {
           navigate('/');
         }
       }}
-      backLabel={hasOwnerSession ? 'لوحة التحكم' : 'الرئيسية'}
+      backLabel={new URLSearchParams(location.search).get('explore') === '1' ? 'استكشاف المطاعم' : hasOwnerSession ? 'لوحة التحكم' : 'الرئيسية'}
     />
   );
 };

@@ -19,6 +19,7 @@ import {
   subscribeToShop,
   subscribeToTables,
 } from './services/firestoreService';
+import { ExplorePage } from './pages/ExplorePage';
 import { getShopAccessState } from './utils/calculations';
 import { fetchInboxOrders, fetchOrderSeq, playOrderBeep, pushOrderStatus } from './utils/orderInbox';
 import { getShopDisplayName, tx, useUiLang } from './utils/uiLang';
@@ -1392,6 +1393,7 @@ function AppRouter() {
         <Route path="/onboarding" element={appShellNode} />
         <Route path="/admin/*" element={appShellNode} />
         <Route path="/dashboard/*" element={appShellNode} />
+        <Route path="/explore" element={<ExplorePage darkMode={darkMode} />} />
         <Route path="/menu/:slug" element={menuPageNode} />
         <Route path="/:slug/menu" element={menuPageNode} />
         <Route path="*" element={menuPageNode} />
