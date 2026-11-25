@@ -380,7 +380,11 @@ export const MenuPage: React.FC<MenuPageProps> = ({
       darkMode={darkMode}
       onToggleDarkMode={onToggleDarkMode}
       onOrderPlaced={(newOrder) => savePublicLocalOrder(resolvedState.shop.id, newOrder)}
-      viewOnly={new URLSearchParams(location.search).get('explore') === '1'}
+      viewOnly={
+        new URLSearchParams(location.search).get('explore') === '1' ||
+        DEMO_PROJECTS.some((d) => d.shop.id === resolvedState.shop.id) ||
+        Boolean(findDemoStoreBySlug(resolvedState.shop.storeSlug || resolvedState.shop.id))
+      }
       onBack={() => {
         if (new URLSearchParams(location.search).get('explore') === '1') {
           navigate('/explore');
