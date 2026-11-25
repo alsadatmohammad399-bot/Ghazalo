@@ -590,3 +590,15 @@
 .gz-t-snow h1,.gz-t-snow h2,.gz-t-snow h3{color:#111111}
 .gz-t-midnight [class*="rounded-[24px]"]{background-color:#15151D!important}
 .gz-t-midnight [class*="rounded-[24px]"] .text-white\/80{color:#EDE6D3}
+.gz-t-midnight .text-\[\#14201A\],.gz-t-midnight .text-\[\#20263A\],.gz-t-midnight .text-slate-900,.gz-t-midnight .text-\[\#1F2937\]{color:#F3EDE0!important}
+.gz-t-midnight .text-\[\#4B5B52\],.gz-t-midnight .text-\[\#6B7B72\]{color:#B9B2A0!important}
+.gz-t-midnight .bg-white,.gz-t-midnight [class*="bg-white/"]{background-color:#1B1B25!important;color:#F3EDE0}
+.gz-t-midnight .bg-white *{color:inherit}
+.gz-t-midnight h1,.gz-t-midnight h2,.gz-t-midnight h3{color:#F3EDE0!important}
+.gz-t-midnight [class*="text-slate-"],.gz-t-midnight [class*="text-gray-"]{color:#B9B2A0!important}
+/* Polish: micro-interactions and accessibility */
+button,a[role="button"]{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,opacity .2s ease}
+button:not(:disabled):active{transform:scale(.97)}
+:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+html{-webkit-tap-highlight-color:transparent;scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation-duration:.01ms!important;scroll-behavior:auto!important}}

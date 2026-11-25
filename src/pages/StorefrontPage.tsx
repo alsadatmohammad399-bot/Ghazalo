@@ -122,7 +122,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const { isEn, toggleLang } = useUiLang();
   const displayShopName = getShopDisplayName(shop, isEn);
   const resolvedBackLabel = backLabel || tx(isEn, 'العودة', 'Back');
-  const themeHex = getShopThemeHex(shop.themeColor);
+  const VARIANT_ACCENT: Record<string, string> = { midnight: '#D4AF37', fresh: '#E8743B', street: '#E02E10', snow: '#111111' };
+  const themeHex = VARIANT_ACCENT[String(shop.menuTemplate || '')] || getShopThemeHex(shop.themeColor);
   const [localDarkOverride, setLocalDarkOverride] = useState<boolean | null>(null);
   const effectiveDark =
     localDarkOverride !== null
