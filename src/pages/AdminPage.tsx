@@ -115,6 +115,32 @@ interface UnifiedRestaurantRow {
   localRecord?: DemoRestaurantRecord;
 }
 
+// Safe millisecond timestamp from numbers, numeric strings, ISO strings or Firestore Timestamps. 0 = unknown.
+function toMs(v: unknown): number {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : 0;
+  if (v instanceof Date) return Number.isFinite(v.getTime()) ? v.getTime() : 0;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+    const d = Date.parse(v);
+    return Number.isFinite(d) ? d : 0;
+  }
+  if (typeof v === 'object') {
+    const o = v as { toMillis?: () => number; seconds?: number; _seconds?: number };
+    if (typeof o.toMillis === 'function') {
+      try {
+        return toMs(o.toMillis());
+      } catch {
+        return 0;
+      }
+    }
+    const sec = o.seconds ?? o._seconds;
+    if (typeof sec === 'number') return sec * 1000;
+  }
+  return 0;
+}
+
 export const AdminPage: React.FC<AdminPageProps> = ({
   onBack,
   onPreviewShop,
@@ -530,9 +556,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           ? effectiveShop.subscriptionExpiresAt || localMatch?.subscriptionEndDate
           : effectiveShop.trialEndsAt || localMatch?.trialEndDate;
 
-      const resolvedCreatedAt = Number(
-        effectiveShop.createdAt || serverMatch?.createdAt || serverMatch?.updatedAt || Date.now()
-      );
+      const resolvedCreatedAt =
+        toMs(effectiveShop.createdAt) || toMs(serverMatch?.createdAt) || toMs(serverMatch?.updatedAt) || 0;
 
       return {
         shopId: effectiveShop.id,
@@ -587,7 +612,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           acceptOrders: true,
           subscriptionStatus: 'trial',
           trialEndsAt: fallbackTrialEnd,
-          createdAt: Number(srv.createdAt || now),
+          createdAt: toMs(srv.createdAt),
           updatedAt: Number(srv.updatedAt || now),
           whatsapp: srv.phone || lm?.phone || '',
         };
@@ -657,7 +682,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   // Registration order (#1 = first ever registered) and day groups for the list.
   const regNumbers = useMemo(() => {
-    const asc = [...rows].sort((a, b) => a.createdAt - b.createdAt || a.shopId.localeCompare(b.shopId));
+    const asc = [...rows].sort(
+      (a, b) => (a.createdAt || 9e15) - (b.createdAt || 9e15) || a.shopId.localeCompare(b.shopId)
+    );
     const m: Record<string, number> = {};
     asc.forEach((r, i) => {
       m[r.shopId] = i + 1;
@@ -670,7 +697,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t));
     const map = new Map<string, { key: string; ts: number; items: UnifiedRestaurantRow[] }>();
     for (const r of filteredRows) {
-      const k = dayKey(r.createdAt);
+      const k = r.createdAt > 0 ? dayKey(r.createdAt) : '0000-undated';
       const g = map.get(k) || { key: k, ts: r.createdAt, items: [] };
       g.items.push(r);
       map.set(k, g);
@@ -687,8 +714,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           day: 'numeric',
           month: 'long',
           year: 'numeric',
-        }).format(new Date(g.ts));
-        const label = g.key === todayK ? 'اليوم' : g.key === yestK ? 'أمس' : dateText;
+        }).format(new Date(g.ts > 0 ? g.ts : Date.now()));
+        const label = g.key === '0000-undated' ? 'بدون تاريخ' : g.key === todayK ? 'اليوم' : g.key === yestK ? 'أمس' : dateText;
         return { ...g, label, dateText };
       });
   }, [filteredRows, regNumbers]);
@@ -1392,7 +1419,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             </span>
                           )}
                           <span className="text-[#4B5B52] dark:text-[#A3B5AA] font-bold" dir="rtl">
-                            · سجّل {new Intl.DateTimeFormat('ar-EG', { timeZone: 'Africa/Cairo', hour: 'numeric', minute: '2-digit' }).format(new Date(row.createdAt))}
+                            {row.createdAt > 0 ? `· سجّل ${new Intl.DateTimeFormat('ar-EG', { timeZone: 'Africa/Cairo', hour: 'numeric', minute: '2-digit' }).format(new Date(row.createdAt))}` : ''}
                           </span>
                         </div>
                       </div>
