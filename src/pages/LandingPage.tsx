@@ -736,7 +736,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     {tx(isEn, 'اشتراك سنوي (365 يوم)', 'Yearly Plan (365 days)')}
                   </div>
                   <div className="text-2xl font-extrabold text-[#15803D] dark:text-[#4ADE80] tabular-nums">
-                    <span className="text-xs font-bold line-through opacity-50 mx-1">{SUBSCRIPTION_PRICING.YEARLY_LIST_EGP}</span>
+                    <span className="block text-xs font-bold line-through opacity-50">{SUBSCRIPTION_PRICING.YEARLY_LIST_EGP}</span>
                     {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / year')}
                   </div>
                   <div className="inline-block px-3 py-1 rounded-full bg-[#FACC15] text-[#14201A] text-xs font-extrabold">

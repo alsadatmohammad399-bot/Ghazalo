@@ -3891,7 +3891,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   </span>
                 </div>
                 <div className="text-base font-extrabold text-[#4ADE80] tabular-nums">
-                  <span className="text-xs font-bold line-through opacity-50 mx-1">{SUBSCRIPTION_PRICING.YEARLY_LIST_EGP}</span>
+                  <span className="block text-xs font-bold line-through opacity-50">{SUBSCRIPTION_PRICING.YEARLY_LIST_EGP}</span>
                   {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / yr')}
                 </div>
                 <div className="inline-block px-2 py-0.5 rounded-full bg-[#FACC15] text-[#14201A] text-[10px] font-extrabold">
