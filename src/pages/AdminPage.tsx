@@ -655,6 +655,44 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     });
   }, [rows, searchQuery, statusFilter]);
 
+  // Registration order (#1 = first ever registered) and day groups for the list.
+  const regNumbers = useMemo(() => {
+    const asc = [...rows].sort((a, b) => a.createdAt - b.createdAt || a.shopId.localeCompare(b.shopId));
+    const m: Record<string, number> = {};
+    asc.forEach((r, i) => {
+      m[r.shopId] = i + 1;
+    });
+    return m;
+  }, [rows]);
+
+  const dayGroups = useMemo(() => {
+    const dayKey = (t: number) =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t));
+    const map = new Map<string, { key: string; ts: number; items: UnifiedRestaurantRow[] }>();
+    for (const r of filteredRows) {
+      const k = dayKey(r.createdAt);
+      const g = map.get(k) || { key: k, ts: r.createdAt, items: [] };
+      g.items.push(r);
+      map.set(k, g);
+    }
+    const todayK = dayKey(Date.now());
+    const yestK = dayKey(Date.now() - 24 * 60 * 60 * 1000);
+    return Array.from(map.values())
+      .sort((a, b) => (a.key < b.key ? 1 : -1))
+      .map((g) => {
+        g.items.sort((a, b) => (regNumbers[a.shopId] || 0) - (regNumbers[b.shopId] || 0));
+        const dateText = new Intl.DateTimeFormat('ar-EG', {
+          timeZone: 'Africa/Cairo',
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }).format(new Date(g.ts));
+        const label = g.key === todayK ? 'اليوم' : g.key === yestK ? 'أمس' : dateText;
+        return { ...g, label, dateText };
+      });
+  }, [filteredRows, regNumbers]);
+
   const syncAdminUpdateToServer = (
     row: UnifiedRestaurantRow,
     shopUpdates: Partial<Shop>
@@ -1286,8 +1324,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {filteredRows.map((row) => {
+          <div className="space-y-6">
+            {dayGroups.map((group) => (
+              <section key={group.key} className="space-y-3">
+                <div className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-[#F6FBF7]/95 dark:bg-[#0F1712]/95 backdrop-blur flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full bg-[#15803D] text-white text-xs font-black">{group.label}</span>
+                  {group.label !== group.dateText && (
+                    <span className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA]">{group.dateText}</span>
+                  )}
+                  <span className="text-xs font-extrabold text-[#4B5B52] dark:text-[#A3B5AA] ms-auto tabular-nums">
+                    {group.items.length} مطعم
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {group.items.map((row) => {
               const isBusy = busyId === row.shopId;
               const showPass = Boolean(revealedPasswords[row.shopId]);
               const deliveryVal =
@@ -1320,6 +1370,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       )}
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-lg bg-[#14201A] dark:bg-[#E8F2EB] text-white dark:text-[#14201A] text-[11px] font-black tabular-nums" dir="ltr">
+                            #{regNumbers[row.shopId]}
+                          </span>
                           <h3 className="font-black text-[15px] text-[#14201A] dark:text-[#E8F2EB] break-words leading-snug">
                             {row.nameAr}
                           </h3>
@@ -1338,6 +1391,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                               · {row.productsCount} صنف
                             </span>
                           )}
+                          <span className="text-[#4B5B52] dark:text-[#A3B5AA] font-bold" dir="rtl">
+                            · سجّل {new Intl.DateTimeFormat('ar-EG', { timeZone: 'Africa/Cairo', hour: 'numeric', minute: '2-digit' }).format(new Date(row.createdAt))}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1570,6 +1626,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
               );
             })}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </main>
