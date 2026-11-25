@@ -55,26 +55,119 @@ export async function pushOrderStatus(shopId: string, orderId: string, status: O
   }
 }
 
-/** Short two-tone beep, no audio file needed. */
+// ---- Order alert sound -------------------------------------------------
+// Browsers block audio until the user touches the page once. We keep ONE shared
+// AudioContext, unlock it on the first tap/click/key, and expose its state so the
+// dashboard can show a visible "sound on" indicator.
+let sharedCtx: AudioContext | null = null;
+let soundReady = false;
+const soundListeners = new Set<() => void>();
+
+function emitSound() {
+  soundListeners.forEach((fn) => fn());
+}
+
+export function subscribeSoundState(fn: () => void): () => void {
+  soundListeners.add(fn);
+  return () => {
+    soundListeners.delete(fn);
+  };
+}
+
+export function isSoundReady(): boolean {
+  return soundReady;
+}
+
+function getCtx(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  if (sharedCtx) return sharedCtx;
+  const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return null;
+  try {
+    sharedCtx = new Ctx();
+  } catch {
+    return null;
+  }
+  sharedCtx.onstatechange = () => {
+    const ok = sharedCtx?.state === 'running';
+    if (ok !== soundReady) {
+      soundReady = ok;
+      emitSound();
+    }
+  };
+  return sharedCtx;
+}
+
+/** Call from a user gesture. Resumes the audio engine and plays a silent tick to fully unlock iOS. */
+export function unlockOrderSound(): void {
+  const ctx = getCtx();
+  if (!ctx) return;
+  const finish = () => {
+    try {
+      const b = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = b;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      // ignore
+    }
+    const ok = ctx.state === 'running';
+    if (ok !== soundReady) {
+      soundReady = ok;
+      emitSound();
+    }
+  };
+  if (ctx.state === 'running') finish();
+  else void ctx.resume().then(finish, finish);
+}
+
+if (typeof window !== 'undefined') {
+  const arm = () => {
+    unlockOrderSound();
+    if (soundReady) {
+      ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => window.removeEventListener(e, arm, true));
+    }
+  };
+  ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => window.addEventListener(e, arm, true));
+}
+
+/** Loud, clear 3-note chime (twice) plus vibration. Safe to call anytime; silent only if the browser still blocks audio. */
 export function playOrderBeep(): void {
   try {
-    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    [880, 1175].forEach((f, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.frequency.value = f;
-      o.connect(g);
-      g.connect(ctx.destination);
-      const t = ctx.currentTime + i * 0.18;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
-      o.start(t);
-      o.stop(t + 0.17);
-    });
-    setTimeout(() => void ctx.close(), 800);
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate([250, 120, 250, 120, 400]);
+    }
+  } catch {
+    // vibration is best effort
+  }
+  try {
+    const ctx = getCtx();
+    if (!ctx) return;
+    const run = () => {
+      const master = ctx.createGain();
+      master.gain.value = 0.9;
+      master.connect(ctx.destination);
+      const notes = [880, 1109, 1319];
+      [0, 0.9].forEach((offset) => {
+        notes.forEach((f, i) => {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'triangle';
+          o.frequency.value = f;
+          o.connect(g);
+          g.connect(master);
+          const t = ctx.currentTime + offset + i * 0.22;
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(0.9, t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+          o.start(t);
+          o.stop(t + 0.32);
+        });
+      });
+    };
+    if (ctx.state === 'running') run();
+    else void ctx.resume().then(run, () => undefined);
   } catch {
     // sound is best effort
   }

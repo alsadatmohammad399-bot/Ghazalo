@@ -109,7 +109,27 @@
   scrollbar-width: none;
 }
 
+@page {
+  size: 80mm auto;
+  margin: 3mm;
+}
+
 @media print {
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .receipt-paper {
+    max-width: 74mm !important;
+    width: 74mm !important;
+    margin: 0 auto !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
   .no-print {
     display: none !important;
   }

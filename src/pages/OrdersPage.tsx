@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, MailOpen, Printer, Receipt, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, MailOpen, MapPin, Phone, Printer, Receipt, Search, X } from 'lucide-react';
 import { InvoiceReceipt, orderToInvoiceData } from '../components/InvoiceReceipt';
 import { updateOrderStatus } from '../services/firestoreService';
 import { formatMoney } from '../utils/calculations';
@@ -214,12 +214,57 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                   </span>
                 </div>
 
-                <div className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
-                  {typeLabels[ord.orderType] || ord.orderType}
-                  {ord.tableLabel ? ` (${ord.tableLabel})` : ''} ·{' '}
-                  {ord.customerName || tx(isEn, 'عميل', 'Customer')}
-                  {ord.customerPhone ? ` - ${ord.customerPhone}` : ''}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={`px-2.5 py-1 rounded-lg text-xs font-extrabold ${
+                      ord.orderType === 'delivery'
+                        ? 'bg-[#FEF3C7] text-[#92400E]'
+                        : ord.orderType === 'pickup'
+                          ? 'bg-[#E0F2FE] text-[#075985]'
+                          : 'bg-[#F1F5F9] text-[#334155]'
+                    }`}
+                  >
+                    {ord.orderType === 'pickup'
+                      ? tx(isEn, 'تيك اواي - استلام من المحل', 'Take away - pickup')
+                      : typeLabels[ord.orderType] || ord.orderType}
+                    {ord.tableLabel ? ` (${ord.tableLabel})` : ''}
+                  </span>
+                  <span className="text-sm font-extrabold text-[#14201A] dark:text-[#E8F2EB]">
+                    {ord.customerName || tx(isEn, 'عميل', 'Customer')}
+                  </span>
                 </div>
+
+                {(ord.customerPhone || (ord.orderType === 'delivery' && ord.address)) && (
+                  <div className="rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] p-2.5 space-y-1.5 text-sm">
+                    {ord.customerPhone && (
+                      <a
+                        href={`tel:${ord.customerPhone}`}
+                        className="flex items-center gap-2 font-extrabold tabular-nums text-[#15803D] dark:text-[#4ADE80]"
+                        dir="ltr"
+                      >
+                        <Phone className="w-4 h-4 shrink-0" />
+                        {ord.customerPhone}
+                      </a>
+                    )}
+                    {ord.orderType === 'delivery' && ord.address && (
+                      <div className="flex items-start gap-2 font-bold text-[#14201A] dark:text-[#E8F2EB]">
+                        <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-[#B45309]" />
+                        <span>
+                          {ord.address}
+                          {ord.floor ? ` - ${tx(isEn, 'دور', 'Fl')} ${ord.floor}` : ''}
+                          {ord.apartment ? ` - ${tx(isEn, 'شقة', 'Apt')} ${ord.apartment}` : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {ord.notes && (
+                  <div className="text-xs font-bold text-[#92400E] bg-[#FFFBEB] rounded-lg px-2.5 py-1.5">
+                    {tx(isEn, 'ملاحظات: ', 'Notes: ')}
+                    {ord.notes}
+                  </div>
+                )}
 
                 {ord.itemSummary && ord.itemSummary.length > 0 && (
                   <div className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA] bg-[#F6FBF7] dark:bg-[#0F1712] rounded-xl p-2.5 border border-[#CFE3D5]/60 dark:border-[#2C3D32]">
@@ -238,7 +283,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                       className="sf-btn min-h-[40px] text-xs px-3"
                     >
                       <Receipt className="w-3.5 h-3.5 text-[#15803D]" />
-                      {tx(isEn, 'الفاتورة', 'Invoice')}
+                      {tx(isEn, 'فاتورة / طباعة', 'Receipt / Print')}
                     </button>
                     {ord.status !== 'completed' && (
                       <button

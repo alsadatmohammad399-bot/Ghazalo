@@ -21,6 +21,7 @@ import {
 } from './services/firestoreService';
 import { ExplorePage } from './pages/ExplorePage';
 import { getShopAccessState } from './utils/calculations';
+import { OrderSoundBadge } from './components/OrderSoundBadge';
 import { fetchInboxOrders, fetchOrderSeq, playOrderBeep, pushOrderStatus } from './utils/orderInbox';
 import { getShopDisplayName, tx, useUiLang } from './utils/uiLang';
 import { isUserActivated } from './utils/authHelpers';
@@ -601,7 +602,15 @@ function AppShell({
     const unsubProducts = subscribeToProducts(activeShopId, (prods) => {
       setShopProducts(prods);
     });
+    let seenOrderIds: Set<string> | null = null;
     const unsubOrders = subscribeToOrders(activeShopId, currentUser.uid, (ords) => {
+      if (seenOrderIds === null) {
+        seenOrderIds = new Set(ords.map((o) => o.id));
+      } else {
+        const fresh = ords.filter((o) => !seenOrderIds!.has(o.id));
+        fresh.forEach((o) => seenOrderIds!.add(o.id));
+        if (fresh.some((o) => o.source !== 'cashier')) playOrderBeep();
+      }
       setShopOrders(ords);
     });
     const unsubTables = subscribeToTables(activeShopId, (tbls) => {
@@ -1099,6 +1108,8 @@ function AppShell({
 
   if (view === 'cashier' && activeShop && hasMerchantSession) {
     return (
+      <>
+        <OrderSoundBadge />
       <CashierPage
         shop={activeShop}
         products={shopProducts}
@@ -1128,11 +1139,14 @@ function AppShell({
           }
         }}
       />
+      </>
     );
   }
 
   if (view === 'orders' && activeShop && hasMerchantSession) {
     return (
+      <>
+        <OrderSoundBadge />
       <OrdersPage
         shop={activeShop}
         orders={shopOrders}
@@ -1151,6 +1165,7 @@ function AppShell({
           }
         }}
       />
+      </>
     );
   }
 
@@ -1196,6 +1211,8 @@ function AppShell({
 
   if (activeShop && hasMerchantSession) {
     return (
+      <>
+        <OrderSoundBadge />
       <DashboardPage
         shop={activeShop}
         products={shopProducts}
@@ -1250,6 +1267,7 @@ function AppShell({
         }}
         onLogout={() => void handleLogout()}
       />
+      </>
     );
   }
 
