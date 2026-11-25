@@ -3891,6 +3891,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   </span>
                 </div>
                 <div className="text-base font-extrabold text-[#4ADE80] tabular-nums">
+                  <span className="text-xs font-bold line-through opacity-50 mx-1">{SUBSCRIPTION_PRICING.YEARLY_LIST_EGP}</span>
                   {SUBSCRIPTION_PRICING.YEARLY_EGP} {tx(isEn, 'جنيه / سنوي', 'EGP / yr')}
                 </div>
                 <div className="inline-block px-2 py-0.5 rounded-full bg-[#FACC15] text-[#14201A] text-[10px] font-extrabold">
@@ -3906,8 +3907,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <p className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
               {tx(
                 isEn,
-                `التفعيل يتم عن طريق الإدارة فقط — لتفعيل ${selectedSubscriptionPlan === 'monthly' ? 'الاشتراك الشهري (600 جنيه / 30 يوم)' : 'الاشتراك السنوي (3000 جنيه / 365 يوم)'}، تواصل مباشرة عبر واتساب أو الجيميل:`,
-                `Activation is handled by admin only — to activate (${selectedSubscriptionPlan === 'monthly' ? 'Monthly 600 EGP / 30d' : 'Yearly 3000 EGP / 365d'}), contact us via WhatsApp or Gmail:`
+                `التفعيل يتم عن طريق الإدارة فقط — لتفعيل ${selectedSubscriptionPlan === 'monthly' ? 'الاشتراك الشهري (600 جنيه / 30 يوم)' : 'الاشتراك السنوي (5000 جنيه / 365 يوم)'}، تواصل مباشرة عبر واتساب أو الجيميل:`,
+                `Activation is handled by admin only — to activate (${selectedSubscriptionPlan === 'monthly' ? 'Monthly 600 EGP / 30d' : 'Yearly 5000 EGP / 365d'}), contact us via WhatsApp or Gmail:`
               )}
             </p>
             <div className="space-y-2">

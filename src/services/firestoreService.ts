@@ -392,7 +392,7 @@ export async function approveAndActivateShop(shopId: string, days = 30): Promise
     const now = Date.now();
     const expiresAt = now + days * 24 * 60 * 60 * 1000;
     const isYearly = days >= 360;
-    const planLabel = isYearly ? 'السنوية (3,000 ج)' : 'الشهرية (600 ج)';
+    const planLabel = isYearly ? 'السنوية (5,000 ج)' : 'الشهرية (600 ج)';
     await updateDoc(doc(db, 'shops', shopId), {
       subscriptionStatus: isYearly ? 'yearly' : 'monthly',
       approvedByAdmin: true,

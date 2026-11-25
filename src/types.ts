@@ -437,8 +437,9 @@ export function normalizeStoreSlug(raw: string): string {
 
 export const SUBSCRIPTION_PRICING = {
   MONTHLY_EGP: 600,
-  YEARLY_EGP: 3000,
-  YEARLY_SAVINGS_EGP: 4200,
+  YEARLY_EGP: 5000,
+  YEARLY_SAVINGS_EGP: 2200,
+  YEARLY_LIST_EGP: 7200,
 } as const;
 
 export const SUPPORT_CONTACT = {
@@ -520,7 +521,7 @@ export interface Shop {
   approvedByAdmin?: boolean;
   approvedAt?: number;
   plan?: string;
-  requestedPlan?: '' | 'monthly_600' | 'yearly_3000' | 'yearly_6000';
+  requestedPlan?: '' | 'monthly_600' | 'yearly_3000' | 'yearly_5000' | 'yearly_6000';
   paymentNote?: string;
   trialEndsAt?: number;
   subscriptionExpiresAt?: number;
