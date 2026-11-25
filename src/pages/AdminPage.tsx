@@ -1729,14 +1729,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </div>
             </div>
             <p className="text-xs font-bold text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed">
-              هيتمسح المطعم بالمنيو والأصناف والطلبات وبيانات الدخول بتاعته من كل مكان. اكتب اسم المطعم بالظبط عشان تأكد:
+              هيتمسح المطعم بالمنيو والأصناف والطلبات وبيانات الدخول بتاعته من كل مكان.
             </p>
-            <input
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder={deleteTarget.nameAr}
-              className="w-full rounded-xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] px-3 py-2.5 text-sm font-bold outline-none focus:border-rose-500"
-            />
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -1748,7 +1742,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </button>
               <button
                 type="button"
-                disabled={deleting || deleteConfirmText.trim() !== deleteTarget.nameAr.trim()}
+                disabled={deleting}
                 onClick={() => void handleConfirmDelete()}
                 className="gz-delete-btn gz-delete-solid disabled:opacity-40"
               >
