@@ -42,6 +42,7 @@ import { ChefAiAssistant } from '../components/ChefAiAssistant';
 import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
 import { StoreLocationPicker } from '../components/StoreLocationPicker';
 import { createOrder } from '../services/firestoreService';
+import { postPublicOrder } from '../utils/orderInbox';
 import {
   buildGoogleMapsLink,
   ensureGoogleAdsLoaded,
@@ -545,8 +546,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       });
 
       let created: Order;
-      if (isDemo || !shop.id.startsWith('shop-')) {
+      if (isDemo) {
         created = makeLocalOrder();
+      } else if (!shop.id.startsWith('shop-')) {
+        created = makeLocalOrder();
+        // Send it to the restaurant's inbox so it shows up on their dashboard within seconds.
+        await postPublicOrder(shop.id, created);
       } else {
         try {
           created = await createOrder(basePayload);

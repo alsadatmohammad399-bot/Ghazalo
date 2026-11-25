@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BrowserRouter,
   Route,
@@ -20,6 +20,7 @@ import {
   subscribeToTables,
 } from './services/firestoreService';
 import { getShopAccessState } from './utils/calculations';
+import { fetchInboxOrders, fetchOrderSeq, playOrderBeep, pushOrderStatus } from './utils/orderInbox';
 import { getShopDisplayName, tx, useUiLang } from './utils/uiLang';
 import { isUserActivated } from './utils/authHelpers';
 import {
@@ -613,6 +614,58 @@ function AppShell({
     };
   }, [activeShopId, currentUser, authSyncTick]);
 
+  // Orders from shared menu links (non-Firestore shops) arrive through a lightweight server inbox.
+  const inboxSeqRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!activeShopId || activeShopId.startsWith('shop-')) return;
+    if (!getStoredAuthSession().token) return;
+    const shopId = activeShopId;
+    inboxSeqRef.current = null;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const merge = (incoming: Order[]) => {
+      setShopOrders((prev) => {
+        const byId = new Map(prev.map((o) => [o.id, o]));
+        incoming.forEach((o) => byId.set(o.id, { ...byId.get(o.id), ...o }));
+        const next = Array.from(byId.values()).sort(
+          (a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0)
+        );
+        saveLocalOrders(shopId, next);
+        return next;
+      });
+    };
+    const tick = async () => {
+      if (stopped) return;
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      if (!hidden) {
+        const seq = await fetchOrderSeq(shopId);
+        if (seq !== null && seq !== inboxSeqRef.current) {
+          const first = inboxSeqRef.current === null;
+          const data = await fetchInboxOrders(shopId);
+          if (data) {
+            inboxSeqRef.current = data.seq;
+            merge(data.orders);
+            if (!first) playOrderBeep();
+          }
+        }
+      }
+      timer = setTimeout(() => void tick(), hidden ? 20000 : 5000);
+    };
+    void tick();
+    const onVis = () => {
+      if (!document.hidden) {
+        if (timer) clearTimeout(timer);
+        void tick();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [activeShopId, view]);
+
   const handleAuthComplete = async (meta: {
     fullName: string;
     businessName: string;
@@ -1063,6 +1116,7 @@ function AppShell({
         }}
         onOrderStatusChange={(orderId, nextStatus) => {
           if (!activeShop.id.startsWith('shop-')) {
+            void pushOrderStatus(activeShop.id, orderId, nextStatus);
             setShopOrders((prev) => {
               const next = prev.map((o) =>
                 o.id === orderId ? { ...o, status: nextStatus } : o
@@ -1085,6 +1139,7 @@ function AppShell({
         onOpenCashier={() => setView('cashier')}
         onOrderStatusUpdated={(orderId, nextStatus) => {
           if (!activeShop.id.startsWith('shop-')) {
+            void pushOrderStatus(activeShop.id, orderId, nextStatus);
             setShopOrders((prev) => {
               const next = prev.map((o) =>
                 o.id === orderId ? { ...o, status: nextStatus } : o

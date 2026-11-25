@@ -565,7 +565,9 @@ async function startServer() {
 
   // Load shared state first and hold each response until pending saves are done (serverless can freeze after reply).
   app.use('/api', async (req: Request, res: Response, next) => {
-    await refreshRegistryFromRemote();
+    // Order inbox polling must stay cheap: it reads only its own small keys, not the whole registry.
+    const isOrderPoll = req.method === 'GET' && req.path.startsWith('/orders/');
+    if (!isOrderPoll) await refreshRegistryFromRemote();
     const origJson = res.json.bind(res);
     res.json = ((body?: unknown) => {
       pendingWrites.then(() => origJson(body));
@@ -1041,6 +1043,161 @@ async function startServer() {
     serverRegistry.stores[match.storeSlug] = match;
     persistRegistryState(serverRegistry);
     res.json({ ok: true, storeSlug: match.storeSlug });
+  });
+
+
+  // ---- Order inbox (orders placed from a shared menu link reach the restaurant within seconds) ----
+  const memOrders = new Map<string, { list: Record<string, unknown>[]; seq: number; status: Record<string, string> }>();
+  const ORDER_STATUSES = ['new', 'preparing', 'ready', 'held', 'completed'];
+  const okShopId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_\-]{1,128}$/.test(v);
+  const cap = (v: unknown, n: number) => String(v ?? '').slice(0, n);
+  const num = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0);
+
+  function merchantShopId(req: Request): string | null {
+    const h = String(req.headers.authorization || '');
+    const t = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
+    const p = verifySignedToken(t);
+    return p && p.role === 'merchant' && typeof p.shopId === 'string' ? p.shopId : null;
+  }
+
+  async function ordersRead(shopId: string): Promise<{ orders: Record<string, unknown>[]; seq: number }> {
+    if (REMOTE_STORE) {
+      const [seq, raw, st] = (await Promise.all([
+        redisCmd(['GET', `ghazalo:ordseq:${shopId}`]),
+        redisCmd(['LRANGE', `ghazalo:orders:${shopId}`, '0', '299']),
+        redisCmd(['HGETALL', `ghazalo:ordstatus:${shopId}`]),
+      ])) as [string | null, string[] | null, string[] | null];
+      const status: Record<string, string> = {};
+      for (let i = 0; st && i + 1 < st.length; i += 2) status[st[i]] = st[i + 1];
+      const orders = (raw || [])
+        .map((r) => {
+          try {
+            return JSON.parse(r) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .filter((o): o is Record<string, unknown> => Boolean(o))
+        .map((o) => (status[String(o.id)] ? { ...o, status: status[String(o.id)] } : o));
+      return { orders, seq: Number(seq || 0) };
+    }
+    const m = memOrders.get(shopId);
+    return {
+      orders: (m?.list || []).map((o) => (m?.status[String(o.id)] ? { ...o, status: m.status[String(o.id)] } : o)),
+      seq: m?.seq || 0,
+    };
+  }
+
+  app.post('/api/orders/:shopId', async (req: Request, res: Response) => {
+    const shopId = String(req.params.shopId || '');
+    if (!okShopId(shopId)) {
+      res.status(400).json({ ok: false, error: 'bad shop' });
+      return;
+    }
+    if (await overLimit('order', getClientIp(req), 30, 600)) {
+      res.status(429).json({ ok: false, error: 'محاولات كثيرة. حاول لاحقاً.' });
+      return;
+    }
+    const known =
+      Object.values(serverRegistry.publicMenus || {}).some((m) => m.shopId === shopId) ||
+      Object.values(serverRegistry.stores || {}).some((s) => s.shopId === shopId);
+    if (!known) {
+      res.status(404).json({ ok: false, error: 'shop not found' });
+      return;
+    }
+    const b = (req.body || {}) as Record<string, unknown>;
+    const id = okShopId(b.id) ? String(b.id) : `ord-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const order = {
+      id,
+      orderNumber: cap(b.orderNumber, 20) || `GH-${Math.floor(1000 + Math.random() * 9000)}`,
+      shopId,
+      shopOwnerId: cap(b.shopOwnerId, 128),
+      source: 'menu',
+      orderType: ['delivery', 'pickup', 'table'].includes(String(b.orderType)) ? b.orderType : 'delivery',
+      status: 'new',
+      paymentMethod: cap(b.paymentMethod, 40),
+      customerName: cap(b.customerName, 120) || 'عميل',
+      customerPhone: cap(b.customerPhone, 40),
+      address: cap(b.address, 400),
+      floor: cap(b.floor, 30),
+      apartment: cap(b.apartment, 30),
+      tableLabel: cap(b.tableLabel, 60),
+      notes: cap(b.notes, 600),
+      itemsCount: Math.max(1, Math.min(500, Math.round(num(b.itemsCount)) || 1)),
+      itemSummary: (Array.isArray(b.itemSummary) ? b.itemSummary : []).slice(0, 50).map((x) => cap(x, 200)),
+      subtotal: num(b.subtotal),
+      discount: num(b.discount),
+      deliveryFee: num(b.deliveryFee),
+      packagingFee: num(b.packagingFee),
+      serviceFee: num(b.serviceFee),
+      vat: num(b.vat),
+      roundingDiff: Number(b.roundingDiff) || 0,
+      total: num(b.total),
+      paidAmount: num(b.paidAmount || b.total),
+      createdAt: Date.now(),
+    };
+    if (REMOTE_STORE) {
+      try {
+        await redisCmd(['LPUSH', `ghazalo:orders:${shopId}`, JSON.stringify(order)]);
+        await redisCmd(['LTRIM', `ghazalo:orders:${shopId}`, '0', '499']);
+        await redisCmd(['INCR', `ghazalo:ordseq:${shopId}`]);
+      } catch {
+        res.status(503).json({ ok: false, error: 'storage unavailable' });
+        return;
+      }
+    } else {
+      const m = memOrders.get(shopId) || { list: [], seq: 0, status: {} };
+      m.list = [order, ...m.list].slice(0, 500);
+      m.seq += 1;
+      memOrders.set(shopId, m);
+    }
+    res.json({ ok: true, order });
+  });
+
+  app.get('/api/orders/:shopId', async (req: Request, res: Response) => {
+    const shopId = String(req.params.shopId || '');
+    if (!okShopId(shopId) || merchantShopId(req) !== shopId) {
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    try {
+      if (req.query.seqOnly === '1') {
+        const seq = REMOTE_STORE
+          ? Number((await redisCmd(['GET', `ghazalo:ordseq:${shopId}`])) || 0)
+          : memOrders.get(shopId)?.seq || 0;
+        res.json({ ok: true, seq });
+        return;
+      }
+      const r = await ordersRead(shopId);
+      res.json({ ok: true, ...r });
+    } catch {
+      res.status(503).json({ ok: false, error: 'storage unavailable' });
+    }
+  });
+
+  app.post('/api/orders/:shopId/:orderId/status', async (req: Request, res: Response) => {
+    const { shopId, orderId } = req.params as { shopId: string; orderId: string };
+    if (!okShopId(shopId) || !okShopId(orderId) || merchantShopId(req) !== shopId) {
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    const status = String((req.body || {}).status || '');
+    if (!ORDER_STATUSES.includes(status)) {
+      res.status(400).json({ ok: false, error: 'bad status' });
+      return;
+    }
+    try {
+      if (REMOTE_STORE) {
+        await redisCmd(['HSET', `ghazalo:ordstatus:${shopId}`, orderId, status]);
+      } else {
+        const m = memOrders.get(shopId) || { list: [], seq: 0, status: {} };
+        m.status[orderId] = status;
+        memOrders.set(shopId, m);
+      }
+      res.json({ ok: true });
+    } catch {
+      res.status(503).json({ ok: false, error: 'storage unavailable' });
+    }
   });
 
   app.get('/api/public-stores/:slug', (req: Request, res: Response) => {
