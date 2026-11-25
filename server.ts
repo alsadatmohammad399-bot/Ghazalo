@@ -265,6 +265,15 @@ function requireAdminAuth(req: Request, res: Response): boolean {
   return true;
 }
 
+function adminFromReq(req: Request): boolean {
+  const h = String(req.headers.authorization || '');
+  const t = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
+  const p = verifySignedToken(t);
+  if (p && p.role === 'admin') return true;
+  const p2 = verifySignedToken(String(req.headers['x-admin-token'] || '').trim());
+  return Boolean(p2 && p2.role === 'admin');
+}
+
 function normalizeSlugServer(raw: string): string {
   return (raw || '')
     .trim()
@@ -1279,7 +1288,7 @@ async function startServer() {
     res.json({ ok: true, found: false });
   });
 
-  app.post('/api/public-stores', (req: Request, res: Response) => {
+  app.post('/api/public-stores', async (req: Request, res: Response) => {
     const body = req.body as {
       shop?: Record<string, unknown>;
       products?: Record<string, unknown>[];
@@ -1296,8 +1305,27 @@ async function startServer() {
       res.status(400).json({ ok: false, error: 'Missing storeSlug' });
       return;
     }
+    if (await overLimit('pubstore', getClientIp(req), 60, 600)) {
+      res.status(429).json({ ok: false, error: 'محاولات كثيرة. حاول لاحقاً.' });
+      return;
+    }
+    if (JSON.stringify(shopObj).length > 600_000) {
+      res.status(413).json({ ok: false, error: 'payload too large' });
+      return;
+    }
     const menus = serverRegistry.publicMenus || {};
     const existing = menus[storeSlug];
+    // Registry (server-account) shops: only the owner (merchant token) or admin may write.
+    // Other shops: an existing snapshot can only be updated by the same shop id.
+    const isAdminReq = adminFromReq(req);
+    if (serverRegistry.stores[storeSlug] && !isAdminReq && merchantShopId(req) !== storeSlug && merchantShopId(req) !== shopId) {
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    if (existing && !serverRegistry.stores[storeSlug] && existing.shopId !== shopId) {
+      res.status(409).json({ ok: false, error: 'slug taken' });
+      return;
+    }
     const incomingProducts = Array.isArray(body.products) ? body.products.slice(0, 400) : existing?.products || [];
     const now = Date.now();
     const snapshot: PublicMenuSnapshot = {
@@ -1329,6 +1357,10 @@ async function startServer() {
 
   app.post('/api/ai/extract-menu', async (req: Request, res: Response) => {
     try {
+      if (await overLimit('ai-extract', getClientIp(req), 12, 3600)) {
+        res.status(429).json({ error: 'تم الوصول للحد الأقصى لاستخراج المنيو. حاول بعد ساعة.' });
+        return;
+      }
       if (!process.env.GEMINI_API_KEY) {
         res.status(500).json({
           error: 'مفتاح Gemini API غير متوفر في إعدادات الخادم (Secrets). يرجى إضافته للمتابعة.',
@@ -1854,6 +1886,10 @@ async function startServer() {
 
   app.post('/api/ai/menu-chat', async (req: Request, res: Response) => {
     try {
+      if (await overLimit('ai-chat', getClientIp(req), 60, 3600)) {
+        res.status(429).json({ error: 'رسائل كثيرة. حاول بعد قليل.' });
+        return;
+      }
       if (!process.env.GEMINI_API_KEY) {
         res.status(500).json({
           error: 'مفتاح Gemini API غير متوفر في إعدادات الخادم (Secrets).',

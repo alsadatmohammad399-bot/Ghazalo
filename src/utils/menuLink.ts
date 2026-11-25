@@ -92,7 +92,18 @@ export async function syncPublicStoreSnapshot(
   try {
     const res = await fetch('/api/public-stores', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: (() => {
+        const h: Record<string, string> = { 'Content-Type': 'application/json' };
+        try {
+          const t = localStorage.getItem('token');
+          if (t) h.Authorization = `Bearer ${t}`;
+          const a = localStorage.getItem('adminToken');
+          if (a) h['x-admin-token'] = a;
+        } catch {
+          // ignore
+        }
+        return h;
+      })(),
       body: JSON.stringify({
         shop,
         products,
