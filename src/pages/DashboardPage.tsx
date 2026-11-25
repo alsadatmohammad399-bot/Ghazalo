@@ -968,22 +968,37 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setSavingSettings(true);
     try {
       const updates = buildSettingsUpdates();
-      persistShopLocal(updates);
+      const updatedShop = persistShopLocal(updates);
       let cloudFailed = false;
+      let cloudReason = '';
       if (canUseFirestore) {
+        // Send only the delivery fields so an unrelated legacy field can't block this save.
+        const deliveryPatch: Partial<Shop> = {
+          deliveryFee: updates.deliveryFee,
+          freeDelivery: updates.freeDelivery,
+          freeDeliveryMinOrder: updates.freeDeliveryMinOrder,
+          deliveryTime: updates.deliveryTime,
+        };
         try {
-          await updateShop(shop.id, updates);
+          await updateShop(shop.id, deliveryPatch);
         } catch (err) {
           cloudFailed = true;
+          const raw = err instanceof Error ? err.message : String(err);
+          cloudReason = /permission|insufficient/i.test(raw) ? 'permission-denied' : raw.slice(0, 60);
           console.error('delivery settings cloud save failed', err);
         }
+      }
+      try {
+        await syncPublicStoreSnapshot(updatedShop, latestProductsRef.current);
+      } catch {
+        // public snapshot sync is best effort
       }
       setDeliverySavedToast(
         cloudFailed
           ? tx(
               isEn,
-              'اتحفظ على الجهاز بس، فشل الحفظ على السيرفر. جرب تاني',
-              'Saved on this device only, cloud save failed. Try again'
+              `اتحفظ على الجهاز بس، فشل الحفظ على السيرفر (${cloudReason}). جرب تاني`,
+              `Saved on this device only, cloud save failed (${cloudReason}). Try again`
             )
           : tx(isEn, 'تم حفظ اعدادات التوصيل بنجاح', 'Delivery settings saved successfully')
       );
