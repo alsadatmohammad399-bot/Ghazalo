@@ -1014,6 +1014,13 @@ async function startServer() {
       ...menus,
       [storeSlug]: snapshot,
     };
+    if (serverRegistry.stores[storeSlug] && typeof shopObj.nameAr === 'string' && shopObj.nameAr.trim()) {
+      serverRegistry.stores[storeSlug] = {
+        ...serverRegistry.stores[storeSlug],
+        nameAr: shopObj.nameAr.trim().slice(0, 120),
+        updatedAt: now,
+      };
+    }
     persistRegistryState(serverRegistry);
     res.json({ ok: true, storeSlug });
   });
@@ -1079,18 +1086,12 @@ async function startServer() {
       }
 
       const fileNamesList = validFiles.map((f, i) => f.fileName || `صفحة ${i + 1}`).join('، ');
-      const promptText = `استخرج كل الأقسام والأصناف والأسعار من المنيو المرفق (${fileNamesList}) للنشاط "${businessName || 'متجر'}" (${language || 'العربية'}) بأقصى سرعة ودقة.
-أرجع النتيجة في مصفوفة sections مرتبة: العروض أولاً، ثم المشويات/اللحوم/الرئيسية، ثم الطواجن/المكرونات، ثم البيتزا/الساندوتشات/البرجر، ثم السلطات/المقبلات، ثم الإضافات، ثم الحلويات، ثم المشروبات والمياه أخيراً.
-لكل قسم:
-- cat: اسم القسم.
-- isOffer: true فقط لو قسم عروض/توفير/باقات.
-- rows: قائمة نصوص، كل صنف في سطر بصيغة:
-  "اسم الصنف || السعر || الخيارات مفصولة بـ / (اختياري) || الوصف (اختياري)"
-أمثلة للسطر:
-- سعر واحد فقط: "كفتة مشوية || 220"
-- أوزان أو أحجام: "لحم بلدي || 110 || ربع كيلو - 110 / نص كيلو - 215 / كيلو - 420"
-- عرض أو وصف: "عرض التوفير || 550 || 2 فرخة - 550 / 4 فرخة - 1000 || الاثنين بـ 550 و4 بـ 1000"
-ممنوع اختراع أصناف أو أوزان غير مكتوبة. لو بدون سعر اكتب 0.`;
+      const promptText = `اقرأ واستخرج كل الأقسام والأصناف والأسعار من المنيو (${fileNamesList}) لنشاط "${businessName || 'متجر'}" (${language || 'العربية'}).
+أرجع sections مرتبة (العروض ثم الرئيسية والمشويات ثم الساندوتشات ثم الإضافات والحلويات والمشروبات).
+كل سطر في rows بالصيغة:
+"الاسم || السعر || الخيارات مفصولة بـ / (إن وجدت) || الوصف (فقط لو مكتوب)"
+أمثلة: "كفتة مشوية || 220" أو "لحم بلدي || 110 || ربع - 110 / نص - 215 / كيلو - 420".
+لا تكتب وصفاً من عندك ولا تخترع أسعاراً (لو بدون سعر اكتب 0).`;
 
       const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
       for (const f of validFiles) {
@@ -1132,19 +1133,43 @@ async function startServer() {
         required: ['sections'],
       };
 
+      const withModelTimeout = <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> =>
+        new Promise<T>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error(`MODEL_TIMEOUT_${label}`)), timeoutMs);
+          promise.then(
+            (val) => {
+              clearTimeout(timer);
+              resolve(val);
+            },
+            (err) => {
+              clearTimeout(timer);
+              reject(err);
+            }
+          );
+        });
+
       const callExtractModel = async (
         modelName: string,
+        timeoutMs: number,
         thinkingLevel?: ThinkingLevel
       ): Promise<string> => {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: { parts },
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: extractResponseSchema,
-            ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
-          },
-        });
+        const response = await withModelTimeout(
+          ai.models.generateContent({
+            model: modelName,
+            contents: { parts },
+            config: {
+              systemInstruction:
+                'Fast accurate Arabic & English restaurant menu extractor. Output compact valid JSON matching schema immediately.',
+              temperature: 0.1,
+              maxOutputTokens: 4096,
+              responseMimeType: 'application/json',
+              responseSchema: extractResponseSchema,
+              ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
+            },
+          }),
+          timeoutMs,
+          modelName
+        );
         const textOut = response.text;
         if (!textOut || !textOut.trim()) {
           const finishReason = String(response.candidates?.[0]?.finishReason || '');
@@ -1160,6 +1185,8 @@ async function startServer() {
         const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
         return (
           msg.includes('503') ||
+          msg.includes('502') ||
+          msg.includes('504') ||
           msg.includes('unavailable') ||
           msg.includes('high demand') ||
           msg.includes('overloaded') ||
@@ -1168,6 +1195,9 @@ async function startServer() {
           msg.includes('not_found') ||
           msg.includes('404') ||
           msg.includes('timeout') ||
+          msg.includes('timed out') ||
+          msg.includes('aborted') ||
+          msg.includes('fetch failed') ||
           msg.includes('econnreset') ||
           msg.includes('empty_model_response')
         );
@@ -1175,10 +1205,13 @@ async function startServer() {
 
       const attemptChain: Array<{
         model: string;
+        timeoutMs: number;
         thinkingLevel?: ThinkingLevel;
+        delayBeforeMs?: number;
       }> = [
-        { model: 'gemini-3.1-flash-lite' },
-        { model: 'gemini-4-hydrogen', thinkingLevel: ThinkingLevel.LOW },
+        { model: 'gemini-3.1-flash-lite', timeoutMs: 14000, thinkingLevel: ThinkingLevel.MINIMAL },
+        { model: 'gemini-4-hydrogen', timeoutMs: 22000, thinkingLevel: ThinkingLevel.MINIMAL, delayBeforeMs: 150 },
+        { model: 'gemini-3.1-flash-lite', timeoutMs: 16000, thinkingLevel: ThinkingLevel.MINIMAL, delayBeforeMs: 300 },
       ];
 
       let responseRawText = '';
@@ -1187,7 +1220,10 @@ async function startServer() {
 
       for (const step of attemptChain) {
         try {
-          responseRawText = await callExtractModel(step.model, step.thinkingLevel);
+          if (step.delayBeforeMs) {
+            await new Promise((r) => setTimeout(r, step.delayBeforeMs));
+          }
+          responseRawText = await callExtractModel(step.model, step.timeoutMs, step.thinkingLevel);
           attemptTrace.push(`${step.model}:ok`);
           lastAiError = null;
           break;

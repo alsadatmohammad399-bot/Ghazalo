@@ -12,6 +12,7 @@ import {
 import { SofrtekLogo } from '../components/BrandLogo';
 import { MenuTemplateShowcase } from '../components/MenuTemplateShowcase';
 import { MultiMenuUploader } from '../components/MultiMenuUploader';
+import { StoreLocationPicker } from '../components/StoreLocationPicker';
 import {
   createShopWithProducts,
   saveStoreCredentialRecord,
@@ -89,6 +90,9 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   const [branchCount, setBranchCount] = useState<'فرع واحد' | 'أكثر من فرع'>('فرع واحد');
   const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
+  const [latitude, setLatitude] = useState<number | undefined>(undefined);
+  const [longitude, setLongitude] = useState<number | undefined>(undefined);
+  const [googleMapsUrl, setGoogleMapsUrl] = useState('');
   const [workFrom, setWorkFrom] = useState('4م');
   const [workTo, setWorkTo] = useState('2ص');
   const [workDays, setWorkDays] = useState<string[]>([...WORK_DAYS]);
@@ -198,6 +202,13 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
           branchCount,
           city: city.trim(),
           address: address.trim(),
+          googleMapsUrl: googleMapsUrl.trim(),
+          ...(typeof latitude === 'number' &&
+          typeof longitude === 'number' &&
+          Number.isFinite(latitude) &&
+          Number.isFinite(longitude)
+            ? { latitude, longitude }
+            : {}),
           workFrom,
           workTo,
           workDays,
@@ -531,6 +542,26 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     );
                   })}
                 </div>
+              </div>
+
+              <div className="rounded-[18px] border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#173323]/60 p-3.5 space-y-2.5">
+                <div className="text-xs font-extrabold">
+                  تحديد موقع المطعم على الخريطة (اختياري)
+                </div>
+                <StoreLocationPicker
+                  latitude={latitude}
+                  longitude={longitude}
+                  googleMapsUrl={googleMapsUrl}
+                  shopName={nameAr}
+                  city={city}
+                  address={address}
+                  heightClass="h-56 sm:h-64"
+                  onChange={(next) => {
+                    setLatitude(next.latitude);
+                    setLongitude(next.longitude);
+                    setGoogleMapsUrl(next.googleMapsUrl);
+                  }}
+                />
               </div>
             </div>
           )}

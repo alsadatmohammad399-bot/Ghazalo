@@ -1234,9 +1234,16 @@ function AppShell({
 
 function AppRouter() {
   const [darkMode, setDarkMode] = useState(false);
+  const [mapsQuotaExceeded, setMapsQuotaExceeded] = useState(false);
   const [forceZeroFeesGlobally, setForceZeroFeesGlobally] = useState<boolean>(
     () => getPlatformSettingsLocal().forceZeroFeesGlobally
   );
+
+  useEffect(() => {
+    const onQuotaExceeded = () => setMapsQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', onQuotaExceeded);
+    return () => window.removeEventListener('gmp-quota-exceeded', onQuotaExceeded);
+  }, []);
 
   // Capture Google Ads attribution (gclid/UTM) and load Google Ads tag if configured
   useEffect(() => {
@@ -1295,17 +1302,46 @@ function AppRouter() {
   );
 
   return (
-    <Routes>
-      <Route path="/" element={appShellNode} />
-      <Route path="/login" element={appShellNode} />
-      <Route path="/signup" element={appShellNode} />
-      <Route path="/onboarding" element={appShellNode} />
-      <Route path="/admin/*" element={appShellNode} />
-      <Route path="/dashboard/*" element={appShellNode} />
-      <Route path="/menu/:slug" element={menuPageNode} />
-      <Route path="/:slug/menu" element={menuPageNode} />
-      <Route path="*" element={menuPageNode} />
-    </Routes>
+    <>
+      {mapsQuotaExceeded && (
+        <div
+          dir="ltr"
+          className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm flex items-center justify-center gap-3"
+        >
+          <span>
+            Google Maps Platform quota reached. If you are the app owner, visit{' '}
+            <a
+              href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold text-amber-950 hover:text-amber-800"
+            >
+              maps developer site
+            </a>{' '}
+            for instructions to update your account.
+          </span>
+          <button
+            type="button"
+            onClick={() => setMapsQuotaExceeded(false)}
+            aria-label="Dismiss"
+            className="text-amber-950 font-bold px-2 py-0.5 rounded hover:bg-amber-200/60 shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      <Routes>
+        <Route path="/" element={appShellNode} />
+        <Route path="/login" element={appShellNode} />
+        <Route path="/signup" element={appShellNode} />
+        <Route path="/onboarding" element={appShellNode} />
+        <Route path="/admin/*" element={appShellNode} />
+        <Route path="/dashboard/*" element={appShellNode} />
+        <Route path="/menu/:slug" element={menuPageNode} />
+        <Route path="/:slug/menu" element={menuPageNode} />
+        <Route path="*" element={menuPageNode} />
+      </Routes>
+    </>
   );
 }
 

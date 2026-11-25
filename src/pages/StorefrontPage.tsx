@@ -40,6 +40,7 @@ import {
 import { ShopInitialAvatar } from '../components/BrandLogo';
 import { ChefAiAssistant } from '../components/ChefAiAssistant';
 import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
+import { StoreLocationPicker } from '../components/StoreLocationPicker';
 import { createOrder } from '../services/firestoreService';
 import {
   buildGoogleMapsLink,
@@ -461,6 +462,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const ttUrl = sanitizeExternalUrl(shop.tiktokUrl);
   const mapsUrl = buildGoogleMapsLink({
     googleMapsUrl: shop.googleMapsUrl,
+    latitude: shop.latitude,
+    longitude: shop.longitude,
     address: shop.address,
     city: shop.city,
     nameAr: shop.nameAr,
@@ -3158,6 +3161,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 {tx(isEn, 'ساعات العمل:', 'Opening Hours:')} {shop.workFrom || '4م'} - {shop.workTo || '2ص'}
               </div>
             </div>
+            {typeof shop.latitude === 'number' &&
+              typeof shop.longitude === 'number' &&
+              Number.isFinite(shop.latitude) &&
+              Number.isFinite(shop.longitude) && (
+                <StoreLocationPicker
+                  readOnly
+                  latitude={shop.latitude}
+                  longitude={shop.longitude}
+                  googleMapsUrl={mapsUrl}
+                  shopName={displayShopName}
+                  city={shop.city}
+                  address={shop.address}
+                  isEn={isEn}
+                  heightClass="h-44"
+                />
+              )}
             <div className="flex flex-wrap gap-2 pt-1">
               <a
                 href={mapsUrl}

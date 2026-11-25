@@ -63,7 +63,7 @@ service cloud.firestore {
           'id', 'ownerId', 'storeSlug', 'nameAr', 'nameEn', 'country', 'menuLanguage',
           'branchCount', 'city', 'address', 'workFrom', 'workTo', 'workDays',
           'themeColor', 'themeMode', 'acceptOrders', 'paymentMethods', 'bio',
-          'whatsapp', 'facebookUrl', 'instagramUrl', 'tiktokUrl', 'googleMapsUrl',
+          'whatsapp', 'facebookUrl', 'instagramUrl', 'tiktokUrl', 'googleMapsUrl', 'latitude', 'longitude',
           'googleAdsId', 'googleAdsConversionLabel',
           'coverImage', 'logoUrl', 'showLogoOnItems', 'menuTemplate',
           'requestedPlan', 'paymentNote', 'isOpen', 'subscriptionStatus',
@@ -97,6 +97,8 @@ service cloud.firestore {
         && (!('instagramUrl' in data) || (data.instagramUrl is string && data.instagramUrl.size() <= 300))
         && (!('tiktokUrl' in data) || (data.tiktokUrl is string && data.tiktokUrl.size() <= 300))
         && (!('googleMapsUrl' in data) || (data.googleMapsUrl is string && data.googleMapsUrl.size() <= 400))
+        && (!('latitude' in data) || (data.latitude is number && data.latitude >= -90 && data.latitude <= 90))
+        && (!('longitude' in data) || (data.longitude is number && data.longitude >= -180 && data.longitude <= 180))
         && (!('googleAdsId' in data) || (data.googleAdsId is string && data.googleAdsId.size() <= 64))
         && (!('googleAdsConversionLabel' in data) || (data.googleAdsConversionLabel is string && data.googleAdsConversionLabel.size() <= 64))
         && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 90000))
@@ -287,7 +289,7 @@ service cloud.firestore {
               'storeSlug', 'nameAr', 'nameEn', 'country', 'menuLanguage', 'branchCount',
               'city', 'address', 'workFrom', 'workTo', 'workDays',
               'themeColor', 'themeMode', 'acceptOrders', 'paymentMethods',
-              'bio', 'whatsapp', 'facebookUrl', 'instagramUrl', 'tiktokUrl', 'googleMapsUrl',
+              'bio', 'whatsapp', 'facebookUrl', 'instagramUrl', 'tiktokUrl', 'googleMapsUrl', 'latitude', 'longitude',
               'googleAdsId', 'googleAdsConversionLabel', 'coverImage', 'logoUrl', 'showLogoOnItems',
               'menuTemplate', 'requestedPlan', 'paymentNote', 'isOpen', 'plan',
               'deliveryFee', 'freeDelivery', 'freeDeliveryMinOrder', 'deliveryTime',

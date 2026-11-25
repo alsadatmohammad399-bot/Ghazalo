@@ -142,14 +142,54 @@ export function sanitizeExternalUrl(raw?: string): string {
   return '';
 }
 
+export function parseCoordinatesFromGoogleMapsUrl(
+  rawUrl?: string
+): { lat: number; lng: number } | null {
+  const url = (rawUrl || '').trim();
+  if (!url) return null;
+  const patterns = [
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/,
+    /[?&](?:q|query|ll|center)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/,
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
+  ];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m) {
+      const lat = Number(m[1]);
+      const lng = Number(m[2]);
+      if (
+        Number.isFinite(lat) &&
+        Number.isFinite(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180
+      ) {
+        return { lat, lng };
+      }
+    }
+  }
+  return null;
+}
+
 export function buildGoogleMapsLink(shop: {
   googleMapsUrl?: string;
+  latitude?: number;
+  longitude?: number;
   nameAr?: string;
   city?: string;
   address?: string;
 }): string {
   const safeCustom = sanitizeExternalUrl(shop.googleMapsUrl);
   if (safeCustom) return safeCustom;
+  if (
+    typeof shop.latitude === 'number' &&
+    typeof shop.longitude === 'number' &&
+    Number.isFinite(shop.latitude) &&
+    Number.isFinite(shop.longitude)
+  ) {
+    return `https://www.google.com/maps/search/?api=1&query=${shop.latitude},${shop.longitude}`;
+  }
   const queryParts = [shop.nameAr, shop.city, shop.address]
     .map((p) => (p || '').trim())
     .filter(Boolean);

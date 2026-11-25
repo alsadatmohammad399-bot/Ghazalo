@@ -23,7 +23,7 @@ export interface QueuedMenuFile {
   payload: PreparedAiFilePayload;
 }
 
-const MAX_BASE64_CHARS = 580_000; // ~430 KB binary for ultra-fast mobile upload & Gemini Vision parsing
+const MAX_BASE64_CHARS = 420_000; // ~315 KB binary for ultra-fast mobile upload & Gemini Vision parsing
 const MAX_PDF_BYTES = 3_100_000;
 
 const SUPPORTED_IMAGE_MIMES = new Set([
@@ -71,9 +71,9 @@ function encodeCanvasToJpegBudget(
   srcHeight: number
 ): { dataUrl: string; width: number; height: number } | null {
   const steps: Array<{ maxDim: number; quality: number }> = [
-    { maxDim: 1280, quality: 0.78 },
-    { maxDim: 1120, quality: 0.7 },
-    { maxDim: 960, quality: 0.62 },
+    { maxDim: 1120, quality: 0.74 },
+    { maxDim: 980, quality: 0.65 },
+    { maxDim: 860, quality: 0.58 },
   ];
 
   let lastResult: { dataUrl: string; width: number; height: number } | null = null;

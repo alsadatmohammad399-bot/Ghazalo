@@ -180,6 +180,18 @@ export async function createShopWithProducts(
       instagramUrl: (shopData.instagramUrl || '').trim().slice(0, FIELD_LIMITS.SOCIAL_URL_MAX),
       tiktokUrl: (shopData.tiktokUrl || '').trim().slice(0, FIELD_LIMITS.SOCIAL_URL_MAX),
       googleMapsUrl: (shopData.googleMapsUrl || '').trim().slice(0, FIELD_LIMITS.MAPS_URL_MAX),
+      ...(typeof shopData.latitude === 'number' &&
+      Number.isFinite(shopData.latitude) &&
+      shopData.latitude >= -90 &&
+      shopData.latitude <= 90
+        ? { latitude: Number(shopData.latitude.toFixed(6)) }
+        : {}),
+      ...(typeof shopData.longitude === 'number' &&
+      Number.isFinite(shopData.longitude) &&
+      shopData.longitude >= -180 &&
+      shopData.longitude <= 180
+        ? { longitude: Number(shopData.longitude.toFixed(6)) }
+        : {}),
       googleAdsId: (shopData.googleAdsId || '').trim().slice(0, FIELD_LIMITS.ADS_ID_MAX),
       googleAdsConversionLabel: (shopData.googleAdsConversionLabel || '').trim().slice(0, FIELD_LIMITS.ADS_ID_MAX),
       coverImage: (shopData.coverImage || '').trim().slice(0, FIELD_LIMITS.COVER_IMAGE_MAX),
@@ -330,6 +342,22 @@ export async function updateShop(
     if (updates.instagramUrl !== undefined) allowed.instagramUrl = updates.instagramUrl.slice(0, FIELD_LIMITS.SOCIAL_URL_MAX);
     if (updates.tiktokUrl !== undefined) allowed.tiktokUrl = updates.tiktokUrl.slice(0, FIELD_LIMITS.SOCIAL_URL_MAX);
     if (updates.googleMapsUrl !== undefined) allowed.googleMapsUrl = updates.googleMapsUrl.slice(0, FIELD_LIMITS.MAPS_URL_MAX);
+    if (
+      typeof updates.latitude === 'number' &&
+      Number.isFinite(updates.latitude) &&
+      updates.latitude >= -90 &&
+      updates.latitude <= 90
+    ) {
+      allowed.latitude = Number(updates.latitude.toFixed(6));
+    }
+    if (
+      typeof updates.longitude === 'number' &&
+      Number.isFinite(updates.longitude) &&
+      updates.longitude >= -180 &&
+      updates.longitude <= 180
+    ) {
+      allowed.longitude = Number(updates.longitude.toFixed(6));
+    }
     if (updates.googleAdsId !== undefined) allowed.googleAdsId = updates.googleAdsId.slice(0, FIELD_LIMITS.ADS_ID_MAX);
     if (updates.googleAdsConversionLabel !== undefined) allowed.googleAdsConversionLabel = updates.googleAdsConversionLabel.slice(0, FIELD_LIMITS.ADS_ID_MAX);
     if (updates.coverImage !== undefined) allowed.coverImage = updates.coverImage.slice(0, FIELD_LIMITS.COVER_IMAGE_MAX);

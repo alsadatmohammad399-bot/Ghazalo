@@ -43,6 +43,7 @@ import { MenuTemplateShowcase } from '../components/MenuTemplateShowcase';
 import { MultiMenuUploader } from '../components/MultiMenuUploader';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
+import { StoreLocationPicker } from '../components/StoreLocationPicker';
 import { StorefrontPage } from './StorefrontPage';
 import { auth } from '../firebase';
 import {
@@ -54,7 +55,7 @@ import {
   updateProduct,
   updateShop,
 } from '../services/firestoreService';
-import { sanitizeExternalUrl } from '../utils/adsTracking';
+import { parseCoordinatesFromGoogleMapsUrl, sanitizeExternalUrl } from '../utils/adsTracking';
 import {
   formatMoney,
   getShopAccessState,
@@ -235,10 +236,24 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [editInstagramUrl, setEditInstagramUrl] = useState(shop.instagramUrl || '');
   const [editTiktokUrl, setEditTiktokUrl] = useState(shop.tiktokUrl || '');
   const [editGoogleMapsUrl, setEditGoogleMapsUrl] = useState(shop.googleMapsUrl || '');
+  const [editCity, setEditCity] = useState(shop.city || '');
+  const [editLatitude, setEditLatitude] = useState<number | undefined>(shop.latitude);
+  const [editLongitude, setEditLongitude] = useState<number | undefined>(shop.longitude);
   const [editGoogleAdsId, setEditGoogleAdsId] = useState(shop.googleAdsId || '');
   const [editGoogleAdsConversionLabel, setEditGoogleAdsConversionLabel] = useState(
     shop.googleAdsConversionLabel || ''
   );
+
+  // Quick Rename & Location Map Modals
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [renameArInput, setRenameArInput] = useState(shop.nameAr);
+  const [renameEnInput, setRenameEnInput] = useState(shop.nameEn || '');
+  const [savingRename, setSavingRename] = useState(false);
+  const [renameSavedToast, setRenameSavedToast] = useState('');
+
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [locationSavedToast, setLocationSavedToast] = useState('');
 
   // Unlimited Categories Manager state
   const [newCatInput, setNewCatInput] = useState('');
@@ -268,11 +283,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   }, [shop.menuTemplate]);
 
   useEffect(() => {
-    if (!settingsModalOpen && !designModalOpen) return;
+    if (!settingsModalOpen && !designModalOpen && !locationModalOpen) return;
     const presetTpl = presetTemplateOnOpenRef.current;
     presetTemplateOnOpenRef.current = null;
     setEditNameAr(shop.nameAr);
     setEditWhatsapp(shop.whatsapp || '');
+    setEditCity(shop.city || '');
     setEditAddress(shop.address || '');
     setEditTemplate(presetTpl || normalizeMenuTemplateId(shop.menuTemplate));
     setEditThemeColor(shop.themeColor || 'أخضر');
@@ -296,13 +312,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setEditInstagramUrl(shop.instagramUrl || '');
     setEditTiktokUrl(shop.tiktokUrl || '');
     setEditGoogleMapsUrl(shop.googleMapsUrl || '');
+    const parsedFromUrl = parseCoordinatesFromGoogleMapsUrl(shop.googleMapsUrl);
+    setEditLatitude(
+      typeof shop.latitude === 'number' && Number.isFinite(shop.latitude)
+        ? shop.latitude
+        : parsedFromUrl?.lat
+    );
+    setEditLongitude(
+      typeof shop.longitude === 'number' && Number.isFinite(shop.longitude)
+        ? shop.longitude
+        : parsedFromUrl?.lng
+    );
     setEditGoogleAdsId(shop.googleAdsId || '');
     setEditGoogleAdsConversionLabel(shop.googleAdsConversionLabel || '');
     setDeliverySavedToast('');
     setDesignSavedToast('');
+    setLocationSavedToast('');
     setLogoError('');
     setCoverError('');
-  }, [settingsModalOpen, designModalOpen, shop]);
+  }, [settingsModalOpen, designModalOpen, locationModalOpen, shop]);
+
+  useEffect(() => {
+    if (!renameModalOpen) return;
+    setRenameArInput(shop.nameAr);
+    setRenameEnInput(shop.nameEn || '');
+    setRenameSavedToast('');
+  }, [renameModalOpen, shop.nameAr, shop.nameEn]);
 
   const storeSlug = useMemo(() => deriveShopSlug(shop), [shop]);
   const menuUrl = getAbsoluteMenuUrl(shop);
@@ -779,6 +814,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     return {
       nameAr: editNameAr.trim() || shop.nameAr,
       whatsapp: editWhatsapp.trim(),
+      city: editCity.trim(),
       address: editAddress.trim(),
       menuTemplate: editTemplate,
       themeColor: editThemeColor,
@@ -802,6 +838,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       instagramUrl: sanitizeExternalUrl(editInstagramUrl),
       tiktokUrl: sanitizeExternalUrl(editTiktokUrl),
       googleMapsUrl: sanitizeExternalUrl(editGoogleMapsUrl),
+      ...(typeof editLatitude === 'number' &&
+      typeof editLongitude === 'number' &&
+      Number.isFinite(editLatitude) &&
+      Number.isFinite(editLongitude)
+        ? { latitude: Number(editLatitude.toFixed(6)), longitude: Number(editLongitude.toFixed(6)) }
+        : {}),
       googleAdsId: editGoogleAdsId.trim(),
       googleAdsConversionLabel: editGoogleAdsConversionLabel.trim(),
     };
@@ -953,6 +995,82 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       setSettingsModalOpen(false);
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleSaveQuickRename = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanAr = renameArInput.trim();
+    const cleanEn = renameEnInput.trim();
+    if (!cleanAr) return;
+    setSavingRename(true);
+    setRenameSavedToast('');
+    try {
+      const updates: Partial<Shop> = {
+        nameAr: cleanAr,
+        nameEn: cleanEn,
+      };
+      setEditNameAr(cleanAr);
+      const updatedShop = persistShopLocal(updates);
+      if (canUseFirestore) {
+        try {
+          await updateShop(shop.id, updates);
+        } catch {
+          // saved locally
+        }
+      }
+      await syncPublicStoreSnapshot(updatedShop, latestProductsRef.current);
+      setRenameSavedToast(
+        tx(isEn, 'تم تغيير اسم المطعم بنجاح ✅', 'Restaurant name updated ✅')
+      );
+      window.setTimeout(() => {
+        setRenameModalOpen(false);
+        setRenameSavedToast('');
+      }, 850);
+    } finally {
+      setSavingRename(false);
+    }
+  };
+
+  const handleSaveLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingLocation(true);
+    setLocationSavedToast('');
+    try {
+      const hasCoords =
+        typeof editLatitude === 'number' &&
+        typeof editLongitude === 'number' &&
+        Number.isFinite(editLatitude) &&
+        Number.isFinite(editLongitude);
+      const updates: Partial<Shop> = {
+        city: editCity.trim(),
+        address: editAddress.trim(),
+        googleMapsUrl: sanitizeExternalUrl(editGoogleMapsUrl),
+        ...(hasCoords
+          ? {
+              latitude: Number((editLatitude as number).toFixed(6)),
+              longitude: Number((editLongitude as number).toFixed(6)),
+            }
+          : {}),
+      };
+      const updatedShop = persistShopLocal(updates);
+      if (canUseFirestore) {
+        try {
+          await updateShop(shop.id, updates);
+        } catch {
+          // saved locally
+        }
+      }
+      await syncPublicStoreSnapshot(updatedShop, latestProductsRef.current);
+      setLocationSavedToast(
+        tx(isEn, 'تم حفظ موقع المطعم على الخريطة ✅', 'Restaurant map location saved ✅')
+      );
+      window.setTimeout(() => {
+        setLocationModalOpen(false);
+        setLocationSavedToast('');
+      }, 900);
+    } finally {
+      setSavingLocation(false);
     }
   };
 
@@ -1268,14 +1386,36 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               )}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setSettingsModalOpen(true)}
-            className="sf-btn min-h-[42px] px-3 text-xs text-[#15803D] dark:text-[#BBF7D0]"
-          >
-            <Settings className="w-4 h-4" />
-            <span>{tx(isEn, 'التوصيل والقالب', 'Settings')}</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setRenameModalOpen(true)}
+              className="sf-btn min-h-[42px] px-3 text-xs text-[#14532D] dark:text-[#BBF7D0] border-[#86EFAC] bg-[#DCFCE7]/60 dark:bg-[#173323]"
+            >
+              <Edit3 className="w-4 h-4 text-[#15803D]" />
+              <span>{tx(isEn, 'تغيير اسم المطعم', 'Rename Store')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLocationModalOpen(true)}
+              className="sf-btn min-h-[42px] px-3 text-xs text-[#15803D] dark:text-[#BBF7D0]"
+            >
+              <MapPin className="w-4 h-4" />
+              <span>{tx(isEn, 'موقعي على الخريطة', 'Store Map')}</span>
+              {(typeof shop.latitude === 'number' && typeof shop.longitude === 'number') ||
+              shop.googleMapsUrl ? (
+                <span className="w-2 h-2 rounded-full bg-[#15803D] shrink-0" />
+              ) : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsModalOpen(true)}
+              className="sf-btn min-h-[42px] px-3 text-xs text-[#15803D] dark:text-[#BBF7D0]"
+            >
+              <Settings className="w-4 h-4" />
+              <span>{tx(isEn, 'التوصيل والقالب', 'Settings')}</span>
+            </button>
+          </div>
         </div>
 
         {/* QR & Direct Menu Link Card + Yellow Cashier POS Button (exact Sofrtek `dash()` rhythm) */}
@@ -3368,20 +3508,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     className="sf-inp min-h-[40px] text-xs"
                   />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-bold mb-1 flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-[#15803D]" />
-                    {tx(isEn, 'رابط الموقع على خرائط جوجل (Google Maps)', 'Google Maps Link')}
-                  </label>
-                  <input
-                    type="url"
-                    dir="ltr"
-                    value={editGoogleMapsUrl}
-                    onChange={(e) => setEditGoogleMapsUrl(e.target.value)}
-                    placeholder="https://maps.google.com/?q=..."
-                    className="sf-inp min-h-[40px] text-xs"
-                  />
+              </div>
+              <div className="pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] space-y-2">
+                <div className="font-extrabold text-xs flex items-center gap-1.5 text-[#14532D] dark:text-[#BBF7D0]">
+                  <MapPin className="w-3.5 h-3.5 text-[#15803D]" />
+                  {tx(isEn, 'تحديد موقع المطعم على الخريطة', 'Pin Restaurant Location on Map')}
                 </div>
+                <StoreLocationPicker
+                  latitude={editLatitude}
+                  longitude={editLongitude}
+                  googleMapsUrl={editGoogleMapsUrl}
+                  shopName={editNameAr || displayShopName}
+                  city={editCity}
+                  address={editAddress}
+                  isEn={isEn}
+                  heightClass="h-52"
+                  onChange={(next) => {
+                    setEditLatitude(next.latitude);
+                    setEditLongitude(next.longitude);
+                    setEditGoogleMapsUrl(next.googleMapsUrl);
+                  }}
+                />
               </div>
 
               <div className="pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] space-y-2">
@@ -3817,6 +3964,185 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </a>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Quick Rename Restaurant Modal */}
+      {renameModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/55 backdrop-blur-xs"
+          onClick={() => setRenameModalOpen(false)}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleSaveQuickRename}
+            className="sf-card max-w-md w-full p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-[#15803D]" />
+                <h3 className="text-lg font-extrabold">
+                  {tx(isEn, 'تغيير اسم المطعم', 'Rename Restaurant')}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRenameModalOpen(false)}
+                className="sf-btn min-h-[36px] w-9 px-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
+              {tx(
+                isEn,
+                'تقدر تغيّر اسم مطعمك في أي وقت وهيظهر فوراً في المنيو والفواتير ولوحة التحكم.',
+                'Update your restaurant name anytime and it syncs immediately across your menu and receipts.'
+              )}
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-extrabold mb-1">
+                  {tx(isEn, 'اسم المطعم بالعربي', 'Restaurant Name (Arabic)')}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={renameArInput}
+                  onChange={(e) => setRenameArInput(e.target.value)}
+                  placeholder={tx(isEn, 'مثال: مشويات الأصيل', 'Restaurant Arabic Name')}
+                  className="sf-inp"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-extrabold mb-1">
+                  {tx(isEn, 'اسم المطعم بالإنجليزي (اختياري)', 'Restaurant Name (English - optional)')}
+                </label>
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={renameEnInput}
+                  onChange={(e) => setRenameEnInput(e.target.value)}
+                  placeholder="El Aseel Grill"
+                  className="sf-inp text-left"
+                />
+              </div>
+            </div>
+
+            {renameSavedToast && (
+              <div className="rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] px-3 py-2 text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0] text-center">
+                {renameSavedToast}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="submit"
+                disabled={savingRename || !renameArInput.trim()}
+                className="sf-btn-primary flex-1 text-sm"
+              >
+                {savingRename ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                <span>{tx(isEn, 'حفظ الاسم الجديد', 'Save New Name')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenameModalOpen(false)}
+                className="sf-btn px-4 text-sm"
+              >
+                {tx(isEn, 'إلغاء', 'Cancel')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Interactive Map Location Picker Modal */}
+      {locationModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#14201A]/55 backdrop-blur-xs"
+          onClick={() => setLocationModalOpen(false)}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleSaveLocation}
+            className="sf-card max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-[#CFE3D5] dark:border-[#2C3D32]">
+              <div className="flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-[#15803D]" />
+                <h3 className="text-lg font-extrabold">
+                  {tx(isEn, 'تحديد موقع المطعم على الخريطة', 'Pin Restaurant on Google Maps')}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLocationModalOpen(false)}
+                className="sf-btn min-h-[36px] w-9 px-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-xs font-extrabold mb-1">
+                  {tx(isEn, 'المدينة / المحافظة', 'City')}
+                </label>
+                <input
+                  type="text"
+                  value={editCity}
+                  onChange={(e) => setEditCity(e.target.value)}
+                  placeholder={tx(isEn, 'مثال: القاهرة', 'e.g. Cairo')}
+                  className="sf-inp min-h-[42px] text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-extrabold mb-1">
+                  {tx(isEn, 'العنوان التفصيلي', 'Street Address')}
+                </label>
+                <input
+                  type="text"
+                  value={editAddress}
+                  onChange={(e) => setEditAddress(e.target.value)}
+                  placeholder={tx(isEn, 'الشارع والمنطقة وبجوار...', 'Street & landmark')}
+                  className="sf-inp min-h-[42px] text-sm"
+                />
+              </div>
+            </div>
+
+            <StoreLocationPicker
+              latitude={editLatitude}
+              longitude={editLongitude}
+              googleMapsUrl={editGoogleMapsUrl}
+              shopName={displayShopName}
+              city={editCity}
+              address={editAddress}
+              isEn={isEn}
+              heightClass="h-64 sm:h-72"
+              onChange={(next) => {
+                setEditLatitude(next.latitude);
+                setEditLongitude(next.longitude);
+                setEditGoogleMapsUrl(next.googleMapsUrl);
+              }}
+            />
+
+            {locationSavedToast && (
+              <div className="rounded-2xl bg-[#DCFCE7] dark:bg-[#173323] border border-[#86EFAC] dark:border-[#2C3D32] px-3 py-2 text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0] text-center">
+                {locationSavedToast}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={savingLocation}
+              className="sf-btn-primary w-full text-sm"
+            >
+              {savingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              <span>{tx(isEn, 'حفظ موقع المطعم على الخريطة', 'Save Map Location')}</span>
+            </button>
+          </form>
         </div>
       )}
       </div>

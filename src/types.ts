@@ -380,6 +380,8 @@ export interface Shop {
   instagramUrl?: string;
   tiktokUrl?: string;
   googleMapsUrl?: string;
+  latitude?: number;
+  longitude?: number;
   googleAdsId?: string;
   googleAdsConversionLabel?: string;
   coverImage?: string;

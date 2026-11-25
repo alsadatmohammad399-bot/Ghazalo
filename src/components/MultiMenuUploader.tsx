@@ -31,7 +31,7 @@ interface MultiMenuUploaderProps {
   onBusyChange?: (busy: boolean) => void;
 }
 
-const CONCURRENCY = 2;
+const CONCURRENCY = 3;
 
 const AI_STAGES_AR = [
   'ضغط وتحسين وضوح الصور',
@@ -86,7 +86,7 @@ export const MultiMenuUploader: React.FC<MultiMenuUploaderProps> = ({
 
     const postWithTimeout = async () => {
       const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 38000);
+      const timeoutId = window.setTimeout(() => controller.abort(), 65000);
       try {
         return await fetch('/api/ai/extract-menu', {
           method: 'POST',
@@ -99,16 +99,40 @@ export const MultiMenuUploader: React.FC<MultiMenuUploaderProps> = ({
       }
     };
 
-    let res = await postWithTimeout();
+    const retryDelaysMs = [850, 1500];
+    let res: Response | null = null;
+    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
+      try {
+        res = await postWithTimeout();
+      } catch (fetchErr) {
+        if (attempt < retryDelaysMs.length) {
+          setProgressText(
+            isEn
+              ? `Reconnecting for page ${pageIndex} (${attempt + 1}/${retryDelaysMs.length})...`
+              : `جاري إعادة الاتصال لصفحة ${pageIndex} (${attempt + 1}/${retryDelaysMs.length})...`
+          );
+          await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
+          continue;
+        }
+        throw fetchErr;
+      }
 
-    if (res.status === 503) {
+      const isTransientStatus = res.status === 503 || res.status === 504 || res.status === 502;
+      if (!isTransientStatus || attempt >= retryDelaysMs.length) {
+        break;
+      }
       setProgressText(
         isEn
-          ? `Temporary busy spike on page ${pageIndex}, retrying automatically...`
+          ? `Busy spike on page ${pageIndex}, retrying automatically...`
           : `ضغط مؤقت في صفحة ${pageIndex} — جاري إعادة المحاولة تلقائياً...`
       );
-      await new Promise((r) => setTimeout(r, 900));
-      res = await postWithTimeout();
+      await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
+    }
+
+    if (!res) {
+      throw new Error(
+        isEn ? `Could not reach extraction service for page ${pageIndex}.` : `تعذر الاتصال بخدمة استخراج المنيو للصفحة ${pageIndex}.`
+      );
     }
 
     const rawBody = await res.text();
