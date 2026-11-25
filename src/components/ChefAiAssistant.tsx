@@ -859,7 +859,7 @@ export const ChefAiAssistant: React.FC<ChefAiAssistantProps> = ({
                         }`}
                       >
                         {prod.imageUrl ? (
-                          <img
+                          <img loading="lazy" decoding="async"
                             src={prod.imageUrl}
                             alt={prod.name}
                             referrerPolicy="no-referrer"

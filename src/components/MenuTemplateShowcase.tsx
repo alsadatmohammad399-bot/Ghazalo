@@ -369,7 +369,7 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
           >
             {coverImage && (
               <>
-                <img
+                <img loading="lazy" decoding="async"
                   src={coverImage}
                   alt={shopName}
                   className="absolute inset-0 w-full h-full object-cover"
@@ -380,7 +380,7 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
             <div className="relative z-10 flex items-center justify-between gap-2.5 w-full min-w-0">
               <div className="flex items-center gap-2.5 min-w-0">
                 {logoUrl ? (
-                  <img
+                  <img loading="lazy" decoding="async"
                     src={logoUrl}
                     alt={shopName}
                     className={`w-9 h-9 rounded-xl object-cover border bg-white shrink-0 ${
@@ -461,7 +461,7 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
                   >
                     <Utensils style={{ color: accentHex }} className="w-5 h-5" />
                     {logoUrl && showLogoOnItems && (
-                      <img
+                      <img loading="lazy" decoding="async"
                         src={logoUrl}
                         alt=""
                         className="w-4 h-4 rounded-full object-cover border border-white absolute top-1 left-1 bg-white"
@@ -522,7 +522,7 @@ export const MenuTemplateShowcase: React.FC<MenuTemplateShowcaseProps> = ({
               >
                 <Utensils style={{ color: accentHex }} className="w-6 h-6" />
                 {logoUrl && showLogoOnItems && (
-                  <img
+                  <img loading="lazy" decoding="async"
                     src={logoUrl}
                     alt=""
                     className="w-4 h-4 rounded-full object-cover border border-white absolute bottom-1 left-1 bg-white"

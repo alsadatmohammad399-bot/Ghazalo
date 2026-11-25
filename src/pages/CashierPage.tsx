@@ -1032,7 +1032,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                         } rounded-[16px] bg-[#FFFFFF] dark:bg-[#18231C] flex items-center justify-center overflow-hidden relative`}
                       >
                         {product.imageUrl && !brokenImages[product.id] ? (
-                          <img
+                          <img loading="lazy" decoding="async"
                             src={product.imageUrl}
                             alt={product.name}
                             referrerPolicy="no-referrer"

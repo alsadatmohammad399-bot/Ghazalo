@@ -2596,7 +2596,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                           <div className="flex items-center gap-2.5 min-w-0">
                             <div className="relative w-11 h-11 rounded-xl bg-[#FFFFFF] dark:bg-[#18231C] flex items-center justify-center shrink-0 overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32]">
                               {p.imageUrl ? (
-                                <img
+                                <img loading="lazy" decoding="async"
                                   src={p.imageUrl}
                                   alt={p.name}
                                   referrerPolicy="no-referrer"
@@ -2606,7 +2606,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                                 <Utensils className="w-4 h-4 text-[#15803D]" />
                               )}
                               {shop.logoUrl && shop.showLogoOnItems && (
-                                <img
+                                <img loading="lazy" decoding="async"
                                   src={shop.logoUrl}
                                   alt={tx(isEn, 'شعار', 'Logo')}
                                   className="w-4 h-4 rounded-full object-cover border border-white absolute top-0.5 right-0.5 bg-white"
@@ -3341,7 +3341,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               {editLogoUrl && (
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <div className="flex items-center gap-2">
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={editLogoUrl}
                       alt={tx(isEn, 'شعار', 'Logo')}
                       className="w-9 h-9 rounded-full object-cover border border-white bg-white shadow-xs"
@@ -3413,7 +3413,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <div className="relative h-24 rounded-2xl overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32] flex items-end p-3">
                 {editCoverImage ? (
                   <>
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={editCoverImage}
                       alt={tx(isEn, 'خلفية المطعم', 'Restaurant Cover')}
                       className="absolute inset-0 w-full h-full object-cover"
@@ -3428,7 +3428,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 )}
                 <div className="relative z-10 flex items-center gap-2.5 min-w-0">
                   {editLogoUrl ? (
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={editLogoUrl}
                       alt={tx(isEn, 'شعار', 'Logo')}
                       className="w-10 h-10 rounded-xl object-cover border-2 border-white bg-white shadow-xs shrink-0"
@@ -4151,7 +4151,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       <div className="hidden print-only bg-white text-[#14201A] p-8 text-center">
         <div className="max-w-md mx-auto border-[3px] border-[#15803D] rounded-[28px] p-8 space-y-5">
           {shop.logoUrl && (
-            <img
+            <img loading="lazy" decoding="async"
               src={shop.logoUrl}
               alt={displayShopName}
               className="w-20 h-20 rounded-full object-cover mx-auto border-2 border-[#15803D]"

@@ -17,8 +17,18 @@ const DEFAULT_ADMIN_PIN = process.env.ADMIN_PIN || '';
 if (process.env.VERCEL && !process.env.SESSION_SECRET) {
   console.error('SESSION_SECRET is not set. Tokens will not survive restarts.');
 }
-const TOKEN_SIGNING_SECRET =
-  process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+// Without SESSION_SECRET a random secret per serverless instance made admin/merchant logins bounce
+// back to the login screen (another instance could not verify the token). Derive a stable one from
+// other server-only secrets instead. Setting SESSION_SECRET explicitly is still the best option.
+const DERIVED_SECRET_SOURCE = [process.env.ADMIN_PIN, process.env.GEMINI_API_KEY]
+  .filter(Boolean)
+  .join('|');
+const HAS_STABLE_SECRET = Boolean(process.env.SESSION_SECRET || DERIVED_SECRET_SOURCE);
+let TOKEN_SIGNING_SECRET =
+  process.env.SESSION_SECRET ||
+  (DERIVED_SECRET_SOURCE
+    ? crypto.createHash('sha256').update(`ghazalo-session:${DERIVED_SECRET_SOURCE}`).digest('hex')
+    : crypto.randomBytes(32).toString('hex'));
 
 // Simple in-memory limiter for admin PIN attempts (per IP, 5 tries / 15 minutes).
 const pinAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -79,19 +89,41 @@ interface ServerRegistryState {
   publicMenus: Record<string, PublicMenuSnapshot>;
 }
 
+// Optional durable storage (Upstash Redis via Vercel Marketplace, or Vercel KV). Without it the
+// registry only lives in /tmp, which Vercel wipes on cold starts.
+const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/\/+$/, '');
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '';
+const REMOTE_STORE = Boolean(REDIS_URL && REDIS_TOKEN);
+const REGISTRY_KEY = 'ghazalo:registry:v1';
+const SECRET_KEY = 'ghazalo:session-secret:v1';
+
+async function redisCmd(args: string[]): Promise<unknown> {
+  const r = await fetch(REDIS_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const j = (await r.json()) as { result?: unknown; error?: string };
+  if (!r.ok || j.error) throw new Error(j.error || `redis ${r.status}`);
+  return j.result;
+}
+
+function normalizeRegistry(parsed: Partial<ServerRegistryState>): ServerRegistryState {
+  return {
+    adminPin: parsed.adminPin,
+    adminPinSalt: parsed.adminPinSalt,
+    adminPinHash: parsed.adminPinHash,
+    forceZeroFeesGlobally: Boolean(parsed.forceZeroFeesGlobally),
+    stores: parsed.stores || {},
+    publicMenus: parsed.publicMenus || {},
+  };
+}
+
 function loadRegistryState(): ServerRegistryState {
   try {
     if (fs.existsSync(STORE_REGISTRY_PATH)) {
       const raw = fs.readFileSync(STORE_REGISTRY_PATH, 'utf8');
-      const parsed = JSON.parse(raw) as Partial<ServerRegistryState>;
-      return {
-        adminPin: parsed.adminPin,
-        adminPinSalt: parsed.adminPinSalt,
-        adminPinHash: parsed.adminPinHash,
-        forceZeroFeesGlobally: Boolean(parsed.forceZeroFeesGlobally),
-        stores: parsed.stores || {},
-        publicMenus: parsed.publicMenus || {},
-      };
+      return normalizeRegistry(JSON.parse(raw) as Partial<ServerRegistryState>);
     }
   } catch {
     // ignore read error on cold start
@@ -99,12 +131,73 @@ function loadRegistryState(): ServerRegistryState {
   return { forceZeroFeesGlobally: false, stores: {}, publicMenus: {} };
 }
 
+let pendingWrites: Promise<void> = Promise.resolve();
+
 function persistRegistryState(state: ServerRegistryState): void {
   try {
     fs.writeFileSync(STORE_REGISTRY_PATH, JSON.stringify(state), 'utf8');
   } catch {
     // non-blocking in read-only runtimes
   }
+  if (REMOTE_STORE) {
+    const snapshot = JSON.stringify(state);
+    pendingWrites = pendingWrites
+      .then(() => redisCmd(['SET', REGISTRY_KEY, snapshot]).then(() => undefined))
+      .catch((err) => {
+        console.error('Registry save to remote store failed:', err instanceof Error ? err.message : err);
+      });
+  }
+}
+
+let lastRemoteLoad = 0;
+let secretReady = false;
+async function refreshRegistryFromRemote(): Promise<void> {
+  if (!REMOTE_STORE) return;
+  try {
+    if (!secretReady && !HAS_STABLE_SECRET) {
+      // No SESSION_SECRET set: keep one stable secret in the shared store so logins work on every instance.
+      let secret = (await redisCmd(['GET', SECRET_KEY])) as string | null;
+      if (!secret) {
+        const fresh = crypto.randomBytes(32).toString('hex');
+        await redisCmd(['SET', SECRET_KEY, fresh, 'NX']);
+        secret = (await redisCmd(['GET', SECRET_KEY])) as string | null;
+      }
+      if (secret) TOKEN_SIGNING_SECRET = secret;
+    }
+    secretReady = true;
+    if (Date.now() - lastRemoteLoad < 1500) return;
+    await pendingWrites;
+    const raw = (await redisCmd(['GET', REGISTRY_KEY])) as string | null;
+    lastRemoteLoad = Date.now();
+    if (raw) {
+      serverRegistry = normalizeRegistry(JSON.parse(raw) as Partial<ServerRegistryState>);
+    }
+  } catch (err) {
+    console.error('Registry load from remote store failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+// Rate limit shared across instances when the remote store exists, per-instance otherwise.
+const localHits = new Map<string, { count: number; resetAt: number }>();
+async function overLimit(name: string, ip: string, max: number, windowSec: number): Promise<boolean> {
+  const key = `rl:${name}:${ip}`;
+  if (REMOTE_STORE) {
+    try {
+      const n = Number(await redisCmd(['INCR', key]));
+      if (n === 1) await redisCmd(['EXPIRE', key, String(windowSec)]);
+      return n > max;
+    } catch {
+      // fall through to local counter
+    }
+  }
+  const now = Date.now();
+  const rec = localHits.get(key);
+  if (!rec || now > rec.resetAt) {
+    localHits.set(key, { count: 1, resetAt: now + windowSec * 1000 });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > max;
 }
 
 let serverRegistry: ServerRegistryState = loadRegistryState();
@@ -469,6 +562,31 @@ const app = express();
 async function startServer() {
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+
+  // Load shared state first and hold each response until pending saves are done (serverless can freeze after reply).
+  app.use('/api', async (req: Request, res: Response, next) => {
+    await refreshRegistryFromRemote();
+    const origJson = res.json.bind(res);
+    res.json = ((body?: unknown) => {
+      pendingWrites.then(() => origJson(body));
+      return res;
+    }) as typeof res.json;
+
+    const limits: Array<[string, string, number, number]> = [
+      ['/ai/extract-menu', 'extract', 8, 3600],
+      ['/ai/menu-chat', 'chat', 40, 600],
+      ['/store-auth/login', 'login', 15, 900],
+      ['/store-auth/register', 'register', 6, 3600],
+      ['/store-auth/forgot-request', 'forgot', 6, 3600],
+      ['/store-auth/reset-password', 'reset', 10, 900],
+    ];
+    const hit = req.method === 'POST' ? limits.find(([p]) => req.path === p) : undefined;
+    if (hit && (await overLimit(hit[1], getClientIp(req), hit[2], hit[3]))) {
+      res.status(429).json({ ok: false, error: 'محاولات كثيرة. حاول لاحقاً.' });
+      return;
+    }
+    next();
+  });
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ ok: true, service: 'ghazalo-api' });

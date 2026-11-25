@@ -596,7 +596,7 @@ export const MultiMenuUploader: React.FC<MultiMenuUploaderProps> = ({
                         className="w-full h-full relative cursor-zoom-in block"
                         title={isEn ? 'Preview image' : 'معاينة الصورة'}
                       >
-                        <img
+                        <img loading="lazy" decoding="async"
                           src={fileItem.previewUrl}
                           alt={fileItem.name}
                           className="w-full h-full object-cover"
@@ -747,7 +747,7 @@ export const MultiMenuUploader: React.FC<MultiMenuUploaderProps> = ({
               </button>
             </div>
             <div className="max-h-[75vh] overflow-auto bg-[#0F1712] flex items-center justify-center p-2">
-              <img
+              <img loading="lazy" decoding="async"
                 src={previewModalFile.previewUrl}
                 alt={previewModalFile.name}
                 className="max-w-full max-h-[70vh] object-contain rounded-lg"
