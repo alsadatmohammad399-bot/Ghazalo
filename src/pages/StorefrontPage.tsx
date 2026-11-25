@@ -96,11 +96,6 @@ interface StorefrontPageProps {
 
 const ALL_CATEGORIES_KEY = '__all__';
 
-const UPSELL_FALLBACKS: Array<{ id: string; name: string; nameEn: string; price: number }> = [
-  { id: 'upsell-1', name: 'وجبة كبدة', nameEn: 'Liver Meal', price: 120 },
-  { id: 'upsell-2', name: 'ساندوتش سجق', nameEn: 'Sausage Sandwich', price: 40 },
-  { id: 'upsell-3', name: 'طبق سجق', nameEn: 'Sausage Plate', price: 100 },
-];
 
 export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   shop,
@@ -315,16 +310,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           !Object.keys(cart).some((key) => key === p.id || key.startsWith(`${p.id}__`))
       )
       .slice(0, 3);
-    if (notInCart.length >= 3) return notInCart;
-    return UPSELL_FALLBACKS.map((fb) => ({
-      id: fb.id,
-      shopId: shop.id,
-      shopOwnerId: shop.ownerId,
-      name: isEn ? fb.nameEn : fb.name,
-      category: tx(isEn, 'إضافات', 'Extras'),
-      price: fb.price,
-      available: true,
-    }));
+    return notInCart;
   }, [activeProducts, cart, shop.id, shop.ownerId, isEn]);
 
   const openProductDetail = (product: Product, initialOptionIdx = 0) => {
@@ -2632,7 +2618,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               )}
 
               {/* Section "يكمل طلبك" */}
-              <div className="space-y-2.5 pt-2">
+              <div className={`space-y-2.5 pt-2 ${upsellSuggestions.length === 0 ? 'hidden' : ''}`}>
                 <h3 className="text-sm font-extrabold text-[#4B5B52] dark:text-[#A3B5AA]">
                   {tx(isEn, 'يكمل طلبك', 'Goes Great With')}
                 </h3>
