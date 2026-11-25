@@ -1063,7 +1063,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         aria-label={tx(isEn, 'تواصل مباشر مع غزالو', 'Quick Contact Chat')}
         className={`fixed bottom-5 ${
           isEn ? 'right-4' : 'left-4'
-        } z-40 h-12 px-4 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-xs shadow-xl inline-flex items-center gap-2 transition-transform hover:scale-105`}
+        } z-40 h-12 px-4 rounded-full bg-[#15803D] hover:bg-[#166534] text-white font-extrabold text-xs shadow-xl inline-flex items-center gap-2 gz-fab-pulse`}
       >
         <MessageSquare className="w-4 h-4" />
         <span>{tx(isEn, 'تواصل / استفسار', 'Live Contact')}</span>
