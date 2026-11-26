@@ -140,6 +140,8 @@ export async function getAllStoreCredentials(): Promise<StoreCredentialRecord[]>
   }
 }
 
+const PRODUCT_BATCH_SIZE = 9;
+
 export async function createShopWithProducts(
   shopData: Omit<Shop, 'id' | 'createdAt' | 'updatedAt' | 'subscriptionStatus' | 'trialEndsAt'>,
   extractedItems: ExtractedMenuItem[] = []
@@ -222,8 +224,10 @@ export async function createShopWithProducts(
     if (extractedItems.length > 0) {
       const chunks: Array<Array<{ item: ExtractedMenuItem; idx: number }>> = [];
       const indexed = extractedItems.map((item, idx) => ({ item, idx }));
-      for (let i = 0; i < indexed.length; i += 400) {
-        chunks.push(indexed.slice(i, i + 400));
+      // Security rules do exists()+get() per product; a batch may make at most 20 such calls,
+      // so keep each batch to 9 products (18 calls) or large menus are rejected as "insufficient permissions".
+      for (let i = 0; i < indexed.length; i += PRODUCT_BATCH_SIZE) {
+        chunks.push(indexed.slice(i, i + PRODUCT_BATCH_SIZE));
       }
       for (const chunk of chunks) {
         const batch = writeBatch(db);
@@ -234,8 +238,8 @@ export async function createShopWithProducts(
           const cleanCat = (item.category || 'أصناف متنوعة').trim().slice(0, FIELD_LIMITS.CATEGORY_MAX);
           const cleanName = item.name.trim().slice(0, FIELD_LIMITS.PRODUCT_NAME_MAX);
           const cleanImage =
-            (item.imageUrl || '').trim().slice(0, 500) ||
-            resolveDishPhotoClient(cleanName, cleanCat).slice(0, 500);
+            (item.imageUrl || '').trim().slice(0, 40000) ||
+            resolveDishPhotoClient(cleanName, cleanCat).slice(0, 40000);
 
           const prodData: Record<string, unknown> = {
             id: prodId,
@@ -587,7 +591,7 @@ export async function addProduct(
       category: input.category.trim().slice(0, FIELD_LIMITS.CATEGORY_MAX),
       price: Number.isFinite(Number(input.price)) && Number(input.price) >= 0 ? Number(input.price) : 0,
       description: (input.description || '').trim().slice(0, FIELD_LIMITS.DESCRIPTION_MAX),
-      imageUrl: (input.imageUrl || '').trim().slice(0, 500),
+      imageUrl: (input.imageUrl || '').trim().slice(0, 40000),
       barcode: (input.barcode || '').trim().slice(0, 64),
       available: true,
       variants: (input.variants || []).slice(0, 20),
@@ -614,8 +618,11 @@ export async function addProductsBatch(
 ): Promise<void> {
   const path = `shops/${shopId}/products`;
   try {
+    const all = items.slice(0, 400);
+    for (let start = 0; start < all.length; start += PRODUCT_BATCH_SIZE) {
     const batch = writeBatch(db);
-    items.slice(0, 400).forEach((item, idx) => {
+    all.slice(start, start + PRODUCT_BATCH_SIZE).forEach((item, k) => {
+      const idx = start + k;
       const prodId = generateId('prod');
       const prodPayload: Record<string, unknown> = {
         id: prodId,
@@ -625,7 +632,7 @@ export async function addProductsBatch(
         category: (item.category || 'أصناف متنوعة').trim().slice(0, FIELD_LIMITS.CATEGORY_MAX),
         price: Number.isFinite(Number(item.price)) && Number(item.price) >= 0 ? Number(item.price) : 0,
         description: (item.description || '').trim().slice(0, FIELD_LIMITS.DESCRIPTION_MAX),
-        imageUrl: (item.imageUrl || '').trim().slice(0, 500),
+        imageUrl: (item.imageUrl || '').trim().slice(0, 40000),
         barcode: '',
         available: true,
         variants: (item.variants || []).slice(0, 20),
@@ -643,6 +650,7 @@ export async function addProductsBatch(
       batch.set(doc(db, 'shops', shopId, 'products', prodId), prodPayload);
     });
     await batch.commit();
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -660,7 +668,7 @@ export async function updateProduct(
     if (updates.category !== undefined) allowed.category = updates.category.slice(0, FIELD_LIMITS.CATEGORY_MAX);
     if (updates.price !== undefined) allowed.price = Math.max(0, Number(updates.price));
     if (updates.description !== undefined) allowed.description = updates.description.slice(0, FIELD_LIMITS.DESCRIPTION_MAX);
-    if (updates.imageUrl !== undefined) allowed.imageUrl = updates.imageUrl.slice(0, 500);
+    if (updates.imageUrl !== undefined) allowed.imageUrl = updates.imageUrl.slice(0, 40000);
     if (updates.barcode !== undefined) allowed.barcode = updates.barcode.slice(0, 64);
     if (updates.available !== undefined) allowed.available = Boolean(updates.available);
     if (updates.variants !== undefined) allowed.variants = updates.variants.slice(0, 20);
@@ -689,7 +697,7 @@ export async function backfillShopMissingPhotos(shopId: string): Promise<number>
       const batch = writeBatch(db);
       for (const d of missing.slice(i, i + 400)) {
         const data = d.data() as Product;
-        const resolvedUrl = resolveDishPhotoClient(data.name, data.category).slice(0, 500);
+        const resolvedUrl = resolveDishPhotoClient(data.name, data.category).slice(0, 40000);
         batch.update(doc(db, 'shops', shopId, 'products', d.id), {
           imageUrl: resolvedUrl,
           updatedAt: serverTimestamp(),
