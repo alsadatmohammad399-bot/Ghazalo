@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   APIProvider,
   AdvancedMarker,
@@ -21,6 +21,146 @@ import {
 import { tx } from '../utils/uiLang';
 
 const DEFAULT_EGYPT_CENTER = { lat: 30.0444, lng: 31.2357 };
+
+const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+let leafletPromise: Promise<any> | null = null;
+
+function loadLeaflet(): Promise<any> {
+  const w = window as any;
+  if (w.L) return Promise.resolve(w.L);
+  if (leafletPromise) return leafletPromise;
+  leafletPromise = new Promise((resolve, reject) => {
+    if (!document.querySelector(`link[href="${LEAFLET_CSS}"]`)) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = LEAFLET_CSS;
+      document.head.appendChild(link);
+    }
+    const script = document.createElement('script');
+    script.src = LEAFLET_JS;
+    script.async = true;
+    script.onload = () => resolve((window as any).L);
+    script.onerror = () => {
+      leafletPromise = null;
+      reject(new Error('leaflet load failed'));
+    };
+    document.head.appendChild(script);
+  });
+  return leafletPromise;
+}
+
+interface OsmMapProps {
+  position: { lat: number; lng: number } | null;
+  panTarget: { lat: number; lng: number; tick: number } | null;
+  readOnly: boolean;
+  isEn: boolean;
+  onPick: (lat: number, lng: number) => void;
+}
+
+/** Free OpenStreetMap map (no API key). Tap to pin, drag the pin to adjust. Works on weak phones. */
+const OsmMap: React.FC<OsmMapProps> = ({ position, panTarget, readOnly, isEn, onPick }) => {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+  const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadLeaflet()
+      .then((L) => {
+        if (cancelled || !hostRef.current || mapRef.current) return;
+        const start = position || DEFAULT_EGYPT_CENTER;
+        const map = L.map(hostRef.current, {
+          center: [start.lat, start.lng],
+          zoom: position ? 16 : 11,
+          zoomControl: true,
+          tap: true,
+        });
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap',
+        }).addTo(map);
+        mapRef.current = map;
+        const ensureMarker = (lat: number, lng: number) => {
+          if (markerRef.current) {
+            markerRef.current.setLatLng([lat, lng]);
+            return;
+          }
+          const marker = L.marker([lat, lng], { draggable: !readOnly }).addTo(map);
+          marker.on('dragend', () => {
+            const ll = marker.getLatLng();
+            onPickRef.current(ll.lat, ll.lng);
+          });
+          markerRef.current = marker;
+        };
+        (map as any)._ensureMarker = ensureMarker;
+        if (position) ensureMarker(position.lat, position.lng);
+        map.on('click', (ev: any) => {
+          if (readOnly) return;
+          ensureMarker(ev.latlng.lat, ev.latlng.lng);
+          onPickRef.current(ev.latlng.lat, ev.latlng.lng);
+        });
+        setReady(true);
+        setTimeout(() => map.invalidateSize(), 250);
+        setTimeout(() => map.invalidateSize(), 1000);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    if (position) {
+      map._ensureMarker?.(position.lat, position.lng);
+    } else if (markerRef.current) {
+      markerRef.current.remove();
+      markerRef.current = null;
+    }
+  }, [position?.lat, position?.lng, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !panTarget) return;
+    map.setView([panTarget.lat, panTarget.lng], Math.max(map.getZoom(), 16));
+  }, [panTarget, ready]);
+
+  if (failed) {
+    return (
+      <div className="rounded-2xl border border-[#CFE3D5] bg-[#F6FBF7] p-3.5 text-xs font-bold text-[#4B5B52]">
+        {tx(
+          isEn,
+          'تعذر تحميل الخريطة (النت ضعيف). استخدم البحث بالاسم أو الصق رابط خرائط جوجل أدناه.',
+          'Map could not load (weak connection). Use the search box or paste a Google Maps link below.'
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="w-full h-64 rounded-2xl overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32] relative bg-[#DCFCE7]/30">
+      <div ref={hostRef} className="absolute inset-0" style={{ touchAction: 'none' }} />
+      {!ready && (
+        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-[#4B5B52]">
+          {tx(isEn, 'جاري تحميل الخريطة...', 'Loading map...')}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface MapPanControllerProps {
   panTarget: { lat: number; lng: number; tick: number } | null;
@@ -123,40 +263,109 @@ export const StoreLocationPicker: React.FC<StoreLocationPickerProps> = ({
     }
 
     setLocatingGps(true);
+    const onOk = (pos: GeolocationPosition) => {
+      setLocatingGps(false);
+      commitCoordinates(pos.coords.latitude, pos.coords.longitude, true);
+      setGpsStatusMsg(
+        tx(isEn, 'تم تحديد موقعك الحالي على الخريطة ✅', 'Your current location has been pinned ✅')
+      );
+    };
+    const onFail = (err: GeolocationPositionError) => {
+      setLocatingGps(false);
+      if (err.code === err.PERMISSION_DENIED) {
+        setGpsErrorMsg(
+          tx(
+            isEn,
+            'إذن الموقع مرفوض. فعّل الموقع للمتصفح من إعدادات الموبايل، أو ابحث باسم المكان، أو اضغط على الخريطة، أو الصق رابط خرائط جوجل.',
+            'Location permission denied. Enable location for your browser, or search by name, tap the map, or paste a Google Maps link.'
+          )
+        );
+      } else {
+        setGpsErrorMsg(
+          tx(
+            isEn,
+            'الإشارة ضعيفة دلوقتي. جرّب تاني بره المبنى، أو ابحث باسم المكان، أو اضغط على الخريطة لتحديد مكانك.',
+            'GPS signal is weak. Try again outdoors, search by name, or tap the map to pin your store.'
+          )
+        );
+      }
+    };
+    // Attempt 1: precise GPS (up to 25s). Attempt 2: network/cell location (fast, less precise).
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocatingGps(false);
-        commitCoordinates(pos.coords.latitude, pos.coords.longitude, true);
+      onOk,
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          onFail(err);
+          return;
+        }
+        setGpsStatusMsg(
+          tx(isEn, 'الإشارة ضعيفة، بجرّب طريقة تانية...', 'Weak signal, trying another way...')
+        );
+        setLocatingGps(true);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setGpsStatusMsg('');
+            onOk(pos);
+          },
+          (err2) => {
+            setGpsStatusMsg('');
+            onFail(err2);
+          },
+          { enableHighAccuracy: false, timeout: 20000, maximumAge: 600000 }
+        );
+      },
+      { enableHighAccuracy: true, timeout: 25000, maximumAge: 60000 }
+    );
+  };
+
+  const [searchText, setSearchText] = useState('');
+  const [searching, setSearching] = useState(false);
+
+  const handleSearchPlace = async () => {
+    const q = searchText.trim();
+    if (!q || readOnly) return;
+    setGpsErrorMsg('');
+    setGpsStatusMsg('');
+    // allow pasting "30.0444, 31.2357" or a Google Maps link here too
+    const direct = parseCoordinatesFromGoogleMapsUrl(q.includes('http') ? q : `?q=${q.replace(/\s+/g, '')}`);
+    if (direct) {
+      commitCoordinates(direct.lat, direct.lng, true);
+      setGpsStatusMsg(tx(isEn, 'تم تثبيت الموقع ✅', 'Location pinned ✅'));
+      return;
+    }
+    setSearching(true);
+    try {
+      const query = [q, city].filter(Boolean).join(' ');
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=ar&q=${encodeURIComponent(query)}`
+      );
+      const rows = (await res.json()) as Array<{ lat: string; lon: string; display_name?: string }>;
+      const hit = rows?.[0];
+      if (hit && Number.isFinite(Number(hit.lat)) && Number.isFinite(Number(hit.lon))) {
+        commitCoordinates(Number(hit.lat), Number(hit.lon), true);
         setGpsStatusMsg(
           tx(
             isEn,
-            'تم تحديد موقعك الحالي على الخريطة ✅',
-            'Your current location has been pinned ✅'
+            'لقينا المكان ✅ لو الدبوس مش مظبوط اسحبه أو اضغط على مكان مطعمك.',
+            'Found it ✅ Drag the pin or tap the map to adjust.'
           )
         );
-      },
-      (err) => {
-        setLocatingGps(false);
-        if (err.code === err.PERMISSION_DENIED) {
-          setGpsErrorMsg(
-            tx(
-              isEn,
-              'تم رفض إذن الموقع. اضغط على موقع مطعمك يدوياً على الخريطة أو الصق رابط Google Maps.',
-              'Location permission denied. Tap your store location on the map or paste a Google Maps link.'
-            )
-          );
-        } else {
-          setGpsErrorMsg(
-            tx(
-              isEn,
-              'تعذر قراءة إشارة GPS الآن. حرّك الدبوس أو اضغط على الخريطة لتحديد مكانك.',
-              'Could not read GPS signal right now. Tap on the map to pin your store.'
-            )
-          );
-        }
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-    );
+      } else {
+        setGpsErrorMsg(
+          tx(
+            isEn,
+            'ملقيناش المكان ده. جرّب اسم الشارع والمدينة، أو اضغط على الخريطة.',
+            'Place not found. Try street and city, or tap the map.'
+          )
+        );
+      }
+    } catch {
+      setGpsErrorMsg(
+        tx(isEn, 'البحث مش شغال دلوقتي (النت). اضغط على الخريطة أو الصق رابط جوجل.', 'Search unavailable. Tap the map or paste a Google link.')
+      );
+    } finally {
+      setSearching(false);
+    }
   };
 
   const handleUrlInputChange = (val: string) => {
@@ -307,28 +516,53 @@ export const StoreLocationPicker: React.FC<StoreLocationPickerProps> = ({
           </APIProvider>
         </div>
       ) : (
-        <div className="rounded-2xl border border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] p-3.5 text-xs space-y-1.5">
-          <div className="font-extrabold flex items-center gap-1.5 text-[#14532D] dark:text-[#BBF7D0]">
-            <MapPin className="w-4 h-4 text-[#15803D]" />
-            <span>
-              {tx(
-                isEn,
-                'حدد موقعك بالـ GPS أو الصق رابط خرائط جوجل',
-                'Pin via GPS or paste a Google Maps link'
-              )}
-            </span>
+        <OsmMap
+          position={pinPosition}
+          panTarget={panTarget}
+          readOnly={readOnly}
+          isEn={isEn}
+          onPick={(lat, lng) => {
+            setGpsErrorMsg('');
+            setGpsStatusMsg(
+              tx(isEn, 'تم تثبيت الدبوس على المكان المختار ✅', 'Pinned selected location on map ✅')
+            );
+            commitCoordinates(lat, lng, false);
+          }}
+        />
+      )}
+
+      {!readOnly && (
+        <div className="space-y-1.5">
+          <label className="block text-[11px] font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
+            {tx(isEn, 'ابحث باسم المكان أو العنوان', 'Search by place name or address')}
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void handleSearchPlace();
+                }
+              }}
+              placeholder={tx(isEn, 'مثال: شارع التحرير الإسماعيلية', 'e.g. Tahrir St, Ismailia')}
+              className="sf-inp min-h-[40px] text-xs flex-1"
+            />
+            <button
+              type="button"
+              disabled={searching}
+              onClick={() => void handleSearchPlace()}
+              className="sf-btn-primary !min-h-[40px] px-3 text-xs whitespace-nowrap"
+            >
+              {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : tx(isEn, 'بحث', 'Search')}
+            </button>
           </div>
-          <p className="text-[11px] font-semibold text-[#4B5B52] dark:text-[#A3B5AA]">
-            {tx(
-              isEn,
-              'اضغط "تحديد موقعي الحالي (GPS)" لتثبيت الإحداثيات فوراً أو الصق رابط خرائط جوجل أدناه.',
-              'Click "Use Current GPS Location" above or paste your Google Maps link below.'
-            )}
-          </p>
         </div>
       )}
 
-      {!readOnly && apiKey && (
+      {!readOnly && (
         <p className="text-[11px] font-bold text-[#4B5B52] dark:text-[#A3B5AA]">
           {tx(
             isEn,
