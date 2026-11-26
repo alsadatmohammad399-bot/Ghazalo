@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { registerWhatsAppBot } from './whatsappBot.ts';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -611,7 +612,8 @@ async function resolveDishPhotoUrl(
 const app = express();
 
 async function startServer() {
-  app.use(express.json({ limit: '25mb' }));
+  app.use(express.json({ limit: '25mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
+  registerWhatsAppBot(app);
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   // Load shared state first and hold each response until pending saves are done (serverless can freeze after reply).
