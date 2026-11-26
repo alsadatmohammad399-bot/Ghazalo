@@ -55,14 +55,16 @@ interface OsmMapProps {
   panTarget: { lat: number; lng: number; tick: number } | null;
   readOnly: boolean;
   isEn: boolean;
+  accuracy?: number | null;
   onPick: (lat: number, lng: number) => void;
 }
 
 /** Free OpenStreetMap map (no API key). Tap to pin, drag the pin to adjust. Works on weak phones. */
-const OsmMap: React.FC<OsmMapProps> = ({ position, panTarget, readOnly, isEn, onPick }) => {
+const OsmMap: React.FC<OsmMapProps> = ({ position, panTarget, readOnly, isEn, accuracy, onPick }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
+  const circleRef = useRef<any>(null);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
   const [failed, setFailed] = useState(false);
@@ -132,6 +134,26 @@ const OsmMap: React.FC<OsmMapProps> = ({ position, panTarget, readOnly, isEn, on
       markerRef.current = null;
     }
   }, [position?.lat, position?.lng, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const L = (window as any).L;
+    if (!map || !ready || !L) return;
+    if (circleRef.current) {
+      circleRef.current.remove();
+      circleRef.current = null;
+    }
+    if (position && accuracy && accuracy > 0 && accuracy < 5000) {
+      circleRef.current = L.circle([position.lat, position.lng], {
+        radius: accuracy,
+        color: '#15803D',
+        weight: 1,
+        fillColor: '#15803D',
+        fillOpacity: 0.15,
+        interactive: false,
+      }).addTo(map);
+    }
+  }, [position?.lat, position?.lng, accuracy, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -247,6 +269,55 @@ export const StoreLocationPicker: React.FC<StoreLocationPickerProps> = ({
     }
   };
 
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+  const watchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bestFixRef = useRef<{ lat: number; lng: number; acc: number } | null>(null);
+
+  const stopWatching = () => {
+    if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+    watchIdRef.current = null;
+    if (watchTimerRef.current) clearTimeout(watchTimerRef.current);
+    watchTimerRef.current = null;
+    setLocatingGps(false);
+  };
+
+  useEffect(() => () => stopWatching(), []);
+
+  const describeAccuracy = (acc: number) =>
+    acc <= 15
+      ? tx(isEn, 'دقة ممتازة ✅', 'Excellent accuracy ✅')
+      : acc <= 50
+        ? tx(isEn, 'دقة كويسة، اسحب الدبوس لو محتاج تظبطه', 'Good accuracy, drag the pin to fine-tune')
+        : tx(
+            isEn,
+            'الدقة ضعيفة. التليفون مش قادر يلقط إشارة أحسن (غالباً جوه مبنى). اخرج لمكان مفتوح أو اسحب الدبوس على مكانك بالظبط.',
+            'Accuracy is low. Your phone cannot get a better signal (likely indoors). Go outside or drag the pin to the exact spot.'
+          );
+
+  const finishWatching = (reason: 'good' | 'accepted' | 'timeout') => {
+    const best = bestFixRef.current;
+    stopWatching();
+    if (!best) {
+      setGpsStatusMsg('');
+      setGpsErrorMsg(
+        tx(
+          isEn,
+          'التليفون مرجعش أي إشارة. تأكد إن الموقع (GPS) شغال من إعدادات الموبايل، واخرج لمكان مفتوح وجرّب تاني، أو ابحث باسم المكان أو اضغط على الخريطة.',
+          'No location signal. Make sure GPS is on, go outdoors and retry, or search by name / tap the map.'
+        )
+      );
+      return;
+    }
+    setGpsErrorMsg('');
+    setGpsStatusMsg(
+      `${tx(isEn, 'تم تثبيت موقعك', 'Location pinned')} ✅ ${tx(isEn, 'دقة الموقع', 'Accuracy')}: ~${Math.round(best.acc)} ${tx(isEn, 'متر', 'm')} · ${describeAccuracy(best.acc)}`
+    );
+    void reason;
+  };
+
   const handleUseCurrentGps = () => {
     if (readOnly) return;
     setGpsErrorMsg('');
@@ -255,67 +326,52 @@ export const StoreLocationPicker: React.FC<StoreLocationPickerProps> = ({
       setGpsErrorMsg(
         tx(
           isEn,
-          'تحديد الموقع التلقائي غير مدعوم في هذا المتصفح. يمكنك الضغط على الخريطة مباشرة.',
-          'Geolocation is not supported in this browser. Tap directly on the map instead.'
+          'تحديد الموقع التلقائي غير مدعوم في هذا المتصفح. ابحث باسم المكان أو اضغط على الخريطة.',
+          'Geolocation is not supported in this browser. Search by name or tap the map instead.'
         )
       );
       return;
     }
-
+    stopWatching();
+    bestFixRef.current = null;
+    setGpsAccuracy(null);
     setLocatingGps(true);
-    const onOk = (pos: GeolocationPosition) => {
-      setLocatingGps(false);
-      commitCoordinates(pos.coords.latitude, pos.coords.longitude, true);
-      setGpsStatusMsg(
-        tx(isEn, 'تم تحديد موقعك الحالي على الخريطة ✅', 'Your current location has been pinned ✅')
-      );
-    };
-    const onFail = (err: GeolocationPositionError) => {
-      setLocatingGps(false);
-      if (err.code === err.PERMISSION_DENIED) {
-        setGpsErrorMsg(
-          tx(
-            isEn,
-            'إذن الموقع مرفوض. فعّل الموقع للمتصفح من إعدادات الموبايل، أو ابحث باسم المكان، أو اضغط على الخريطة، أو الصق رابط خرائط جوجل.',
-            'Location permission denied. Enable location for your browser, or search by name, tap the map, or paste a Google Maps link.'
-          )
-        );
-      } else {
-        setGpsErrorMsg(
-          tx(
-            isEn,
-            'الإشارة ضعيفة دلوقتي. جرّب تاني بره المبنى، أو ابحث باسم المكان، أو اضغط على الخريطة لتحديد مكانك.',
-            'GPS signal is weak. Try again outdoors, search by name, or tap the map to pin your store.'
-          )
-        );
-      }
-    };
-    // Attempt 1: precise GPS (up to 25s). Attempt 2: network/cell location (fast, less precise).
-    navigator.geolocation.getCurrentPosition(
-      onOk,
+    setGpsStatusMsg(
+      tx(isEn, 'بنحدد موقعك بدقة... استنى لحد ما الدقة تتحسن', 'Locating you precisely... wait while accuracy improves')
+    );
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const acc = Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : 9999;
+        const best = bestFixRef.current;
+        if (!best || acc < best.acc) {
+          bestFixRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc };
+          setGpsAccuracy(acc);
+          commitCoordinates(pos.coords.latitude, pos.coords.longitude, true);
+          setGpsStatusMsg(
+            `${tx(isEn, 'دقة الموقع', 'Accuracy')}: ~${Math.round(acc)} ${tx(isEn, 'متر', 'm')} · ${tx(isEn, 'بنحسّنها...', 'refining...')}`
+          );
+        }
+        if (acc <= 15) finishWatching('good');
+      },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
-          onFail(err);
-          return;
+          stopWatching();
+          setGpsStatusMsg('');
+          setGpsErrorMsg(
+            tx(
+              isEn,
+              'إذن الموقع مرفوض. فعّل الموقع للمتصفح من إعدادات الموبايل (الأذونات > الموقع > مسموح)، أو ابحث باسم المكان، أو اضغط على الخريطة.',
+              'Location permission denied. Allow location for the browser in phone settings, or search by name / tap the map.'
+            )
+          );
         }
-        setGpsStatusMsg(
-          tx(isEn, 'الإشارة ضعيفة، بجرّب طريقة تانية...', 'Weak signal, trying another way...')
-        );
-        setLocatingGps(true);
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            setGpsStatusMsg('');
-            onOk(pos);
-          },
-          (err2) => {
-            setGpsStatusMsg('');
-            onFail(err2);
-          },
-          { enableHighAccuracy: false, timeout: 20000, maximumAge: 600000 }
-        );
+        // timeouts / temporary unavailable: keep listening until the overall timer ends
       },
-      { enableHighAccuracy: true, timeout: 25000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
     );
+
+    watchTimerRef.current = setTimeout(() => finishWatching('timeout'), 60000);
   };
 
   const [searchText, setSearchText] = useState('');
@@ -394,6 +450,8 @@ export const StoreLocationPicker: React.FC<StoreLocationPickerProps> = ({
     if (readOnly) return;
     setGpsStatusMsg('');
     setGpsErrorMsg('');
+    stopWatching();
+    setGpsAccuracy(null);
     onChange?.({
       latitude: undefined,
       longitude: undefined,
@@ -431,6 +489,17 @@ export const StoreLocationPicker: React.FC<StoreLocationPickerProps> = ({
                 : tx(isEn, 'تحديد موقعي الحالي (GPS)', 'Use Current GPS Location')}
             </span>
           </button>
+
+          {locatingGps && bestFixRef.current && (
+            <button
+              type="button"
+              onClick={() => finishWatching('accepted')}
+              className="sf-btn !min-h-[36px] px-2.5 text-[11px] whitespace-nowrap"
+            >
+              <Check className="w-3 h-3" />
+              <span>{tx(isEn, 'اقبل الموقع الحالي', 'Accept current')}</span>
+            </button>
+          )}
 
           {(hasValidCoords || googleMapsUrl) && (
             <button
@@ -521,7 +590,9 @@ export const StoreLocationPicker: React.FC<StoreLocationPickerProps> = ({
           panTarget={panTarget}
           readOnly={readOnly}
           isEn={isEn}
+          accuracy={gpsAccuracy}
           onPick={(lat, lng) => {
+            setGpsAccuracy(null);
             setGpsErrorMsg('');
             setGpsStatusMsg(
               tx(isEn, 'تم تثبيت الدبوس على المكان المختار ✅', 'Pinned selected location on map ✅')
