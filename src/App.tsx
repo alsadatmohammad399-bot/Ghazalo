@@ -660,7 +660,7 @@ function AppShell({
           }
         }
       }
-      timer = setTimeout(() => void tick(), hidden ? 20000 : 5000);
+      timer = setTimeout(() => void tick(), hidden ? 20000 : 2000);
     };
     void tick();
     const onVis = () => {
