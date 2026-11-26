@@ -145,7 +145,7 @@ service cloud.firestore {
         && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
         && data.price is number && data.price >= 0 && data.price <= 1000000
         && (!('description' in data) || (data.description is string && data.description.size() <= 400))
-        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500))
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 40000))
         && (!('barcode' in data) || (data.barcode is string && data.barcode.size() <= 64))
         && data.available is bool
         && (!('variants' in data) || (data.variants is list && data.variants.size() <= 20 && (data.variants.size() == 0 || data.variants[0] is string)))
