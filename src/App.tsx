@@ -53,6 +53,7 @@ import { OnboardingPage } from './pages/OnboardingPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { StorefrontPage } from './pages/StorefrontPage';
 import { CashierPage } from './pages/CashierPage';
+import { CashierLinkPage } from './pages/CashierLinkPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { ShareQrPage } from './pages/ShareQrPage';
 import { AdminPage } from './pages/AdminPage';
@@ -1422,6 +1423,8 @@ function AppRouter() {
 }
 
 export default function App() {
+  const cm = window.location.pathname.match(/^\/c\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9_-]{20,128})\/?$/);
+  if (cm) return <CashierLinkPage shopId={cm[1]} linkKey={cm[2]} />;
   return (
     <ErrorBoundary>
       <BrowserRouter>
