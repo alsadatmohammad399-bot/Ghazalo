@@ -116,3 +116,42 @@ export async function compressCoverFile(file: File): Promise<string> {
 
   throw new Error('حجم صورة الخلفية كبير جداً، يرجى اختيار صورة أخرى.');
 }
+
+
+/**
+ * Compresses a menu item photo into a small square JPEG data URL (under ~36KB)
+ * so it fits in the product document and the rules limit for imageUrl (40000 chars).
+ */
+export async function compressProductPhotoFile(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('تعذر قراءة الصورة'));
+    reader.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('ملف الصورة غير صالح'));
+    el.src = dataUrl;
+  });
+  for (const size of [360, 300, 240, 180]) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) break;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, size, size);
+    // center-crop to square
+    const side = Math.min(img.width, img.height);
+    const sx = (img.width - side) / 2;
+    const sy = (img.height - side) / 2;
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+    for (const q of [0.78, 0.65, 0.5]) {
+      const out = canvas.toDataURL('image/jpeg', q);
+      if (out.length <= 36000) return out;
+    }
+  }
+  throw new Error('حجم الصورة كبير جداً، اختر صورة أخرى.');
+}
