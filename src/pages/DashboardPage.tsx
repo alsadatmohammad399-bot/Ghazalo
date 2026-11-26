@@ -62,7 +62,7 @@ import {
   getShopThemeHex,
 } from '../utils/calculations';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
-import { compressCoverFile, compressLogoFile } from '../utils/logoUpload';
+import { compressCoverFile, compressLogoFile, compressProductPhotoFile } from '../utils/logoUpload';
 import { getCategoryCulinaryRank, sortProductsCulinary } from '../utils/menuSorting';
 import { MENU_TEMPLATES } from '../utils/menuTemplates';
 import { getProductOptions, parseVariantsInput } from '../utils/productVariants';
@@ -172,6 +172,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   // Inline Edit Product State
   const [editingProdId, setEditingProdId] = useState<string | null>(null);
+  const [editProdImage, setEditProdImage] = useState('');
+  const [editProdImageBusy, setEditProdImageBusy] = useState(false);
   const [editProdName, setEditProdName] = useState('');
   const [editProdPrice, setEditProdPrice] = useState('');
   const [editProdDesc, setEditProdDesc] = useState('');
@@ -517,6 +519,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     setEditProdName(product.name);
     setEditProdPrice(String(product.price ?? 0));
     setEditProdDesc(product.description || '');
+    setEditProdImage(product.imageUrl || '');
     setEditProdVariants((product.variants || []).join('، '));
   };
 
@@ -544,6 +547,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         price: resolvedPrice,
         description: editProdDesc.trim(),
         variants: variantsList,
+        imageUrl: editProdImage.trim(),
       };
       persistProductsLocal(
         products.map((p) => (p.id === productId ? { ...p, ...updates } : p))
@@ -2729,6 +2733,49 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
                         {isEditingThis && (
                           <div className="pt-2 border-t border-[#CFE3D5] dark:border-[#2C3D32] space-y-2">
+                            <div className="flex items-center gap-3">
+                              <div className="w-16 h-16 rounded-xl overflow-hidden border border-[#CFE3D5] dark:border-[#2C3D32] bg-white flex items-center justify-center shrink-0">
+                                {editProdImage ? (
+                                  <img src={editProdImage} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                                ) : (
+                                  <Utensils className="w-5 h-5 text-[#15803D]" />
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <label className="sf-btn min-h-[36px] px-3 text-xs cursor-pointer inline-flex items-center">
+                                  {editProdImageBusy
+                                    ? tx(isEn, 'جاري المعالجة...', 'Processing...')
+                                    : tx(isEn, 'تغيير صورة الصنف', 'Change item photo')}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={async (e) => {
+                                      const f = e.target.files?.[0];
+                                      e.target.value = '';
+                                      if (!f) return;
+                                      setEditProdImageBusy(true);
+                                      try {
+                                        setEditProdImage(await compressProductPhotoFile(f));
+                                      } catch (err) {
+                                        window.alert(err instanceof Error ? err.message : 'تعذر معالجة الصورة');
+                                      } finally {
+                                        setEditProdImageBusy(false);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                                {editProdImage && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditProdImage('')}
+                                    className="sf-btn min-h-[36px] px-3 text-xs"
+                                  >
+                                    {tx(isEn, 'حذف الصورة', 'Remove photo')}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                               <input
                                 type="text"
