@@ -87,6 +87,7 @@ interface ServerRegistryState {
   forceZeroFeesGlobally: boolean;
   stores: Record<string, ServerStoreCredential>;
   publicMenus: Record<string, PublicMenuSnapshot>;
+  cashierLinks?: Record<string, { key: string; createdAt: number }>;
 }
 
 // Optional durable storage (Upstash Redis via Vercel Marketplace, or Vercel KV). Without it the
@@ -116,6 +117,7 @@ function normalizeRegistry(parsed: Partial<ServerRegistryState>): ServerRegistry
     forceZeroFeesGlobally: Boolean(parsed.forceZeroFeesGlobally),
     stores: parsed.stores || {},
     publicMenus: parsed.publicMenus || {},
+    cashierLinks: parsed.cashierLinks || {},
   };
 }
 
@@ -1109,6 +1111,187 @@ async function startServer() {
     return p && p.role === 'merchant' && typeof p.shopId === 'string' ? p.shopId : null;
   }
 
+
+  // ---- One-tap cashier link (per shop, unguessable key, revocable) ----
+  const FB_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyCZu5sYtNJRQZ4u9o5ypTnx8ZwyzRTGBBQ';
+  const FB_PROJECT = process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0665982165';
+  const FB_DB = process.env.FIREBASE_DB_ID || 'ai-studio-a9d04045-f6df-43b1-a264-dfa9d7ec4f20';
+  const keyHash = (k: string) => crypto.createHash('sha256').update(k).digest('hex').slice(0, 16);
+  const sameStr = (a: string, b: string) => {
+    const x = Buffer.from(a);
+    const y = Buffer.from(b);
+    return x.length === y.length && crypto.timingSafeEqual(x, y);
+  };
+  function cashierKeyOk(shopId: string, key: string): boolean {
+    const link = (serverRegistry.cashierLinks || {})[shopId];
+    return Boolean(link && key && sameStr(link.key, key));
+  }
+  async function firebaseOwnerOk(shopId: string, idToken: string): Promise<boolean> {
+    try {
+      const r1 = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FB_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+      const j1 = (await r1.json()) as { users?: { localId?: string }[] };
+      const uid = j1.users?.[0]?.localId;
+      if (!uid) return false;
+      const r2 = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/${FB_DB}/documents/shops/${encodeURIComponent(shopId)}`
+      );
+      const j2 = (await r2.json()) as { fields?: { ownerId?: { stringValue?: string } } };
+      return j2.fields?.ownerId?.stringValue === uid;
+    } catch {
+      return false;
+    }
+  }
+  // Shop id allowed to read/update the order inbox: the owner (merchant token) or a valid cashier-link session.
+  function inboxShopId(req: Request): string | null {
+    const h = String(req.headers.authorization || '');
+    const t = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
+    const p = verifySignedToken(t);
+    if (!p || typeof p.shopId !== 'string') return null;
+    if (p.role === 'merchant') return p.shopId;
+    if (p.role === 'cashier') {
+      const link = (serverRegistry.cashierLinks || {})[p.shopId];
+      return link && p.cn === keyHash(link.key) ? p.shopId : null;
+    }
+    return null;
+  }
+
+  app.post('/api/cashier-link', async (req: Request, res: Response) => {
+    const b = (req.body || {}) as { shopId?: string; action?: string; idToken?: string };
+    const shopId = String(b.shopId || '');
+    if (!okShopId(shopId)) {
+      res.status(400).json({ ok: false, error: 'bad shop' });
+      return;
+    }
+    if (await overLimit('cashierlink', getClientIp(req), 40, 600)) {
+      res.status(429).json({ ok: false, error: 'too many' });
+      return;
+    }
+    const owner =
+      adminFromReq(req) ||
+      merchantShopId(req) === shopId ||
+      (typeof b.idToken === 'string' && b.idToken.length > 20 && (await firebaseOwnerOk(shopId, b.idToken)));
+    if (!owner) {
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    const links = { ...(serverRegistry.cashierLinks || {}) };
+    if (b.action === 'generate') {
+      links[shopId] = { key: crypto.randomBytes(32).toString('base64url'), createdAt: Date.now() };
+    } else if (b.action === 'revoke') {
+      delete links[shopId];
+    }
+    if (b.action === 'generate' || b.action === 'revoke') {
+      serverRegistry.cashierLinks = links;
+      persistRegistryState(serverRegistry);
+    }
+    const cur = links[shopId];
+    res.json({ ok: true, active: Boolean(cur), key: cur?.key, createdAt: cur?.createdAt });
+  });
+
+  app.post('/api/cashier-link/exchange', async (req: Request, res: Response) => {
+    const b = (req.body || {}) as { shopId?: string; key?: string };
+    const shopId = String(b.shopId || '');
+    if (await overLimit('cashierx', getClientIp(req), 60, 600)) {
+      res.status(429).json({ ok: false, error: 'too many' });
+      return;
+    }
+    if (!okShopId(shopId) || !cashierKeyOk(shopId, String(b.key || ''))) {
+      res.status(401).json({ ok: false, error: 'invalid' });
+      return;
+    }
+    const link = (serverRegistry.cashierLinks || {})[shopId];
+    const token = signToken({ role: 'cashier', shopId, cn: keyHash(link.key) }, 30 * 24 * 60 * 60 * 1000);
+    res.json({ ok: true, token });
+  });
+
+  app.get('/api/cashier-manifest/:shopId/:key', (req: Request, res: Response) => {
+    const { shopId, key } = req.params as { shopId: string; key: string };
+    if (!okShopId(shopId) || !cashierKeyOk(shopId, key)) {
+      res.status(404).end();
+      return;
+    }
+    const start = `/c/${shopId}/${key}`;
+    res.setHeader('Content-Type', 'application/manifest+json');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(
+      JSON.stringify({
+        name: 'كاشير غزالو',
+        short_name: 'الكاشير',
+        start_url: start,
+        scope: start,
+        id: start,
+        display: 'standalone',
+        orientation: 'any',
+        background_color: '#ffffff',
+        theme_color: '#15803D',
+        lang: 'ar',
+        dir: 'rtl',
+        icons: [
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      })
+    );
+  });
+
+  app.post('/api/orders/:shopId/pos', async (req: Request, res: Response) => {
+    const shopId = String(req.params.shopId || '');
+    if (!okShopId(shopId) || inboxShopId(req) !== shopId) {
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    const b = (req.body || {}) as Record<string, unknown>;
+    const order = {
+      id: okShopId(b.id) ? String(b.id) : `pos-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+      orderNumber: cap(b.orderNumber, 20) || `GH-${Math.floor(1000 + Math.random() * 9000)}`,
+      shopId,
+      shopOwnerId: cap(b.shopOwnerId, 128),
+      source: 'cashier',
+      orderType: ['delivery', 'pickup', 'table'].includes(String(b.orderType)) ? b.orderType : 'pickup',
+      status: ['new', 'held', 'completed'].includes(String(b.status)) ? b.status : 'completed',
+      paymentMethod: cap(b.paymentMethod, 40),
+      customerName: cap(b.customerName, 120) || 'عميل',
+      customerPhone: cap(b.customerPhone, 40),
+      address: cap(b.address, 400),
+      floor: cap(b.floor, 30),
+      apartment: cap(b.apartment, 30),
+      tableLabel: cap(b.tableLabel, 60),
+      notes: cap(b.notes, 600),
+      itemsCount: Math.max(1, Math.min(500, Math.round(num(b.itemsCount)) || 1)),
+      itemSummary: (Array.isArray(b.itemSummary) ? b.itemSummary : []).slice(0, 50).map((x) => cap(x, 200)),
+      subtotal: num(b.subtotal),
+      discount: num(b.discount),
+      deliveryFee: num(b.deliveryFee),
+      packagingFee: num(b.packagingFee),
+      serviceFee: num(b.serviceFee),
+      vat: num(b.vat),
+      roundingDiff: Number(b.roundingDiff) || 0,
+      total: num(b.total),
+      paidAmount: num(b.paidAmount || b.total),
+      createdAt: Date.now(),
+    };
+    try {
+      if (REMOTE_STORE) {
+        await redisCmd(['LPUSH', `ghazalo:orders:${shopId}`, JSON.stringify(order)]);
+        await redisCmd(['LTRIM', `ghazalo:orders:${shopId}`, '0', '499']);
+        await redisCmd(['INCR', `ghazalo:ordseq:${shopId}`]);
+      } else {
+        const m = memOrders.get(shopId) || { list: [], seq: 0, status: {} };
+        m.list = [order, ...m.list].slice(0, 500);
+        m.seq += 1;
+        memOrders.set(shopId, m);
+      }
+      res.json({ ok: true, order });
+    } catch {
+      res.status(503).json({ ok: false, error: 'storage unavailable' });
+    }
+  });
+
   async function ordersRead(shopId: string): Promise<{ orders: Record<string, unknown>[]; seq: number }> {
     if (REMOTE_STORE) {
       const [seq, raw, st] = (await Promise.all([
@@ -1205,7 +1388,7 @@ async function startServer() {
 
   app.get('/api/orders/:shopId', async (req: Request, res: Response) => {
     const shopId = String(req.params.shopId || '');
-    if (!okShopId(shopId) || merchantShopId(req) !== shopId) {
+    if (!okShopId(shopId) || inboxShopId(req) !== shopId) {
       res.status(401).json({ ok: false, error: 'unauthorized' });
       return;
     }
@@ -1226,7 +1409,7 @@ async function startServer() {
 
   app.post('/api/orders/:shopId/:orderId/status', async (req: Request, res: Response) => {
     const { shopId, orderId } = req.params as { shopId: string; orderId: string };
-    if (!okShopId(shopId) || !okShopId(orderId) || merchantShopId(req) !== shopId) {
+    if (!okShopId(shopId) || !okShopId(orderId) || inboxShopId(req) !== shopId) {
       res.status(401).json({ ok: false, error: 'unauthorized' });
       return;
     }
