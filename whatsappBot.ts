@@ -7,6 +7,8 @@ import { GoogleGenAI } from '@google/genai';
 // Optional: WHATSAPP_BOT_ENABLED=0 to pause, UPSTASH_REDIS_REST_URL/TOKEN (or KV_*) for chat memory.
 
 const SITE = 'https://ghazalo.vercel.app/';
+const CONTACT = 'لو محتاج تكلم محمد مباشرة: واتساب 01015861991 (https://wa.me/201015861991)';
+const HUMAN_RE = /محمد|شخص|بشري|موظف|اكلم|أكلم|كلمني|اتصل|مشكل|شكوى|human|agent|person|call me|speak/i;
 const GRAPH = 'https://graph.facebook.com/v23.0';
 
 const SYSTEM_PROMPT = `انت مساعد "غزالو" على واتساب. بتتكلم بالعامية المصرية، بأسلوب ودود ومحترم ومختصر (رسايل قصيرة، مش محاضرات). ممكن تستخدم إيموجي بسيط.
@@ -27,7 +29,7 @@ const SYSTEM_PROMPT = `انت مساعد "غزالو" على واتساب. بت�
 - الدفع والاشتراك بعد التجربة: بيتم بالتواصل مع محمد، متطلبش فلوس ولا بيانات دفع في الشات.
 - لو العميل طلب يكلم شخص، أو عنده مشكلة تقنية معقدة، أو زعلان: قوله إن محمد من غزالو هيرد عليه بنفسه قريب.
 - متطلبش باسوردات ولا أرقام كروت. متتكلمش في مواضيع بعيدة عن غزالو، ارجع بلطف للموضوع.
-- جاوب بنفس لغة العميل (لو كتب إنجليزي رد إنجليزي).
+- جاوب بنفس لغة العميل (لو كتب إنجليزي رد إنجليزي). لو مش قادر تساعد اذكر إن محمد هيرد عليه وإن في رقم مباشر هيظهر له.
 - أول رسالة للعميل: رحب وقدّم غزالو في سطرين وقوله إن التجربة 7 أيام مجانية واسأله عن نوع نشاطه.`;
 
 const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').replace(/\/+$/, '');
@@ -111,13 +113,13 @@ async function aiReply(history: Turn[], userText: string): Promise<string> {
 const FALLBACK = `أهلاً بيك 👋 معاك مساعد غزالو.
 غزالو منصة منيو إلكتروني وكاشير وفواتير للمطاعم والكافيهات، وعندك 7 أيام تجربة مجانية.
 ابدأ من هنا: ${SITE}
-ومحمد هيرد عليك قريب لو محتاج مساعدة.`;
+\n\n${'لو محتاج تكلم محمد مباشرة: واتساب 01015861991 (https://wa.me/201015861991)'}`;
 
 async function handleMessage(msg: { id: string; from: string; type: string; text?: { body: string } }) {
   if (await seen(msg.id)) return;
   wa('messages', { status: 'read', message_id: msg.id }).catch(() => {});
   if (msg.type !== 'text' || !msg.text?.body) {
-    await sendText(msg.from, 'أهلاً بيك 👋 ابعتلي سؤالك مكتوب وأنا أساعدك. وتقدر تبدأ تجربتك المجانية 7 أيام من هنا: ' + SITE);
+    await sendText(msg.from, 'أهلاً بيك 👋 ابعتلي سؤالك مكتوب وأنا أساعدك. وتقدر تبدأ تجربتك المجانية 7 أيام من هنا: ' + SITE + '\n' + CONTACT);
     return;
   }
   const history = await loadHistory(msg.from);
@@ -128,6 +130,7 @@ async function handleMessage(msg: { id: string; from: string; type: string; text
     console.error('ai failed', e);
   }
   if (!reply) reply = FALLBACK;
+  else if (HUMAN_RE.test(msg.text.body) || /هسأل صاحب المنصة|محمد.*هيرد/.test(reply)) reply += '\n\n' + CONTACT;
   await sendText(msg.from, reply);
   await saveHistory(msg.from, [...history, { role: 'user', text: msg.text.body.slice(0, 1500) }, { role: 'model', text: reply }]);
 }
