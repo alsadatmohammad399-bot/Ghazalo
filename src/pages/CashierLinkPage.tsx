@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Order, OrderStatus, Product, Shop } from '../types';
 import { CashierPage } from './CashierPage';
+import { PlatformLoader } from '../components/PlatformLoader';
 import { OrderSoundBadge } from '../components/OrderSoundBadge';
 import { playOrderBeep } from '../utils/orderInbox';
 
@@ -123,21 +124,25 @@ export const CashierLinkPage: React.FC<{ shopId: string; linkKey: string }> = ({
           /* retry next tick */
         }
       }
-      timer = setTimeout(() => void tick(), document.hidden ? 20000 : 5000);
+      timer = setTimeout(() => void tick(), document.hidden ? 20000 : 1000);
     };
     void tick();
+    const onVis = () => {
+      if (!document.hidden) {
+        if (timer) clearTimeout(timer);
+        void tick();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [state, shopId, exchange]);
 
   if (state === 'loading') {
-    return (
-      <div dir="rtl" className="min-h-screen flex items-center justify-center font-bold text-gray-600">
-        جاري فتح الكاشير...
-      </div>
-    );
+    return <PlatformLoader subtitle="جاري فتح الكاشير..." />;
   }
   if (state === 'invalid' || !shop) {
     return (
