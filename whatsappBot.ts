@@ -7,7 +7,7 @@ import { GoogleGenAI } from '@google/genai';
 // Optional: WHATSAPP_BOT_ENABLED=0 to pause, UPSTASH_REDIS_REST_URL/TOKEN (or KV_*) for chat memory.
 
 const SITE = 'https://ghazalo.vercel.app/';
-const GRAPH = 'https://graph.facebook.com/v21.0';
+const GRAPH = 'https://graph.facebook.com/v23.0';
 
 const SYSTEM_PROMPT = `انت مساعد "غزالو" على واتساب. بتتكلم بالعامية المصرية، بأسلوب ودود ومحترم ومختصر (رسايل قصيرة، مش محاضرات). ممكن تستخدم إيموجي بسيط.
 
