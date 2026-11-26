@@ -549,6 +549,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         } catch {
           created = makeLocalOrder();
         }
+        // Copy to the server inbox so a cashier-link device sees it too (best effort).
+        void postPublicOrder(shop.id, created);
       }
 
       onOrderPlaced?.(created);
