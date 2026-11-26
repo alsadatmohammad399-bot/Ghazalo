@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CashierLinkCard } from '../components/CashierLinkCard';
 import {
   BarChart3,
   Boxes,
@@ -1541,6 +1542,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
           </div>
         </div>
+
+        {!shop.id.startsWith('demo') && <CashierLinkCard shopId={shop.id} />}
 
         {/* KPI Cards: 2-column grid + Active Items card */}
         <div className="grid grid-cols-2 gap-2.5">
