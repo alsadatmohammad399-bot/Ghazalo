@@ -47,6 +47,7 @@ interface CashierPageProps {
   orders?: Order[];
   forceZeroFeesGlobally?: boolean;
   onBackDashboard: () => void;
+  linkMode?: boolean;
   onOrderCreated: (order: Order) => void;
   onOrderStatusChange?: (orderId: string, status: OrderStatus) => void;
 }
@@ -60,6 +61,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
   orders = [],
   forceZeroFeesGlobally = false,
   onBackDashboard,
+  linkMode = false,
   onOrderCreated,
   onOrderStatusChange,
 }) => {
@@ -351,7 +353,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
       });
 
       let order: Order;
-      if (!shop.id.startsWith('shop-')) {
+      if (!shop.id.startsWith('shop-') || linkMode) {
         order = makeLocal();
       } else {
         try {
@@ -1273,7 +1275,7 @@ export const CashierPage: React.FC<CashierPageProps> = ({
                       <button
                         type="button"
                         onClick={async () => {
-                          if (shop.id.startsWith('shop-')) {
+                          if (shop.id.startsWith('shop-') && !linkMode) {
                             try {
                               await updateOrderStatus(shop.id, ord.id, 'completed');
                             } catch {
