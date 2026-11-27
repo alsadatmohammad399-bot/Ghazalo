@@ -230,6 +230,11 @@ export function registerWhatsAppBot(app: Express, isAdmin: (req: Request) => boo
     res.json({ ok: true, muted: c.muted });
   });
 
+  app.get('/api/privacy', (_req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(PRIVACY_HTML);
+  });
+
   app.get('/api/whatsapp/inbox', (_req: Request, res: Response) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -260,3 +265,19 @@ h.onclick=function(){openSet[c.number]=!openSet[c.number];card.classList.toggle(
 var m=el('div','msgs');c.msgs.slice().reverse().forEach(function(x){var b=el('div','b '+(x.r=='c'?'c':'bot'),x.t);b.title=fmt(x.ts);m.appendChild(b)});card.appendChild(m);app.appendChild(card)})})}
 if(tok)load();else login();setInterval(function(){if(tok)load()},20000);
 </script></body></html>`;
+
+const PRIVACY_HTML = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>سياسة الخصوصية | غزالو</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:20px;line-height:1.9;color:#111}h1{color:#15803d}h2{margin-top:28px}</style></head><body>
+<h1>سياسة الخصوصية | غزالو (Ghazalo)</h1>
+<p>غزالو منصة منيو إلكتروني وكاشير وفواتير للمطاعم والكافيهات، الموقع: ${SITE}</p>
+<h2>البيانات اللي بنجمعها</h2>
+<p>لما تتواصل معانا على واتساب، المساعد الآلي بتاع غزالو بيخزّن رقم واتساب بتاعك واسم الملف الشخصي (لو ظاهر) ونص الرسايل اللي بينك وبين المساعد. ولما تسجّل مطعمك على المنصة بنخزّن بيانات المطعم والمنيو اللي بتدخلها.</p>
+<h2>بنستخدمها في إيه</h2>
+<p>للرد على استفساراتك، ومساعدتك في التسجيل واستخدام المنصة، وتحسين الخدمة. مبنبيعش بياناتك ولا بنشاركها مع حد للإعلانات.</p>
+<h2>مين بيشوفها</h2>
+<p>صاحب المنصة (محمد) بس. وبنستخدم خدمات تشغيل لازمة للخدمة: واتساب/ميتا لإرسال واستقبال الرسايل، وجوجل (Gemini) لتوليد الردود الآلية، واستضافة Vercel وقاعدة بيانات Upstash لحفظ البيانات.</p>
+<h2>مدة الحفظ والحذف</h2>
+<p>بنحتفظ برسايل المحادثة طالما محتاجينها لخدمتك. تقدر تطلب حذف بياناتك في أي وقت بإرسال رسالة على واتساب 01015861991 وهنحذفها.</p>
+<h2>تواصل معانا</h2>
+<p>محمد من غزالو: واتساب 01015861991</p>
+</body></html>`;
