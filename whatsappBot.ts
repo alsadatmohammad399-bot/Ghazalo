@@ -230,7 +230,7 @@ export function registerWhatsAppBot(app: Express, isAdmin: (req: Request) => boo
     res.json({ ok: true, muted: c.muted });
   });
 
-  app.get('/api/privacy', (_req: Request, res: Response) => {
+  app.get(['/api/privacy', '/privacy'], (_req: Request, res: Response) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(PRIVACY_HTML);
   });
