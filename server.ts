@@ -613,7 +613,7 @@ const app = express();
 
 async function startServer() {
   app.use(express.json({ limit: '25mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
-  registerWhatsAppBot(app);
+  registerWhatsAppBot(app, adminFromReq);
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   // Load shared state first and hold each response until pending saves are done (serverless can freeze after reply).
