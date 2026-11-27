@@ -58,6 +58,7 @@ import {
 import { sortMenuCategories, sortProductsCulinary } from '../utils/menuSorting';
 import { resolveDishPhotoClient } from '../utils/dishPhotoResolver';
 import { getProductOptions, type ParsedProductOption } from '../utils/productVariants';
+import { enrichOfferProducts, type OfferItem } from '../utils/offerParser';
 import {
   buildWhatsAppOrderUrl,
   copyMenuLink,
@@ -196,7 +197,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
 
   const activeProducts = useMemo(
     () =>
-      sortProductsCulinary(products.filter((p) => p.available !== false)).map((p) => ({
+      sortProductsCulinary(enrichOfferProducts(products.filter((p) => p.available !== false))).map((p) => ({
         ...p,
         imageUrl: p.imageUrl || resolveDishPhotoClient(p.name, p.category),
       })),
@@ -3326,9 +3327,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   </h2>
                 </div>
                 <div className={`${isEn ? 'text-right' : 'text-left'} shrink-0 tabular-nums`}>
+                  {activeDetailUnitPrice > 0 && (
                   <div className="text-xl font-black text-[#15803D] dark:text-[#BBF7D0]">
                     {formatMoney(activeDetailUnitPrice, shop.country, undefined, isEn)}
                   </div>
+                  )}
                   {detailProduct.isOffer &&
                     detailProduct.originalPrice &&
                     detailProduct.originalPrice > activeDetailUnitPrice && (
@@ -3338,6 +3341,24 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                     )}
                 </div>
               </div>
+
+              {((detailProduct as any).offerItems as OfferItem[] | undefined)?.length ? (
+                <div className="rounded-[16px] border-[1.5px] border-[#CFE3D5] dark:border-[#2C3D32] bg-[#F6FBF7] dark:bg-[#0F1712] p-3.5 space-y-1.5">
+                  <div className="text-sm font-black">{tx(isEn, 'داخل العرض (بأسعار المنيو)', 'Included (menu prices)')}</div>
+                  {((detailProduct as any).offerItems as OfferItem[]).map((it, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 text-sm font-bold tabular-nums">
+                      <span>{it.qty > 1 ? `${it.qty} × ` : ''}{it.label}</span>
+                      {it.unitPrice !== undefined ? (
+                        <span className="text-[#15803D] dark:text-[#BBF7D0] font-black">
+                          {it.qty > 1 ? `${it.qty} × ${it.unitPrice}` : it.unitPrice} {tx(isEn, 'ج', 'EGP')}
+                        </span>
+                      ) : activeDetailUnitPrice > 0 ? (
+                        <span className="text-[#4B5B52] dark:text-[#A3B5AA]">{tx(isEn, 'مشمول', 'Included')}</span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
 
               {detailProduct.description && (
                 <p className="text-sm font-medium text-[#4B5B52] dark:text-[#A3B5AA] leading-relaxed whitespace-pre-line">
@@ -3462,7 +3483,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 className="flex-1 py-3.5 px-5 rounded-full glass-btn-primary disabled:opacity-40 font-extrabold text-sm sm:text-base flex items-center justify-between gap-2 shadow-md tabular-nums"
               >
                 <span>{tx(isEn, 'أضف للسلة', 'Add to Cart')}</span>
-                <span>{formatMoney(activeDetailUnitPrice * detailQty, shop.country, undefined, isEn)}</span>
+                {activeDetailUnitPrice > 0 && <span>{formatMoney(activeDetailUnitPrice * detailQty, shop.country, undefined, isEn)}</span>}
               </button>
             </div>
           </div>
