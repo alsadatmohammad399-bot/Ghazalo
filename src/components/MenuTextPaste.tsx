@@ -45,14 +45,24 @@ export const MenuTextPaste: React.FC<Props> = ({ isEn, onAdd }) => {
         className="sf-inp w-full text-xs"
       />
       {parsed.items.length > 0 && (
-        <div className="rounded-xl bg-[#F6FBF7] dark:bg-[#173323]/60 border border-[#CFE3D5] dark:border-[#2C3D32] p-2.5 space-y-1 max-h-48 overflow-y-auto text-xs font-bold">
+        <div className="rounded-xl bg-[#F6FBF7] dark:bg-[#173323]/60 border border-[#CFE3D5] dark:border-[#2C3D32] p-2.5 space-y-1 max-h-[420px] overflow-y-auto text-xs font-bold">
           <div className="font-black text-[#15803D] dark:text-[#BBF7D0]">
             {t(`فهمت ${parsed.items.length} صنف في ${parsed.categories.length} قسم`, `${parsed.items.length} items in ${parsed.categories.length} categories`)}
           </div>
           {parsed.items.map((it, i) => (
-            <div key={i} className="flex justify-between gap-2">
-              <span className="truncate">{it.isOffer ? '🏷️ ' : ''}{it.name}</span>
-              <span className="shrink-0 text-[#4B5B52] dark:text-[#A3B5AA]">{it.category}{it.price > 0 ? ` · ${it.price}` : ''}</span>
+            <div key={i} className="rounded-lg bg-white/70 dark:bg-[#0F1712]/60 p-1.5 space-y-0.5">
+              <div className="flex justify-between gap-2">
+                <span className="truncate font-black">{it.isOffer ? '🏷️ ' : ''}{it.name}</span>
+                <span className="shrink-0 tabular-nums text-[#15803D] dark:text-[#BBF7D0] font-black">
+                  {it.price > 0 ? `${it.price} ج` : ''}
+                  {it.originalPrice ? <s className="ms-1 text-[#4B5B52] dark:text-[#A3B5AA] font-bold">{it.originalPrice}</s> : null}
+                </span>
+              </div>
+              {it.description ? (
+                <div className="whitespace-pre-line text-[11px] font-medium text-[#4B5B52] dark:text-[#A3B5AA]">{it.description}</div>
+              ) : (
+                <div className="text-[10px] text-[#4B5B52] dark:text-[#A3B5AA]">{it.category}</div>
+              )}
             </div>
           ))}
           {parsed.skipped.length > 0 && (
