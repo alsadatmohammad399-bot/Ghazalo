@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { MenuTemplateShowcase } from '../components/MenuTemplateShowcase';
 import { MultiMenuUploader } from '../components/MultiMenuUploader';
+import { MenuTextPaste } from '../components/MenuTextPaste';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { QrCodeImage, downloadQrPng } from '../components/QrToolkit';
 import { StoreLocationPicker } from '../components/StoreLocationPicker';
@@ -2388,6 +2389,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   isEn={isEn}
                   onExtractedChunk={handleExtractedProductsChunk}
                 />
+
+                <MenuTextPaste isEn={isEn} onAdd={handleExtractedProductsChunk} />
 
                 {aiMessage && (
                   <div className="w-full text-xs font-extrabold text-[#14532D] dark:text-[#BBF7D0]">
